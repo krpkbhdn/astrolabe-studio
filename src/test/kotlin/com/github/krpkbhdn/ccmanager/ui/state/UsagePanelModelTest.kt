@@ -34,6 +34,15 @@ class UsagePanelModelTest {
     }
 
     @Test
+    fun unavailableReasonWinsOverThePlanHintAndRenamesTheChip() {
+        assertThat(usageChipEmptyText("no launcher")).isEqualTo("Usage unavailable")
+        assertThat(usageChipEmptyText(null)).isEqualTo("No usage data")
+        assertThat(usageEmptyNote("no launcher", hasSnapshot = true)).isEqualTo("no launcher")
+        assertThat(usageEmptyNote(null, hasSnapshot = false)).contains("Pro and Max plans only")
+        assertThat(usageEmptyNote(null, hasSnapshot = true)).contains("first reply")
+    }
+
+    @Test
     fun freshnessIsRelative() {
         assertThat(usageFreshness(RateLimitSnapshot(null, null, now.minusSeconds(180)), now)).isEqualTo("updated 3m ago")
     }

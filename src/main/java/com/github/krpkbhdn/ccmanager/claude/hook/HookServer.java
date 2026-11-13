@@ -27,7 +27,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Loopback-only HTTP endpoint that Claude Code http hooks (and a curl command hook for SessionStart) post to.
+ * Loopback-only HTTP endpoint that Claude Code http hooks (and the command-hook helper {@link HookPoster} for SessionStart and statusLine) post to.
  * Parses each call into a HookEvent, persists it and publishes it (the session registry listens).
  * Answers hooks with 200 and an empty body at once; only PermissionRequest and Elicitation are held until the user answers in the app
  * (or the terminal settles it) and then get a decision. The MCP path answers with content too.

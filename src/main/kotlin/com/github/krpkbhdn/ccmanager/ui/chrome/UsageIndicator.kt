@@ -24,6 +24,7 @@ import com.github.krpkbhdn.ccmanager.ui.shortcuts.AppShortcut
 import com.github.krpkbhdn.ccmanager.ui.state.AppState
 import com.github.krpkbhdn.ccmanager.ui.state.UsageLevel
 import com.github.krpkbhdn.ccmanager.ui.state.UsageMeter
+import com.github.krpkbhdn.ccmanager.ui.state.usageChipEmptyText
 import com.github.krpkbhdn.ccmanager.ui.state.usageMeters
 import com.github.krpkbhdn.ccmanager.ui.theme.IconSize
 import com.github.krpkbhdn.ccmanager.ui.theme.Radius
@@ -39,21 +40,21 @@ private val chipHeight = 28.dp
 @Composable
 internal fun UsageIndicator(state: AppState) {
     Box {
-        UsageChip({ usageMeters(state.environment.rateLimits, state.now) }, state.usageOpen) { state.usageOpen = !state.usageOpen }
+        UsageChip({ usageMeters(state.environment.rateLimits, state.now) }, usageChipEmptyText(state.environment.hookUnavailableReason), state.usageOpen) { state.usageOpen = !state.usageOpen }
         if (state.usageOpen) UsagePanel(state) { state.usageOpen = false }
     }
 }
 
 /** One small bar per limit window, muted text while no session reported limits; clicking it opens the panel. */
 @Composable
-private fun UsageChip(meters: () -> List<UsageMeter>, active: Boolean, onClick: () -> Unit) {
+private fun UsageChip(meters: () -> List<UsageMeter>, emptyText: String, active: Boolean, onClick: () -> Unit) {
     WithTooltip("Usage", hint = AppShortcut.USAGE.hint()) {
         Pressable(onClick, Modifier.height(chipHeight), shape = RoundedCornerShape(Radius.sm + 1.dp), base = if (active) colors.accentSoft else Color.Transparent) {
             Row(Modifier.fillMaxHeight().padding(horizontal = Spacing.md), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
                 val shown = meters()
                 if (shown.isEmpty()) {
                     Glyph(Icons.Gauge, colors.textTertiary, size = IconSize.medium)
-                    Label("No usage data", color = colors.textTertiary, style = Type.caption)
+                    Label(emptyText, color = colors.textTertiary, style = Type.caption)
                 }
                 shown.forEach { UsageBar(it) }
             }

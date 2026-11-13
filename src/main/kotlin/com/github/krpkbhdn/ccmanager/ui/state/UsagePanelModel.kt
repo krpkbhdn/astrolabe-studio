@@ -74,4 +74,13 @@ private fun detail(title: String, window: RateLimitWindow, now: Instant, zone: Z
     )
 }
 
+private const val NO_LIMITS_NOTE = "Usage limits are reported by Claude Code for Pro and Max plans only. Other plans, such as Team, show the per-session figures below."
+private const val NO_REPLY_NOTE = "Limits appear after a session of a Pro or Max plan gets its first reply."
+
+/** Top-bar chip text while no limit window is shown; a missing hook helper explains itself, otherwise no session has reported yet. */
+fun usageChipEmptyText(unavailableReason: String?): String = if (unavailableReason != null) "Usage unavailable" else "No usage data"
+
+/** Panel explanation while no limit window is shown: the hook helper problem first, then the plan or first-reply hint. */
+fun usageEmptyNote(unavailableReason: String?, hasSnapshot: Boolean): String = unavailableReason ?: if (hasSnapshot) NO_REPLY_NOTE else NO_LIMITS_NOTE
+
 fun formatCost(usd: Double): String = "$" + "%.2f".format(Locale.ROOT, usd)

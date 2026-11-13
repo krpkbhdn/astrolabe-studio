@@ -14,7 +14,10 @@ import java.nio.file.attribute.FileTime;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
+import java.util.Optional;
+import com.github.krpkbhdn.ccmanager.claude.install.ClaudeInstallation;
+import com.github.krpkbhdn.ccmanager.claude.install.ClaudeInstallationService;
+import com.github.krpkbhdn.ccmanager.claude.install.LoginState;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -30,8 +33,9 @@ class HookSettingsWriterTest {
     private static final String APP_TOKEN = "apptokenvalue";
     private static final String DEAD_PID = String.valueOf(Integer.MAX_VALUE);
 
-    private static final CurlSupport NEW_CURL = new CurlSupport(executable -> "curl 8.16.0 (x86_64-w64-mingw32)");
-    private static final CurlSupport OLD_CURL = new CurlSupport(executable -> "curl 7.81.0 (x86_64-pc-linux-gnu)");
+    private static final String APP = "/opt/ccm/ccm-app";
+    private static final HookHelperCommand HELPER = new HookHelperCommand(Optional.of(APP), "/unused", false, path -> path, false);
+    private static final HookHelperCommand WINDOWS_HELPER = new HookHelperCommand(Optional.of("C:\\Program Files\\Claude Code Manager\\ccm.exe"), "/unused", true, path -> "C:/PROGRA~1/CLAUDE~1/ccm.exe", false);
     private static final HookProperties HOOK_PROPERTIES = new HookProperties(10, 1024, 500, Duration.ofSeconds(590), 10, 1000, 1000);
 
     private final JsonMapper mapper =JsonMapper.builder().build();
@@ -48,14 +52,49 @@ class HookSettingsWriterTest {
         when(server.hookUrl("abc-1")).thenReturn(URL);
         when(server.statusLineUrl("abc-1")).thenReturn(STATUS_LINE_URL);
         when(server.mcpUrl("abc-1")).thenReturn(MCP_URL);
-        writer = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, NEW_CURL, false);
-        windowsWriter = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, NEW_CURL, true);
+        writer = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, HELPER, installationWith("2.1.200"));
+        windowsWriter = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, WINDOWS_HELPER, installationWith("2.1.200"));
+    }
+
+    private static ClaudeInstallationService installationWith(String version) {
+        var installation = mock(ClaudeInstallationService.class);
+        var detected = new ClaudeInstallation(version != null, null, version, LoginState.UNKNOWN, null);
+        when(installation.current()).thenReturn(detected);
+        when(installation.recheck()).thenReturn(detected);
+        return installation;
+    }
+
+    @Test
+    void sessionStartNeedsAClaudeThatKnowsTheExecFormArgsField() throws Exception {
+        for (var version : java.util.Arrays.asList("2.1.138", "2.0.0", null)) {
+            var old = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, HELPER, installationWith(version));
+
+            var settings = mapper.readTree(Files.readString(old.write("abc-1").settings()));
+
+            assertThat(settings.path("hooks").has("SessionStart")).as(String.valueOf(version)).isFalse();
+            assertThat(settings.has("statusLine")).as(String.valueOf(version)).isTrue();
+        }
+        var exact = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, HELPER, installationWith("2.1.139"));
+        assertThat(mapper.readTree(Files.readString(exact.write("abc-1").settings())).path("hooks").has("SessionStart")).isTrue();
+    }
+
+    @Test
+    void anUnknownCachedVersionIsDetectedAgainOnceBeforeDecidingAboutSessionStart() throws Exception {
+        var installation = mock(ClaudeInstallationService.class);
+        when(installation.current()).thenReturn(new ClaudeInstallation(false, null, null, LoginState.UNKNOWN, null));
+        when(installation.recheck()).thenReturn(new ClaudeInstallation(true, null, "2.1.200", LoginState.UNKNOWN, null));
+        var recovered = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, HELPER, installation);
+
+        var settings = mapper.readTree(Files.readString(recovered.write("abc-1").settings()));
+
+        assertThat(settings.path("hooks").has("SessionStart")).isTrue();
+        org.mockito.Mockito.verify(installation).recheck();
     }
 
     @Test
     void decisionHookTimeoutFollowsTheConfiguredHoldWithAMargin() throws Exception {
         var longHold = new HookProperties(10, 1024, 500, Duration.ofSeconds(900), 10, 1000, 1000);
-        var file = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, longHold, NEW_CURL, false).write("abc-1").settings();
+        var file = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, longHold, HELPER, installationWith("2.1.200")).write("abc-1").settings();
 
         var hooks = mapper.readTree(Files.readString(file)).path("hooks");
 
@@ -128,47 +167,42 @@ class HookSettingsWriterTest {
     }
 
     @Test
-    void onPosixSessionStartIsAnAsyncShellCurlSendingTheBearerFromTheEnvironment() throws Exception {
+    void sessionStartIsAnAsyncCommandRunningTheHelperWithoutTheToken() throws Exception {
         var handler = mapper.readTree(Files.readString(writer.write("abc-1").settings())).path("hooks").path("SessionStart").get(0)
                 .path("hooks").get(0);
 
         assertThat(handler.path("type").asString()).isEqualTo("command");
-        assertThat(handler.path("command").asString()).isEqualTo("curl -s --noproxy '*' -m 3 -X POST -H 'Content-Type: application/json' "
-                + "--variable %CCM_HOOK_TOKEN --expand-header 'Authorization: Bearer {{CCM_HOOK_TOKEN}}' --data-binary '@-' '" + URL + "'");
+        assertThat(handler.path("command").asString()).isEqualTo("/opt/ccm/ccm-app");
+        assertThat(handler.path("args").toString()).isEqualTo("[\"--post-hook\",\"" + URL + "\"]");
         assertThat(handler.path("async").asBoolean()).isTrue();
     }
 
     @Test
-    void anOldOrUnknownCurlGetsNoCurlCommandSoTheTokenNeverReachesArguments() throws Exception {
-        var oldWriter = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, OLD_CURL, false);
-        var unknownWriter = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, new CurlSupport(executable -> ""), false);
+    void withoutAKnownLauncherThereIsNoStatusLineAndNoSessionStart() throws Exception {
+        var unknown = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES,
+                new HookHelperCommand(Optional.empty(), "/unused", false, path -> path, false), installationWith("2.1.200"));
 
-        for (var json : List.of(oldWriter, unknownWriter)) {
-            var settings = mapper.readTree(Files.readString(json.write("abc-1").settings()));
-            assertThat(settings.has("statusLine")).isFalse();
-            assertThat(settings.path("hooks").has("SessionStart")).isFalse();
-            assertThat(settings.toString()).doesNotContain("curl");
-        }
+        var settings = mapper.readTree(Files.readString(unknown.write("abc-1").settings()));
+
+        assertThat(settings.has("statusLine")).isFalse();
+        assertThat(settings.path("hooks").has("SessionStart")).isFalse();
     }
 
     @Test
-    void onPosixStatusLineCommandPostsItsStdinToTheStatusLineEndpoint() throws Exception {
+    void statusLineCommandRunsTheHelperAgainstTheStatusLineEndpoint() throws Exception {
         var statusLine = mapper.readTree(Files.readString(writer.write("abc-1").settings())).path("statusLine");
 
         assertThat(statusLine.path("type").asString()).isEqualTo("command");
-        assertThat(statusLine.path("command").asString()).isEqualTo("curl -s --noproxy '*' -m 3 -X POST -H 'Content-Type: application/json' "
-                + "--variable %CCM_HOOK_TOKEN --expand-header 'Authorization: Bearer {{CCM_HOOK_TOKEN}}' --data-binary '@-' '" + STATUS_LINE_URL + "'");
+        assertThat(statusLine.path("command").asString()).isEqualTo("/opt/ccm/ccm-app --post-hook " + STATUS_LINE_URL);
     }
 
     @Test
-    void onWindowsCurlExeAlsoTakesTheBearerFromTheEnvironmentAndNoSideFileIsWritten() throws Exception {
+    void onWindowsTheStatusLineUsesTheShortPathAndSessionStartTheRealPathAndNoSideFileIsWritten() throws Exception {
         var json = mapper.readTree(Files.readString(windowsWriter.write("abc-1").settings()));
 
-        var handler = json.path("hooks").path("SessionStart").get(0).path("hooks").get(0);
-        assertThat(handler.path("command").asString()).isEqualTo("curl.exe -s --noproxy \"*\" -m 3 -X POST -H \"Content-Type: application/json\" "
-                + "--variable %CCM_HOOK_TOKEN --expand-header \"Authorization: Bearer {{CCM_HOOK_TOKEN}}\" --data-binary \"@-\" \"" + URL + "\"");
-        assertThat(json.path("statusLine").path("command").asString()).startsWith("curl.exe ").contains("\"" + STATUS_LINE_URL + "\"")
-                .doesNotContain("$");
+        assertThat(json.path("statusLine").path("command").asString()).isEqualTo("C:/PROGRA~1/CLAUDE~1/ccm.exe --post-hook " + STATUS_LINE_URL);
+        var sessionStart = json.path("hooks").path("SessionStart").get(0).path("hooks").get(0);
+        assertThat(sessionStart.path("command").asString()).isEqualTo("C:\\Program Files\\Claude Code Manager\\ccm.exe");
         try (var files = Files.list(ownDir())) {
             assertThat(files.map(file -> file.getFileName().toString())).containsExactlyInAnyOrder("abc-1.json", "abc-1.mcp.json");
         }
@@ -297,7 +331,7 @@ class HookSettingsWriterTest {
     void aSecondWriterInTheSameProcessLeavesTheRunningOnesFilesAlone() throws Exception {
         var live = writer.write("abc-1").settings();
 
-        new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, NEW_CURL, false).deleteStaleFiles();
+        new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, HELPER, installationWith("2.1.200")).deleteStaleFiles();
 
         assertThat(live).exists();
     }

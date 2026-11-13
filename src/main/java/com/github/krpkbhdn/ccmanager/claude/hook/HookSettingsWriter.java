@@ -1,6 +1,8 @@
 package com.github.krpkbhdn.ccmanager.claude.hook;
 
 import com.github.krpkbhdn.ccmanager.claude.event.HookEventType;
+import com.github.krpkbhdn.ccmanager.claude.install.ClaudeInstallationService;
+import com.github.krpkbhdn.ccmanager.claude.install.ClaudeVersion;
 import com.github.krpkbhdn.ccmanager.claude.mcp.AssistantMcpServer;
 import com.github.krpkbhdn.ccmanager.claude.mcp.McpEndpoint;
 import com.github.krpkbhdn.ccmanager.config.AppProperties;
@@ -12,13 +14,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.PosixFilePermissions;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
@@ -29,6 +32,7 @@ import tools.jackson.databind.node.ObjectNode;
 @Component
 public class HookSettingsWriter {
 
+    private static final Logger log = LoggerFactory.getLogger(HookSettingsWriter.class);
     private static final String HOOKS_DIR = "hooks";
     private static final String FILE_SUFFIX = ".json";
     private static final String MCP_SUFFIX = ".mcp.json";
@@ -38,7 +42,8 @@ public class HookSettingsWriter {
     private static final int HOOK_TIMEOUT_SECONDS = 5;
     /** These calls are held until the user answers; the hook timeout is HookProperties.decisionHold plus this margin. */
     private static final int DECISION_TIMEOUT_MARGIN_SECONDS = 10;
-    private static final int CURL_MAX_SECONDS = 3;
+    /** Claude Code that knows the hook {@code args} field (changelog 2.1.139); an older one would run the command bare and start a second app. */
+    private static final String EXEC_FORM_SINCE = "2.1.139";
     /** WorktreeCreate replaces git behaviour, MessageDisplay is a token firehose, the rest never fire in sessions. */
     private static final Set<HookEventType> NOT_SUBSCRIBED = EnumSet.of(HookEventType.SETUP, HookEventType.WORKTREE_CREATE,
             HookEventType.WORKTREE_REMOVE, HookEventType.MESSAGE_DISPLAY, HookEventType.UNKNOWN);
@@ -50,21 +55,21 @@ public class HookSettingsWriter {
     private final JsonMapper mapper;
     private final boolean windows;
     private final int decisionTimeoutSeconds;
-    private final CurlSupport curl;
+    private final HookHelperCommand helper;
+    private final ClaudeInstallationService installation;
+    private final AtomicBoolean skipWarned = new AtomicBoolean();
 
     @Autowired
-    public HookSettingsWriter(HookServer server, AppProperties properties, JsonMapper mapper, HookProperties hookProperties, CurlSupport curl) {
-        this(server, properties, mapper, hookProperties, curl, System.getProperty("os.name").toLowerCase().startsWith("windows"));
-    }
-
-    HookSettingsWriter(HookServer server, AppProperties properties, JsonMapper mapper, HookProperties hookProperties, CurlSupport curl, boolean windows) {
-        this.curl = curl;
+    public HookSettingsWriter(HookServer server, AppProperties properties, JsonMapper mapper, HookProperties hookProperties, HookHelperCommand helper,
+            ClaudeInstallationService installation) {
+        this.installation = installation;
+        this.helper = helper;
         this.server = server;
         this.decisionTimeoutSeconds = (int) hookProperties.decisionHold().toSeconds() + DECISION_TIMEOUT_MARGIN_SECONDS;
         this.hooksRoot = properties.dataDir().resolve(HOOKS_DIR);
         this.hooksDir = hooksRoot.resolve(String.valueOf(ProcessHandle.current().pid()));
         this.mapper = mapper;
-        this.windows = windows;
+        this.windows = helper.windows();
     }
 
     /** Removes the files of app processes that no longer run (a live process's directory stays however quiet its sessions are), and loose files from before the per-process directories. */
@@ -148,10 +153,6 @@ public class HookSettingsWriter {
         }
     }
 
-    private static String singleQuoted(String arg) {
-        return "'" + arg.replace("'", "'\\''") + "'";
-    }
-
     private static void restrictToOwner(Path path, String permissions) throws IOException {
         if (path.getFileSystem().supportedFileAttributeViews().contains("posix")) {
             Files.setPosixFilePermissions(path, PosixFilePermissions.fromString(permissions));
@@ -171,18 +172,31 @@ public class HookSettingsWriter {
         var hooks = mapper.createObjectNode();
         Arrays.stream(HookEventType.values())
                 .filter(type -> !NOT_SUBSCRIBED.contains(type))
-                .filter(type -> type != HookEventType.SESSION_START || curlKeepsTokenOffArguments())
+                .filter(type -> type != HookEventType.SESSION_START || execFormSupported(ccmSessionId))
                 .forEach(type -> hooks.putArray(type.wireName()).addObject().putArray("hooks").add(handler(type, ccmSessionId)));
         var settings = mapper.createObjectNode();
         settings.set("hooks", hooks);
-        if (curlKeepsTokenOffArguments()) {
-            settings.set("statusLine", statusLine(ccmSessionId));
-        }
+        helper.shellCommand(server.statusLineUrl(ccmSessionId)).ifPresent(command -> settings.set("statusLine", statusLine(command)));
         var permissions = settings.putObject("permissions");
         permissions.putArray("allow")
                 .add("mcp__" + McpEndpoint.SERVER_NAME + "__" + LIST_RUN_CONFIGURATIONS_TOOL);
         permissions.putArray("deny").add("Read(" + absoluteRule(hooksRoot) + "/**)");
         return settings;
+    }
+
+    private boolean execFormSupported(String ccmSessionId) {
+        if (helper.execForm(server.hookUrl(ccmSessionId)).isEmpty()) {
+            return false;
+        }
+        var version = installation.current().version();
+        if (version == null) {
+            version = installation.recheck().version();
+        }
+        var supported = ClaudeVersion.atLeast(version, EXEC_FORM_SINCE);
+        if (!supported && !skipWarned.getAndSet(true)) {
+            log.warn("The SessionStart hook is omitted: Claude Code version {} is unknown or older than {} (hook args field)", version, EXEC_FORM_SINCE);
+        }
+        return supported;
     }
 
     /** Claude Code rules take an absolute path as {@code //path}; Windows drives are written Git Bash style ({@code //c/Users/...}). shortcut: Bash cat is not covered by Read rules. */
@@ -206,7 +220,7 @@ public class HookSettingsWriter {
 
     private ObjectNode handler(HookEventType type, String ccmSessionId) {
         if (type == HookEventType.SESSION_START) {
-            return curlHandler(ccmSessionId);
+            return commandHandler(ccmSessionId);
         }
         return httpHandler(server.hookUrl(ccmSessionId), type.awaitsDecision() ? decisionTimeoutSeconds : HOOK_TIMEOUT_SECONDS);
     }
@@ -219,43 +233,20 @@ public class HookSettingsWriter {
         return handler;
     }
 
-    /** SessionStart does not accept http handlers; async so a stalled curl can never delay startup. */
-    private ObjectNode curlHandler(String ccmSessionId) {
-        return mapper.createObjectNode().put("type", "command").put("command", curlCommand(server.hookUrl(ccmSessionId)))
-                .put("async", true).put("timeout", HOOK_TIMEOUT_SECONDS);
+    /** SessionStart does not accept http handlers; exec form (no shell, nothing to quote) and async so a stalled helper can never delay startup. */
+    private ObjectNode commandHandler(String ccmSessionId) {
+        var exec = helper.execForm(server.hookUrl(ccmSessionId)).orElseThrow();
+        var handler = mapper.createObjectNode().put("type", "command").put("command", exec.command());
+        exec.args().forEach(handler.putArray("args")::add);
+        return handler.put("async", true).put("timeout", HOOK_TIMEOUT_SECONDS);
     }
 
     /**
      * The statusLine payload is the only carrier of rate_limits. The command is one shell string (statusLine has no args form)
      * and prints nothing, so the status line stays empty. shortcut: a user's own statusLine is replaced in our sessions, chain it when asked.
      */
-    private ObjectNode statusLine(String ccmSessionId) {
-        return mapper.createObjectNode().put("type", "command").put("command", curlCommand(server.statusLineUrl(ccmSessionId)));
-    }
-
-    /**
-     * One shell string valid in sh, Git Bash and PowerShell. curl 8.3+ reads the token from its own environment, so the argument
-     * holds only the variable name and an unset variable makes curl fail instead of sending an empty header. An older or unknown
-     * curl gets no curl command at all (SessionStart hook and statusLine are omitted): the token would land in curl's argv, and stdin is taken by the payload.
-     */
-    private String curlCommand(String url) {
-        var arguments = new ArrayList<>(List.of(curlExecutable(), "-s", "--noproxy", quoted("*"), "-m", String.valueOf(CURL_MAX_SECONDS), "-X", "POST",
-                "-H", quoted("Content-Type: application/json"),
-                "--variable", "%" + HookServer.SESSION_TOKEN_ENV, "--expand-header", quoted("Authorization: Bearer {{" + HookServer.SESSION_TOKEN_ENV + "}}")));
-        arguments.addAll(List.of("--data-binary", quoted("@-"), quoted(url)));
-        return String.join(" ", arguments);
-    }
-
-    private boolean curlKeepsTokenOffArguments() {
-        return curl.expandsEnvironment(curlExecutable());
-    }
-
-    private String curlExecutable() {
-        return windows ? "curl.exe" : "curl";
-    }
-
-    private String quoted(String arg) {
-        return windows ? "\"" + arg + "\"" : singleQuoted(arg);
+    private ObjectNode statusLine(String command) {
+        return mapper.createObjectNode().put("type", "command").put("command", command);
     }
 
     private Path mcpFileOf(String ccmSessionId) {

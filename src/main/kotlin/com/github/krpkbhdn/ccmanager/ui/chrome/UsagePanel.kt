@@ -30,6 +30,7 @@ import com.github.krpkbhdn.ccmanager.ui.state.AppState
 import com.github.krpkbhdn.ccmanager.ui.state.SessionUsageRow
 import com.github.krpkbhdn.ccmanager.ui.state.UsageWindowDetail
 import com.github.krpkbhdn.ccmanager.ui.state.sessionUsageRows
+import com.github.krpkbhdn.ccmanager.ui.state.usageEmptyNote
 import com.github.krpkbhdn.ccmanager.ui.state.usageFreshness
 import com.github.krpkbhdn.ccmanager.ui.state.usageWindowDetails
 import com.github.krpkbhdn.ccmanager.ui.theme.IconSize
@@ -41,8 +42,6 @@ import com.github.krpkbhdn.ccmanager.ui.theme.colors
 private val panelWidth = 380.dp
 private val progressHeight = 6.dp
 private val sessionListMaxHeight = 260.dp
-private const val NO_LIMITS_NOTE = "Usage limits are reported by Claude Code for Pro and Max plans only. Other plans, such as Team, show the per-session figures below."
-private const val NO_REPLY_NOTE = "Limits appear after a session of a Pro or Max plan gets its first reply."
 
 /** Detail panel of the usage chip: limit windows with exact numbers, or an explanation when Claude reports none, and the per-session figures. */
 @Composable
@@ -55,8 +54,9 @@ internal fun UsagePanel(state: AppState, onDismiss: () -> Unit) {
                 Label("Usage", Modifier.weight(1f), style = Type.heading)
                 state.environment.rateLimits?.takeIf { windows.isNotEmpty() }?.let { Label(usageFreshness(it, state.now), color = colors.textTertiary, style = Type.caption) }
             }
-            if (windows.isEmpty()) Label(if (state.environment.rateLimits == null) NO_LIMITS_NOTE else NO_REPLY_NOTE, color = colors.textSecondary, style = Type.small, maxLines = 4)
+            if (windows.isEmpty()) Label(usageEmptyNote(state.environment.hookUnavailableReason, state.environment.rateLimits != null), color = colors.textSecondary, style = Type.small, maxLines = 4)
             windows.forEach { WindowDetail(it) }
+            state.environment.hookShellNote?.let { Label(it, color = colors.textTertiary, style = Type.caption, maxLines = 4) }
             AppButton("Open usage history", { state.navigate(Route.Usage); onDismiss() }, Modifier.fillMaxWidth(), icon = Icons.Gauge, trailing = { Glyph(Icons.ChevronRight, colors.textSecondary, size = IconSize.small) })
             HorizontalRule()
             Label("Sessions", color = colors.textSecondary, style = Type.smallMedium)

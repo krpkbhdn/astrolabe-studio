@@ -36,6 +36,8 @@ class ClaudeEnvironment(
     var ideDialogOpen by mutableStateOf(false)
     var rateLimits by mutableStateOf<RateLimitSnapshot?>(null)
         private set
+    val hookUnavailableReason: String? get() = backend.hookHelper?.unavailableReason()?.orElse(null)
+    val hookShellNote: String? get() = backend.hookHelper?.shellFormNote()?.orElse(null)
     var sessionUsage by mutableStateOf<Map<String, SessionUsage>>(emptyMap())
         private set
 

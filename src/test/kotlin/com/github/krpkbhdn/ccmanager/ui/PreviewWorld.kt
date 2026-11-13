@@ -135,7 +135,7 @@ fun limitsAt(fiveHourPercent: Double, sevenDayPercent: Double) = RateLimitSnapsh
 )
 
 /** In-memory backend data for the dev preview; Mockito keeps it independent of the real services' constructors. */
-class PreviewWorld(many: Boolean = false, empty: Boolean = false, val git: FakeRepoData = SampleRepos.busy(), val rateLimits: RateLimitSnapshot? = limitsAt(23.5, 41.2), selection: ModelSelection = ModelSelection("opus", "high")) {
+class PreviewWorld(many: Boolean = false, empty: Boolean = false, val git: FakeRepoData = SampleRepos.busy(), val rateLimits: RateLimitSnapshot? = limitsAt(23.5, 41.2), selection: ModelSelection = ModelSelection("opus", "high"), val hookUnavailable: String? = null, val hookShellNote: String? = null) {
     init { git.notRepositories.add(Path.of("C:/Users/dev/Work/docs-site")) }
     val fakeMcp = FakeMcp()
     val proposals = PreviewProposals()
@@ -355,6 +355,10 @@ class PreviewWorld(many: Boolean = false, empty: Boolean = false, val git: FakeR
         `when`(limits.current()).thenAnswer { Optional.ofNullable(rateLimits) }
         `when`(limits.subscribe(any())).thenAnswer { Runnable { } }
 
+        val hookHelper = mock(com.github.krpkbhdn.ccmanager.claude.hook.HookHelperCommand::class.java)
+        `when`(hookHelper.unavailableReason()).thenReturn(Optional.ofNullable(hookUnavailable))
+        `when`(hookHelper.shellFormNote()).thenReturn(Optional.ofNullable(hookShellNote))
+
         val usage = mock(SessionUsageService::class.java)
         `when`(usage.all()).thenAnswer { sessionUsage }
         `when`(usage.subscribe(any())).thenAnswer { Runnable { } }
@@ -368,7 +372,7 @@ class PreviewWorld(many: Boolean = false, empty: Boolean = false, val git: FakeR
         `when`(shellLauncher.launch(anyLong(), any())).thenThrow(IllegalStateException("Preview mode: shells cannot be started here."))
         `when`(shellLauncher.launch(anyLong(), any(), any())).thenThrow(IllegalStateException("Preview mode: shells cannot be started here."))
 
-        return Backend(projectService, fakeGroupService(), installation, registry, notificationService, launcher, background, hooks, mock(DirectoryOpener::class.java), ide, mock(IdeDetector::class.java), customIdes(), FakeGit(git).backend, limits, usage, previewTeamService(), FakePlugins(), fakeMcp.service, FakeSkills(), TranscriptService(JsonMapper.builder().build(), previewTranscriptDir, com.github.krpkbhdn.ccmanager.claude.session.TranscriptProperties(300, 1048576, 65536, 524288)), runConfigurationService(), runService(), shellDetector, shellLauncher, previewAuthorCatalog(), proposals.service(), mock(PromptTemplateService::class.java), previewSessionSearch(), previewPresetService(), previewPresetApply(), previewPresetApplications(), ReviewPreviewData.service(), WebPreviewData.service(), dataDir = WebPreviewData.dataDir, terminal = terminal, sessionProperties = SessionProperties(Duration.ofMinutes(10), Duration.ofMinutes(10)), contextBreakdown = contextBreakdown, voice = voice.backend)
+        return Backend(projectService, fakeGroupService(), installation, registry, notificationService, launcher, background, hooks, mock(DirectoryOpener::class.java), ide, mock(IdeDetector::class.java), customIdes(), FakeGit(git).backend, limits, usage, previewTeamService(), FakePlugins(), fakeMcp.service, FakeSkills(), TranscriptService(JsonMapper.builder().build(), previewTranscriptDir, com.github.krpkbhdn.ccmanager.claude.session.TranscriptProperties(300, 1048576, 65536, 524288)), runConfigurationService(), runService(), shellDetector, shellLauncher, previewAuthorCatalog(), proposals.service(), mock(PromptTemplateService::class.java), previewSessionSearch(), previewPresetService(), previewPresetApply(), previewPresetApplications(), ReviewPreviewData.service(), WebPreviewData.service(), dataDir = WebPreviewData.dataDir, terminal = terminal, sessionProperties = SessionProperties(Duration.ofMinutes(10), Duration.ofMinutes(10)), contextBreakdown = contextBreakdown, voice = voice.backend, hookHelper = hookHelper)
     }
 
     private fun customIdes() = mock(CustomIdeService::class.java).also { `when`(it.subscribe(any())).thenReturn(Runnable { }) }

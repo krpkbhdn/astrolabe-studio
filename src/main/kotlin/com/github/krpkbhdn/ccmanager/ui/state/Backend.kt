@@ -5,6 +5,7 @@ import com.github.krpkbhdn.ccmanager.app.AppControlProperties
 import com.github.krpkbhdn.ccmanager.app.AppControlRegistry
 import com.github.krpkbhdn.ccmanager.author.AuthorCatalogService
 import com.github.krpkbhdn.ccmanager.claude.hook.HookEventStore
+import com.github.krpkbhdn.ccmanager.claude.hook.HookHelperCommand
 import com.github.krpkbhdn.ccmanager.claude.install.ClaudeInstallationService
 import com.github.krpkbhdn.ccmanager.claude.launch.BackgroundAgentService
 import com.github.krpkbhdn.ccmanager.claude.launch.ClaudeLauncher
@@ -102,6 +103,7 @@ class Backend(
     val appControlProperties: AppControlProperties = AppControlProperties(Duration.ofSeconds(10), 20_000),
     val assistantTools: List<AssistantMcpTool> = emptyList(),
     val voice: VoiceBackend? = null,
+    val hookHelper: HookHelperCommand? = null,
 ) {
     companion object {
         fun from(context: ConfigurableApplicationContext) = Backend(
@@ -155,6 +157,7 @@ class Backend(
                 context.getBean(VoiceAssetService::class.java),
                 context.getBean(Microphone::class.java),
             ),
+            hookHelper = context.getBean(HookHelperCommand::class.java),
         )
     }
 }

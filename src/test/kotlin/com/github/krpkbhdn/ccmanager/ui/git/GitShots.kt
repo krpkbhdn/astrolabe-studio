@@ -77,7 +77,7 @@ private const val SETTLE_MILLIS = 300L
 private const val WAIT_MILLIS = 8_000L
 private val defaultOut = "C:/Users/Bohdan/Work/Code/Personal/ccm-shots/git"
 
-private class Shot(val name: String, val view: GitSubView = GitSubView.CHANGES, val data: () -> FakeRepoData = SampleRepos::busy, val prepare: (AppState, GitState, FakeRepoData) -> Unit = { _, _, _ -> }, val limits: RateLimitSnapshot? = limitsAt(23.5, 41.2), val selection: ModelSelection = ModelSelection("opus", "high"), val closing: ((AppState) -> Unit)? = null)
+private class Shot(val name: String, val view: GitSubView = GitSubView.CHANGES, val data: () -> FakeRepoData = SampleRepos::busy, val prepare: (AppState, GitState, FakeRepoData) -> Unit = { _, _, _ -> }, val limits: RateLimitSnapshot? = limitsAt(23.5, 41.2), val selection: ModelSelection = ModelSelection("opus", "high"), val closing: ((AppState) -> Unit)? = null, val hookUnavailable: String? = null, val hookShellNote: String? = null)
 
 private fun selectFile(path: String, staged: Boolean) = { _: AppState, git: GitState, _: FakeRepoData -> git.selected = ChangeRef(path, staged) }
 
@@ -121,6 +121,8 @@ private val shots = listOf(
     Shot("usage-panel", prepare = { state, _, _ -> state.usageOpen = true }),
     Shot("usage-panel-high", limits = limitsAt(72.0, 93.4), prepare = { state, _, _ -> state.usageOpen = true }),
     Shot("usage-panel-none", limits = null, prepare = { state, _, _ -> state.usageOpen = true }),
+    Shot("usage-unavailable", limits = null, hookUnavailable = "The path of the running application could not be determined, so usage and context meters are off.", prepare = { state, _, _ -> state.usageOpen = true }),
+    Shot("usage-panel-shell-note", hookShellNote = "The application path has spaces and no short DOS name, so the usage and context meters need Git Bash.", prepare = { state, _, _ -> state.usageOpen = true }),
     Shot("model-picker", prepare = { state, _, _ -> state.modelPickerOpen = true }),
     Shot("model-picker-default", selection = ModelSelection.DEFAULT, prepare = { state, _, _ -> state.modelPickerOpen = true }),
     Shot("model-picker-custom", selection = ModelSelection("claude-opus-4-7", "xhigh"), prepare = { state, _, _ -> state.modelPickerOpen = true }),
@@ -334,7 +336,7 @@ fun main(args: Array<String>) {
 private fun render(shot: Shot, dark: Boolean, width: Int, height: Int, out: Path) {
     PreviewAuthorStatuses.mixed = false; PreviewAuthorStatuses.crowded = false; PreviewApply.reset()
     val data = shot.data()
-    val world = PreviewWorld(git = data, rateLimits = shot.limits, selection = shot.selection)
+    val world = PreviewWorld(git = data, rateLimits = shot.limits, selection = shot.selection, hookUnavailable = shot.hookUnavailable, hookShellNote = shot.hookShellNote)
     val scope = CoroutineScope(SupervisorJob() + shotLoop)
     val state = AppState(world.backend(PreviewTerminal), scope, UiSettingsStore(null)).also {
         it.updateSettings { s -> s.copy(assistantStartup = AssistantStartup.NEVER) }

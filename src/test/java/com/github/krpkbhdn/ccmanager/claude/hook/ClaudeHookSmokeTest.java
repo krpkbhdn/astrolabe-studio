@@ -5,7 +5,11 @@ import com.github.krpkbhdn.ccmanager.claude.event.HookEvent;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import com.github.krpkbhdn.ccmanager.claude.install.ClaudeInstallation;
+import com.github.krpkbhdn.ccmanager.claude.install.ClaudeInstallationService;
+import com.github.krpkbhdn.ccmanager.claude.install.LoginState;
 import com.github.krpkbhdn.ccmanager.config.AppProperties;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -44,7 +48,7 @@ class ClaudeHookSmokeTest {
                 mock(com.github.krpkbhdn.ccmanager.claude.proposal.ProposalService.class));
         server.start();
         try {
-            var settings = new HookSettingsWriter(server, new AppProperties(workDir.resolve("data")), mapper, hookProperties, new CurlSupport()).write(CCM_ID).settings();
+            var settings = new HookSettingsWriter(server, new AppProperties(workDir.resolve("data")), mapper, hookProperties, new HookHelperCommand(), installation()).write(CCM_ID).settings();
             writeProjectHook();
 
             var output = runClaude(settings, server.sessionToken(CCM_ID));
@@ -80,6 +84,13 @@ class ClaudeHookSmokeTest {
 
     private static String prompt() {
         return System.getenv().getOrDefault("CCM_SMOKE_PROMPT", DEFAULT_PROMPT);
+    }
+
+    private static ClaudeInstallationService installation() {
+        var service = mock(ClaudeInstallationService.class);
+        when(service.current()).thenReturn(new ClaudeInstallation(true, null,
+                claudeVersion(), LoginState.UNKNOWN, null));
+        return service;
     }
 
     private static String claudeVersion() {
