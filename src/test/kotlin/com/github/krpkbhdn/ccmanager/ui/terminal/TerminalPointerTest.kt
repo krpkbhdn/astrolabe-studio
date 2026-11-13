@@ -320,13 +320,15 @@ class TerminalPointerTest {
     }
 
     @Test
-    fun fractionalWheelDeltaIsHeldBackUntilItAddsUpToALine() {
+    fun fractionalWheelDeltaReportsALineAtOnceThenIsHeldBackUntilItAddsUp() {
         play(MOUSE_PRESS_REPORTING)
         wheel(point(1, 1), 0.4f)
+        assertThat(written()).isEqualTo(sgr(WHEEL_DOWN, 1, 1))
         wheel(point(1, 1), 0.4f)
-        assertThat(written()).isEmpty()
         wheel(point(1, 1), 0.4f)
         assertThat(written()).isEqualTo(sgr(WHEEL_DOWN, 1, 1))
+        wheel(point(1, 1), 0.4f)
+        assertThat(written()).isEqualTo(sgr(WHEEL_DOWN, 1, 1).repeat(2))
     }
 
     @Test
