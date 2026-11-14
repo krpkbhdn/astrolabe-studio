@@ -29,6 +29,7 @@ import com.github.krpkbhdn.ccmanager.claude.hook.ActivityEntry
 import com.github.krpkbhdn.ccmanager.claude.launch.LaunchMode
 import com.github.krpkbhdn.ccmanager.claude.session.AgentStatus
 import com.github.krpkbhdn.ccmanager.project.Project
+import com.github.krpkbhdn.ccmanager.ui.codemode.StopScriptChip
 import com.github.krpkbhdn.ccmanager.ui.components.AppButton
 import com.github.krpkbhdn.ccmanager.ui.components.ButtonVariant
 import com.github.krpkbhdn.ccmanager.ui.components.HorizontalRule
@@ -159,6 +160,10 @@ private fun ProjectMainArea(state: AppState, project: Project, view: ProjectView
             val shown = (view.selected as? ProjectTab.Session)?.ccmSessionId
             if (shown != null) {
                 QueueControl(state, project, shown)
+                Spacer(Modifier.width(Spacing.sm))
+            }
+            if (shown != null && state.codeMode.isRunning(shown)) {
+                StopScriptChip { state.codeMode.stop(shown) }
                 Spacer(Modifier.width(Spacing.sm))
             }
             ModelControl(state, project, shown?.let { state.live.find(it) })

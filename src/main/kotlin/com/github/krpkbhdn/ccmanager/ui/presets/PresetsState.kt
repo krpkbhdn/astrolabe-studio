@@ -26,7 +26,7 @@ private const val NEW_PRESET_NAME = "New preset"
 private const val COPY_SUFFIX = " copy"
 
 /** Which dialog edits a component; the plugin and folder ones add several at once. */
-enum class ComponentEditor { PLUGINS, SKILL_ADD, SKILL_EDIT, INSTRUCTION, MCP, AGENT, FILE, SETTINGS }
+enum class ComponentEditor { PLUGINS, SKILL_ADD, SKILL_EDIT, INSTRUCTION, MCP, AGENT, FILE, SETTINGS, CODE_MODE }
 
 /** The open dialog; [editing] is the component being changed, null when adding. */
 class ComponentDialog(val editor: ComponentEditor, val presetId: Long, val editing: PresetComponent? = null)

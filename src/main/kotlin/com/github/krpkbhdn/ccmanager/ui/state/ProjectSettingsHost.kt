@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.github.krpkbhdn.ccmanager.notification.NotificationKind
 import com.github.krpkbhdn.ccmanager.project.Project
+import com.github.krpkbhdn.ccmanager.ui.codemode.ProjectCodeModeState
 import com.github.krpkbhdn.ccmanager.ui.extensions.ExtensionContext
 import com.github.krpkbhdn.ccmanager.ui.extensions.mcp.McpState
 import com.github.krpkbhdn.ccmanager.ui.extensions.plugins.PluginsState
@@ -38,6 +39,7 @@ internal class ProjectSettingsHost(
             PluginsState(backend.plugins, dialogScope, requestConfirm, notifications::toast),
             McpState(backend.mcp, project.path, dialogScope, requestConfirm, notifications::toast),
             SkillsState(backend.skills, project.path, dialogScope, requestConfirm, notifications::toast, skillHost),
+            ProjectCodeModeState(backend.projectCodeMode, project.id, dialogScope, { backend.pluginMcpServers?.servers(project.path) ?: emptyList() }, notifications::reportError),
         )
     }
 

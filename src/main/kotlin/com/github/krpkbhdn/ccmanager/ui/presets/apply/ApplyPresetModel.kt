@@ -2,6 +2,7 @@ package com.github.krpkbhdn.ccmanager.ui.presets.apply
 
 import com.github.krpkbhdn.ccmanager.preset.PresetComponentKind
 import com.github.krpkbhdn.ccmanager.preset.PresetComponentKind.AGENT
+import com.github.krpkbhdn.ccmanager.preset.PresetComponentKind.CODE_MODE
 import com.github.krpkbhdn.ccmanager.preset.PresetComponentKind.FILE
 import com.github.krpkbhdn.ccmanager.preset.PresetComponentKind.INSTRUCTION
 import com.github.krpkbhdn.ccmanager.preset.PresetComponentKind.MARKETPLACE
@@ -28,6 +29,7 @@ private val groupOrder = listOf(
     MCP_SERVER to "MCP servers",
     AGENT to "Agents",
     FILE to "Files",
+    CODE_MODE to "Code Mode",
     SETTINGS to "Settings",
 )
 

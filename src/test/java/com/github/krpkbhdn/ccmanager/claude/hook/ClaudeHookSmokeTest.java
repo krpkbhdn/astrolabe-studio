@@ -45,10 +45,12 @@ class ClaudeHookSmokeTest {
         var server = new HookServer(mock(HookEventStore.class), event -> events.add((HookEvent) event), mapper,
                 hookProperties,
                 mock(com.github.krpkbhdn.ccmanager.claude.mcp.McpEndpoint.class), mock(com.github.krpkbhdn.ccmanager.app.mcp.AssistantMcpEndpoint.class),
+                mock(com.github.krpkbhdn.ccmanager.codemode.mcp.CodeModeEndpoint.class),
                 mock(com.github.krpkbhdn.ccmanager.claude.proposal.ProposalService.class));
         server.start();
         try {
-            var settings = new HookSettingsWriter(server, new AppProperties(workDir.resolve("data")), mapper, hookProperties, new HookHelperCommand(), installation()).write(CCM_ID).settings();
+            var settings = new HookSettingsWriter(server, new AppProperties(workDir.resolve("data")), mapper, hookProperties, new HookHelperCommand(), installation(),
+                    com.github.krpkbhdn.ccmanager.codemode.TestProperties.of(java.time.Duration.ofMinutes(1), 1000, 1000, 10, java.time.Duration.ofMinutes(1), "img", "64m", 1, java.time.Duration.ofDays(1), java.time.Duration.ofSeconds(10))).write(CCM_ID).settings();
             writeProjectHook();
 
             var output = runClaude(settings, server.sessionToken(CCM_ID));

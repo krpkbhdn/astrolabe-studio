@@ -16,12 +16,13 @@ final class PresetPayloads {
             + "\"path\":{\"type\":\"string\",\"description\":\"FILE: path relative to the project\"},"
             + "\"gitignore\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"FILE: lines added to .gitignore\"},"
             + "\"config\":{\"type\":\"object\",\"description\":\"MCP_SERVER: the server configuration\"},"
+            + "\"servers\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"CODE_MODE: names of the MCP servers that go through Code Mode\"},"
             + "\"fragment\":{\"type\":\"object\",\"description\":\"SETTINGS: JSON merged into .claude/settings.json\"},"
             + "\"source\":{\"type\":\"string\",\"description\":\"MARKETPLACE: owner/repo, git URL or path; PLUGIN: optional source of its marketplace\"}";
 
     private static final JsonNodeFactory NODES = JsonNodeFactory.instance;
     private static final String SKILL_FILE = "SKILL.md";
-    private static final String[] COPIED = {"markdown", "content", "files", "path", "gitignore", "config", "fragment", "source"};
+    private static final String[] COPIED = {"markdown", "content", "files", "path", "gitignore", "config", "fragment", "servers", "source"};
 
     private PresetPayloads() {}
 

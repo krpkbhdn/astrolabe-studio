@@ -3,6 +3,7 @@ package com.github.krpkbhdn.ccmanager.ui.projectsettings
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.github.krpkbhdn.ccmanager.ui.codemode.ProjectCodeModeState
 import com.github.krpkbhdn.ccmanager.ui.extensions.ExtensionContext
 import com.github.krpkbhdn.ccmanager.ui.extensions.mcp.McpState
 import com.github.krpkbhdn.ccmanager.ui.extensions.plugins.PluginsState
@@ -11,7 +12,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 
 /** One entry per page of the dialog panel; adding a project setting means adding one entry and one page. */
-enum class ProjectSettingsSection(val label: String) { PLUGINS("Plugins"), MCP("MCP servers"), SKILLS("Skills") }
+enum class ProjectSettingsSection(val label: String) { PLUGINS("Plugins"), MCP("MCP servers"), SKILLS("Skills"), CODE_MODE("Code Mode") }
 
 /** Everything one open Project settings dialog owns: the extension states of its project and the background work on [scope]. */
 class ProjectSettingsState(
@@ -21,6 +22,7 @@ class ProjectSettingsState(
     val plugins: PluginsState,
     val mcp: McpState,
     val skills: SkillsState,
+    val codeMode: ProjectCodeModeState,
 ) {
     var section by mutableStateOf(section)
 

@@ -4,11 +4,11 @@ import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Optional;
 
-/** Where Claude Code stores an extension: for the user, shared in the project, or private to this project. */
+/** Where Claude Code stores an extension: for the user, shared in the project, or private to this project; PLUGIN marks MCP servers a plugin provides (read-only, Code Mode only). */
 public enum ExtensionScope {
-    USER, PROJECT, LOCAL;
+    USER, PROJECT, LOCAL, PLUGIN;
 
-    /** The value of the CLI's {@code --scope} option. */
+    /** The value of the CLI's {@code --scope} option; PLUGIN has none, the CLI knows only user, project and local. */
     public String cliValue() {
         return name().toLowerCase(Locale.ROOT);
     }
@@ -26,7 +26,7 @@ public enum ExtensionScope {
 
     public static Optional<ExtensionScope> fromCli(String value) {
         for (var scope : values()) {
-            if (scope.cliValue().equals(value)) {
+            if (scope != PLUGIN && scope.cliValue().equals(value)) {
                 return Optional.of(scope);
             }
         }

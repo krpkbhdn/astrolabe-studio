@@ -14,6 +14,7 @@ enum class SettingsCategory(val label: String) {
     VOICE("Voice input"),
     UPDATES("Updates"),
     PRESETS("Project presets"),
+    CODE_MODE("Code Mode"),
     AUTHOR("Author setup"),
     ABOUT("About"),
     ;

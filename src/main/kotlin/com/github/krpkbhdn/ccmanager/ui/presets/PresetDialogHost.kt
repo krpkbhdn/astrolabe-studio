@@ -15,5 +15,6 @@ fun PresetDialogHost(open: ComponentDialog, state: PresetsState, dataDir: Path) 
         ComponentEditor.AGENT -> AgentDialog(open, state)
         ComponentEditor.FILE -> FileDialog(open, state)
         ComponentEditor.SETTINGS -> SettingsFragmentDialog(open, state)
+        ComponentEditor.CODE_MODE -> CodeModeDialog(open, state)
     }
 }

@@ -63,6 +63,8 @@ class ProposalState(
     fun positionOf(proposal: Proposal): String? =
         of(proposal.ccmSessionId()).takeIf { it.size > 1 }?.let { "${it.indexOfFirst { p -> p.id() == proposal.id() } + 1} of ${it.size}" }
 
+    fun heldForApp(proposal: Proposal): Boolean = service.isHeldForApp(proposal.id())
+
     fun hide(proposal: Proposal) {
         hidden = hidden + proposal.id()
     }

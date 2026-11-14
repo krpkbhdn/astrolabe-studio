@@ -19,7 +19,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.Dp
-import com.github.krpkbhdn.ccmanager.claude.mcp.AssistantMcpServer
+import com.github.krpkbhdn.ccmanager.claude.proposal.PermissionProposal
 import com.github.krpkbhdn.ccmanager.claude.proposal.Proposal
 import com.github.krpkbhdn.ccmanager.claude.proposal.ProposalAnswer
 import com.github.krpkbhdn.ccmanager.ui.components.AppButton
@@ -37,14 +37,23 @@ import com.github.krpkbhdn.ccmanager.ui.theme.colors
 /** What identifies a proposal in the dialog's header: [tags] (tool, agent) as small chips, [position] "1 of 3" when several wait. */
 class FrameTitle(val icon: ImageVector, val kind: String, val tint: Color, val tags: List<String>, val position: String?)
 
+/** Who asked, from the proposal's origin: only app-held proposals say they come from the Assistant or a Code Mode script. */
+internal fun requesterOf(proposal: Proposal): String = when ((proposal as? PermissionProposal)?.origin()) {
+    PermissionProposal.Origin.ASSISTANT -> "the Assistant through cc-manager-app"
+    PermissionProposal.Origin.CODE_MODE -> "a Code Mode script"
+    else -> "cc-manager"
+}
+
 /** The proposal a dialog is about, with the state that answers, hides or dismisses it and keeps what the user typed. */
 internal class ProposalContext(private val state: ProposalState, val proposal: Proposal) {
     fun answer(answer: ProposalAnswer) = state.answer(proposal, answer)
 
     fun dismiss() = state.dismiss(proposal)
 
-    /** A tool call of the Assistant's app server is held in the app, not in the terminal: dismissing it denies it. */
-    val viaApp = proposal.toolName().startsWith(AssistantMcpServer.TOOL_NAME_PREFIX)
+    /** A proposal held in the app (Assistant tool call, Code Mode tool call) has no terminal dialog: dismissing it denies it. */
+    val viaApp = state.heldForApp(proposal)
+
+    val requester = requesterOf(proposal)
 
     fun hide() = state.hide(proposal)
 

@@ -7,7 +7,7 @@ class SettingsStateTest {
     @Test
     fun `categories keep the order of the category list`() {
         assertThat(SettingsCategory.entries.map { it.label }).containsExactly(
-            "Appearance", "Notifications", "Sessions", "Usage", "Assistant", "Voice input", "Updates", "Project presets", "Author setup", "About",
+            "Appearance", "Notifications", "Sessions", "Usage", "Assistant", "Voice input", "Updates", "Project presets", "Code Mode", "Author setup", "About",
         )
     }
 

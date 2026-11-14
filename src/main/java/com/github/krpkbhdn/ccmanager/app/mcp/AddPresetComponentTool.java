@@ -29,7 +29,7 @@ class AddPresetComponentTool extends PresetTool {
     @Override
     public String description() {
         return "Adds a component to a preset. kind: MARKETPLACE (name, source), PLUGIN (name = plugin@marketplace; its marketplace component is added too when 'source' is given or the marketplace is known), "
-                + "SKILL (name = folder, 'files' or 'skill_markdown' + 'description'), AGENT (name, content), MCP_SERVER (name, config), INSTRUCTION (name = title, markdown), SETTINGS (name, fragment; one per preset), FILE (name, path, content, gitignore).";
+                + "SKILL (name = folder, 'files' or 'skill_markdown' + 'description'), AGENT (name, content), MCP_SERVER (name, config), INSTRUCTION (name = title, markdown), SETTINGS (name, fragment; one per preset), FILE (name, path, content, gitignore), CODE_MODE (name, servers; turns on Code Mode for these MCP servers, one per preset).";
     }
 
     @Override

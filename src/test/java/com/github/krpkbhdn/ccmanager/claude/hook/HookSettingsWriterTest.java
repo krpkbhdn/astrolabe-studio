@@ -39,6 +39,8 @@ class HookSettingsWriterTest {
     private static final HookProperties HOOK_PROPERTIES = new HookProperties(10, 1024, 500, Duration.ofSeconds(590), 10, 1000, 1000);
 
     private final JsonMapper mapper =JsonMapper.builder().build();
+    private static final com.github.krpkbhdn.ccmanager.codemode.CodeModeProperties CODE_MODE = com.github.krpkbhdn.ccmanager.codemode.TestProperties.of(
+            java.time.Duration.ofMinutes(1), 1000, 1000, 10, java.time.Duration.ofMinutes(1), "img", "64m", 1, java.time.Duration.ofDays(1), java.time.Duration.ofSeconds(10));
     private HookSettingsWriter writer;
     private HookSettingsWriter windowsWriter;
     private HookServer server;
@@ -52,8 +54,8 @@ class HookSettingsWriterTest {
         when(server.hookUrl("abc-1")).thenReturn(URL);
         when(server.statusLineUrl("abc-1")).thenReturn(STATUS_LINE_URL);
         when(server.mcpUrl("abc-1")).thenReturn(MCP_URL);
-        writer = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, HELPER, installationWith("2.1.200"));
-        windowsWriter = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, WINDOWS_HELPER, installationWith("2.1.200"));
+        writer = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, HELPER, installationWith("2.1.200"), CODE_MODE);
+        windowsWriter = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, WINDOWS_HELPER, installationWith("2.1.200"), CODE_MODE);
     }
 
     private static ClaudeInstallationService installationWith(String version) {
@@ -67,14 +69,14 @@ class HookSettingsWriterTest {
     @Test
     void sessionStartNeedsAClaudeThatKnowsTheExecFormArgsField() throws Exception {
         for (var version : java.util.Arrays.asList("2.1.138", "2.0.0", null)) {
-            var old = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, HELPER, installationWith(version));
+            var old = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, HELPER, installationWith(version), CODE_MODE);
 
             var settings = mapper.readTree(Files.readString(old.write("abc-1").settings()));
 
             assertThat(settings.path("hooks").has("SessionStart")).as(String.valueOf(version)).isFalse();
             assertThat(settings.has("statusLine")).as(String.valueOf(version)).isTrue();
         }
-        var exact = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, HELPER, installationWith("2.1.139"));
+        var exact = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, HELPER, installationWith("2.1.139"), CODE_MODE);
         assertThat(mapper.readTree(Files.readString(exact.write("abc-1").settings())).path("hooks").has("SessionStart")).isTrue();
     }
 
@@ -83,7 +85,7 @@ class HookSettingsWriterTest {
         var installation = mock(ClaudeInstallationService.class);
         when(installation.current()).thenReturn(new ClaudeInstallation(false, null, null, LoginState.UNKNOWN, null));
         when(installation.recheck()).thenReturn(new ClaudeInstallation(true, null, "2.1.200", LoginState.UNKNOWN, null));
-        var recovered = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, HELPER, installation);
+        var recovered = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, HELPER, installation, CODE_MODE);
 
         var settings = mapper.readTree(Files.readString(recovered.write("abc-1").settings()));
 
@@ -94,7 +96,7 @@ class HookSettingsWriterTest {
     @Test
     void decisionHookTimeoutFollowsTheConfiguredHoldWithAMargin() throws Exception {
         var longHold = new HookProperties(10, 1024, 500, Duration.ofSeconds(900), 10, 1000, 1000);
-        var file = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, longHold, HELPER, installationWith("2.1.200")).write("abc-1").settings();
+        var file = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, longHold, HELPER, installationWith("2.1.200"), CODE_MODE).write("abc-1").settings();
 
         var hooks = mapper.readTree(Files.readString(file)).path("hooks");
 
@@ -180,7 +182,7 @@ class HookSettingsWriterTest {
     @Test
     void withoutAKnownLauncherThereIsNoStatusLineAndNoSessionStart() throws Exception {
         var unknown = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES,
-                new HookHelperCommand(Optional.empty(), "/unused", false, path -> path, false), installationWith("2.1.200"));
+                new HookHelperCommand(Optional.empty(), "/unused", false, path -> path, false), installationWith("2.1.200"), CODE_MODE);
 
         var settings = mapper.readTree(Files.readString(unknown.write("abc-1").settings()));
 
@@ -331,8 +333,57 @@ class HookSettingsWriterTest {
     void aSecondWriterInTheSameProcessLeavesTheRunningOnesFilesAlone() throws Exception {
         var live = writer.write("abc-1").settings();
 
-        new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, HELPER, installationWith("2.1.200")).deleteStaleFiles();
+        new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, HELPER, installationWith("2.1.200"), CODE_MODE).deleteStaleFiles();
 
         assertThat(live).exists();
+    }
+
+    @Test
+    void codeModeAddsItsServerHidesTheListedOnesAndPreApprovesOnlyTheReadOnlyTools() throws Exception {
+        when(server.codeModeUrl("abc-1")).thenReturn("http://127.0.0.1:1/code/abc-1");
+        var access = new CodeModeAccess(java.util.List.of("jira", "bad*", "cc-manager"), java.util.List.of("jira", "files", "x*", "a b"));
+
+        var files = writer.write("abc-1", java.util.Map.of(), access);
+        var settings = mapper.readTree(Files.readString(files.settings()));
+        var entry = mapper.readTree(Files.readString(files.mcpConfig())).path("mcpServers").path("cc-manager-code");
+
+        assertThat(entry.path("url").asString()).isEqualTo("http://127.0.0.1:1/code/abc-1");
+        assertThat(entry.path("headers").path("Authorization").asString()).isEqualTo("Bearer ${CCM_HOOK_TOKEN}");
+        assertThat(entry.path("timeout").asLong()).isEqualTo(Duration.ofHours(1).plusSeconds(30).toMillis());
+        assertThat(settings.path("disabledMcpjsonServers").toString()).isEqualTo("[\"jira\"]");
+        assertThat(settings.path("permissions").path("allow").toString())
+                .isEqualTo("[\"mcp__cc-manager__list_run_configurations\",\"mcp__cc-manager-code__search_tools\",\"mcp__cc-manager-code__list_servers\"]");
+        assertThat(settings.path("permissions").path("deny").toString()).contains("\"mcp__jira\"", "\"mcp__files\"").doesNotContain("x*", "a b");
+        assertThat(settings.has("hooks")).isTrue();
+    }
+
+    @Test
+    void aPluginServerIsDeniedByItsCanonicalToolPrefixAndNeverDisabledAsAProjectServer() throws Exception {
+        when(server.codeModeUrl("abc-1")).thenReturn("http://127.0.0.1:1/code/abc-1");
+        var access = new CodeModeAccess(java.util.List.of(), java.util.List.of("plugin_playwright_playwright", "playwright"));
+
+        var settings = mapper.readTree(Files.readString(writer.write("abc-1", java.util.Map.of(), access).settings()));
+
+        assertThat(settings.path("permissions").path("deny").toString()).contains("\"mcp__plugin_playwright_playwright\"", "\"mcp__playwright\"");
+        assertThat(settings.has("disabledMcpjsonServers")).isFalse();
+    }
+
+    @Test
+    void codeModeOffLeavesSettingsAndMcpConfigUntouched() throws Exception {
+        var files = writer.write("abc-1", java.util.Map.of(), CodeModeAccess.OFF);
+
+        assertThat(Files.readString(files.mcpConfig())).doesNotContain("cc-manager-code");
+        assertThat(mapper.readTree(Files.readString(files.settings())).has("disabledMcpjsonServers")).isFalse();
+    }
+
+    @Test
+    void aSessionWithoutCodeModeNeverGetsATimeoutFieldNorTheCodeModeServerNorItsPermissions() throws Exception {
+        var files = writer.write("abc-1", java.util.Map.of(), CodeModeAccess.OFF);
+        var servers = mapper.readTree(Files.readString(files.mcpConfig())).path("mcpServers");
+        var settings = Files.readString(files.settings());
+
+        assertThat(servers.propertyNames()).doesNotContain("cc-manager-code");
+        servers.forEach(entry -> assertThat(entry.has("timeout")).isFalse());
+        assertThat(settings).doesNotContain("cc-manager-code").doesNotContain("disabledMcpjsonServers");
     }
 }

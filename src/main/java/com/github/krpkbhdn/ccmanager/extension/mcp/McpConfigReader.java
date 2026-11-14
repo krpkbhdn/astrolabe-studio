@@ -11,11 +11,14 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 import org.slf4j.Logger;
@@ -26,12 +29,14 @@ import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Reads the MCP server declarations from ~/.claude.json (user and local scope) and the project's .mcp.json.
- * Only names, transport and target are kept: env and headers hold secrets and are dropped here. Never writes.
+ * {@link #read} keeps only names, transport and target (env and headers hold secrets); {@link #definitions}, the only
+ * public method that expands and returns secrets, keeps everything a client needs and must never be logged. Never writes.
  */
 @Component
-class McpConfigReader {
+public class McpConfigReader {
 
     private static final Logger log = LoggerFactory.getLogger(McpConfigReader.class);
+    private static final Pattern VARIABLE = Pattern.compile("\\$\\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?}");
     private static final String SERVERS = "mcpServers";
     private static final String STDIO = "stdio";
     private static final String USER_CONFIG_FILE = ".claude.json";
@@ -59,17 +64,63 @@ class McpConfigReader {
     }
 
     /** User servers, plus local and project ones when a project directory is given. */
-    List<McpServerConfig> read(Path projectDirectory) {
+    public List<McpServerConfig> read(Path projectDirectory) {
         var userConfig = readUserConfig();
         var servers = new ArrayList<>(servers(userConfig, ExtensionScope.USER, McpApproval.NOT_REQUIRED));
         if (projectDirectory != null) {
             var projectEntry = projectEntry(userConfig, projectDirectory);
             servers.addAll(servers(projectEntry, ExtensionScope.LOCAL, McpApproval.NOT_REQUIRED));
-            var approvals = List.of(readApprovals(projectDirectory.resolve(SETTINGS_LOCAL_FILE)), readApprovals(projectDirectory.resolve(SETTINGS_FILE)), projectEntry,
-                    readApprovals(host.claudeConfigDirectory().resolve(USER_SETTINGS_FILE)));
+            var approvals = List.of(readLenient(projectDirectory.resolve(SETTINGS_LOCAL_FILE)), readLenient(projectDirectory.resolve(SETTINGS_FILE)), projectEntry,
+                    readLenient(host.claudeConfigDirectory().resolve(USER_SETTINGS_FILE)));
             servers.addAll(servers(readFile(projectDirectory.resolve(PROJECT_CONFIG_FILE)), ExtensionScope.PROJECT, approvals));
         }
         return List.copyOf(servers);
+    }
+
+    /**
+     * The servers of {@link #read} with command, args, env, url and headers; {@code ${VAR}} and {@code ${VAR:-default}} are expanded from the process environment.
+     * Stdio servers of every scope, user scope included, start in the given directory as in a Claude Code session there; without a directory they get none.
+     */
+    public List<McpServerDefinition> definitions(Path projectDirectory) {
+        var userConfig = readUserConfig();
+        var found = new ArrayList<>(definitions(userConfig, ExtensionScope.USER, projectDirectory));
+        if (projectDirectory != null) {
+            found.addAll(definitions(projectEntry(userConfig, projectDirectory), ExtensionScope.LOCAL, projectDirectory));
+            found.addAll(definitions(readFile(projectDirectory.resolve(PROJECT_CONFIG_FILE)), ExtensionScope.PROJECT, projectDirectory));
+        }
+        return List.copyOf(found);
+    }
+
+    private List<McpServerDefinition> definitions(JsonNode owner, ExtensionScope scope, Path workingDirectory) {
+        return owner.path(SERVERS).properties().stream().map(entry -> definition(entry.getKey(), scope, entry.getValue(), workingDirectory)).toList();
+    }
+
+    private McpServerDefinition definition(String name, ExtensionScope scope, JsonNode node, Path workingDirectory) {
+        return definition(name, scope, node, workingDirectory, Map.of());
+    }
+
+    /** @param variables values for {@code ${NAME}} that win over the process environment (plugin path variables) */
+    McpServerDefinition definition(String name, ExtensionScope scope, JsonNode node, Path workingDirectory, Map<String, String> variables) {
+        var command = expand(text(node, "command"), variables);
+        var transport = command.isEmpty() ? McpServerDefinition.Transport.HTTP : McpServerDefinition.Transport.STDIO;
+        var args = node.path("args").valueStream().map(arg -> expand(arg.asString(""), variables)).toList();
+        return new McpServerDefinition(name, scope, transport, command, args, expandedMap(node.path("env"), variables), expand(text(node, "url"), variables),
+                expandedMap(node.path("headers"), variables), workingDirectory);
+    }
+
+    private Map<String, String> expandedMap(JsonNode object, Map<String, String> variables) {
+        var expanded = new LinkedHashMap<String, String>();
+        object.properties().forEach(entry -> expanded.put(entry.getKey(), expand(entry.getValue().asString(""), variables)));
+        return expanded;
+    }
+
+    /** An unset variable without a default stays as written, so the failure shows up at the server, not as a silently empty secret. */
+    private String expand(String value, Map<String, String> variables) {
+        return VARIABLE.matcher(value).replaceAll(match -> {
+            var set = variables.containsKey(match.group(1)) ? variables.get(match.group(1)) : host.env(match.group(1));
+            var replacement = set != null ? set : match.group(2) != null ? match.group(2) : match.group();
+            return Matcher.quoteReplacement(replacement);
+        });
     }
 
     /**
@@ -118,7 +169,7 @@ class McpConfigReader {
                 .orElse(Json.parse("{}"));
     }
 
-    private String normalise(String path) {
+    String normalise(String path) {
         var slashed = path.replace('\\', '/').replaceAll("/+$", "");
         return host.windows() ? slashed.toLowerCase(Locale.ROOT) : slashed;
     }
@@ -156,8 +207,8 @@ class McpConfigReader {
         return StreamSupport.stream(array.spliterator(), false).map(node -> node.asString("")).collect(Collectors.toSet());
     }
 
-    /** Approval sources are optional hints: a broken settings file must not hide every server. */
-    private static JsonNode readApprovals(Path file) {
+    /** For optional files (approval sources, plugin manifests): a missing or broken one reads as empty instead of hiding every server. */
+    static JsonNode readLenient(Path file) {
         try {
             return readFile(file);
         } catch (RuntimeException e) {

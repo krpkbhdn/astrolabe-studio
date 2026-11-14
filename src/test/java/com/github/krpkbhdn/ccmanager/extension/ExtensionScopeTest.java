@@ -10,7 +10,7 @@ class ExtensionScopeTest {
 
     @Test
     void cliValueIsLowerCaseAndParsesBack() {
-        for (var scope : ExtensionScope.values()) {
+        for (var scope : java.util.List.of(ExtensionScope.USER, ExtensionScope.PROJECT, ExtensionScope.LOCAL)) {
             assertThat(ExtensionScope.fromCli(scope.cliValue())).contains(scope);
         }
         assertThat(ExtensionScope.PROJECT.cliValue()).isEqualTo("project");
@@ -19,6 +19,7 @@ class ExtensionScopeTest {
     @Test
     void unknownCliValueIsEmpty() {
         assertThat(ExtensionScope.fromCli("managed")).isEmpty();
+        assertThat(ExtensionScope.fromCli("plugin")).isEmpty();
         assertThat(ExtensionScope.fromCli("")).isEmpty();
     }
 

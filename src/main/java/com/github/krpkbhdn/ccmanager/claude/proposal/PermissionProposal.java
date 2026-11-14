@@ -5,9 +5,17 @@ import java.time.Instant;
 import java.util.List;
 import tools.jackson.databind.JsonNode;
 
-/** Any other tool that needs approval; matchInput is what the tool's own events are compared with, toolInput what the dialog shows. Suggestions are Claude's own "allow and remember" options, kept verbatim to be sent back. */
+/** Any other tool that needs approval; origin tells who asked when no hook did; matchInput is what the tool's own events are compared with, toolInput what the dialog shows. Suggestions are Claude's own "allow and remember" options, kept verbatim to be sent back. */
 public record PermissionProposal(String id, String ccmSessionId, Instant createdAt, String agentId, String toolName, JsonNode toolInput,
-        JsonNode matchInput, List<Suggestion> suggestions) implements Proposal {
+        JsonNode matchInput, List<Suggestion> suggestions, Origin origin) implements Proposal {
+
+    /** Who raised the proposal: a Claude Code hook, or a request held in the app for the Assistant's tools or a Code Mode script. */
+    public enum Origin { HOOK, ASSISTANT, CODE_MODE }
+
+    public PermissionProposal(String id, String ccmSessionId, Instant createdAt, String agentId, String toolName, JsonNode toolInput,
+            JsonNode matchInput, List<Suggestion> suggestions) {
+        this(id, ccmSessionId, createdAt, agentId, toolName, toolInput, matchInput, suggestions, Origin.HOOK);
+    }
 
     /** For hook prompts, where the shown input is the input Claude sends back in PostToolUse. */
     public PermissionProposal(String id, String ccmSessionId, Instant createdAt, String agentId, String toolName, JsonNode toolInput,

@@ -32,6 +32,18 @@ class ProposalStateTest {
     fun close() = scope.cancel()
 
     @Test
+    fun aProposalHeldByTheAppIsReportedAsSuch() {
+        `when`(service.isHeldForApp("p")).thenReturn(true)
+
+        assertThat(state.heldForApp(proposal)).isTrue()
+    }
+
+    @Test
+    fun aHookHeldProposalIsNotHeldByTheApp() {
+        assertThat(state.heldForApp(proposal)).isFalse()
+    }
+
+    @Test
     fun aTakenAnswerHidesTheDialog() {
         state.answer(proposal, PermissionAllow.once())
 

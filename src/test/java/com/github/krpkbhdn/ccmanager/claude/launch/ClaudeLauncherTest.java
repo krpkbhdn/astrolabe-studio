@@ -23,6 +23,14 @@ import com.github.krpkbhdn.ccmanager.project.GroupWorkspace;
 import com.github.krpkbhdn.ccmanager.project.ModelSelection;
 import com.github.krpkbhdn.ccmanager.project.ProjectGroupService;
 import java.util.List;
+import com.github.krpkbhdn.ccmanager.codemode.ProjectCodeMode;
+import com.github.krpkbhdn.ccmanager.codemode.ProjectCodeModeService;
+import com.github.krpkbhdn.ccmanager.extension.ExtensionScope;
+import com.github.krpkbhdn.ccmanager.extension.mcp.McpConfigReader;
+import com.github.krpkbhdn.ccmanager.extension.mcp.McpApproval;
+import com.github.krpkbhdn.ccmanager.extension.mcp.McpServerConfig;
+import com.github.krpkbhdn.ccmanager.claude.hook.CodeModeAccess;
+import java.util.Map;
 import com.github.krpkbhdn.ccmanager.project.Project;
 import com.github.krpkbhdn.ccmanager.project.ProjectService;
 import java.nio.file.Files;
@@ -41,10 +49,13 @@ class ClaudeLauncherTest {
     private final SessionRegistry sessions = mock(SessionRegistry.class);
     private final ProjectGroupService groups = mock(ProjectGroupService.class);
     private final AssistantMcpServer assistantEndpoint = mock(AssistantMcpServer.class);
+    private final ProjectCodeModeService codeModes = mock(ProjectCodeModeService.class);
+    private final McpConfigReader mcpConfigs = mock(McpConfigReader.class);
     private final GitWorktreeService worktrees = mock(GitWorktreeService.class);
     private final Path dataDir = Path.of("build", "launcher-test-data").toAbsolutePath();
     private final ClaudeLauncher launcher = new ClaudeLauncher(projects, installation, hooks, mock(ClaudePluginWriter.class), sessions, new AppProperties(dataDir),
-            groups, mock(GroupWorkspace.class), mock(ProjectMcpServers.class), assistantEndpoint, new WorkDirectories(worktrees));
+            groups, mock(GroupWorkspace.class), mock(ProjectMcpServers.class), assistantEndpoint, new WorkDirectories(worktrees),
+            codeModes, mcpConfigs);
 
     @TempDir
     Path directory;
@@ -87,6 +98,14 @@ class ClaudeLauncherTest {
         assertThatThrownBy(() -> launcher.launchIn(1, directory, LaunchMode.NEW, null)).hasMessageStartingWith("Could not start Claude");
         verify(sessions).register(1);
         verify(worktrees, never()).list(directory);
+    }
+
+    @Test
+    void aFailedSpawnForgetsTheRememberedCodeModeDirectory() throws Exception {
+        claudeInstalledAndSpawnFails();
+
+        assertThatThrownBy(() -> launcher.launchIn(1, directory, LaunchMode.NEW, null)).hasMessageStartingWith("Could not start Claude");
+        verify(codeModes).forgetDirectory("ccm-1");
     }
 
     @Test
@@ -220,5 +239,40 @@ class ClaudeLauncherTest {
         verify(sessions).register(0L);
         verify(projects, never()).find(anyLong());
         assertThat(dataDir.resolve("assistant")).isDirectory();
+    }
+
+    private CodeModeAccess launchWithCodeMode(ProjectCodeMode mode, List<McpServerConfig> servers) throws Exception {
+        claudeInstalledAndSpawnFails();
+        var files = new SessionFiles(directory.resolve("s.json"), directory.resolve("m.json"));
+        when(codeModes.get(1)).thenReturn(mode);
+        when(mcpConfigs.read(directory)).thenReturn(servers);
+        when(hooks.write(org.mockito.ArgumentMatchers.eq("ccm-1"), org.mockito.ArgumentMatchers.anyMap(), org.mockito.ArgumentMatchers.any())).thenReturn(files);
+        assertThatThrownBy(() -> launcher.launchTask(1, "t")).isInstanceOf(IllegalStateException.class);
+        var captor = org.mockito.ArgumentCaptor.forClass(CodeModeAccess.class);
+        verify(hooks).write(org.mockito.ArgumentMatchers.eq("ccm-1"), org.mockito.ArgumentMatchers.anyMap(), captor.capture());
+        return captor.getValue();
+    }
+
+    private static McpServerConfig definition(String name, ExtensionScope scope) {
+        return new McpServerConfig(name, scope, "http", "http://x", McpApproval.NOT_REQUIRED);
+    }
+
+    @Test
+    void codeModeHidesProjectFileServersAndDeniesTheRest() throws Exception {
+        var access = launchWithCodeMode(new ProjectCodeMode(1, true, List.of("jira", "files")),
+                List.of(definition("jira", ExtensionScope.PROJECT), definition("files", ExtensionScope.USER)));
+
+        assertThat(access.hiddenProjectServers()).containsExactly("jira");
+        assertThat(access.deniedServers()).containsExactly("jira", "files");
+    }
+
+    @Test
+    void codeModeOffOrWithoutServersWritesTheUnchangedFiles() throws Exception {
+        claudeInstalledAndSpawnFails();
+        when(codeModes.get(1)).thenReturn(new ProjectCodeMode(1, false, List.of("jira")));
+
+        assertThatThrownBy(() -> launcher.launchTask(1, "t")).isInstanceOf(IllegalStateException.class);
+        verify(hooks).write("ccm-1");
+        verify(hooks, never()).write(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyMap(), org.mockito.ArgumentMatchers.any());
     }
 }

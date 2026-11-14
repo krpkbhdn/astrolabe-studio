@@ -4,6 +4,9 @@ import java.time.Duration
 import com.github.krpkbhdn.ccmanager.app.AppControlProperties
 import com.github.krpkbhdn.ccmanager.app.AppControlRegistry
 import com.github.krpkbhdn.ccmanager.author.AuthorCatalogService
+import com.github.krpkbhdn.ccmanager.codemode.ProjectCodeModeService
+import com.github.krpkbhdn.ccmanager.extension.mcp.PluginMcpServers
+import com.github.krpkbhdn.ccmanager.codemode.policy.ExecutionRegistry
 import com.github.krpkbhdn.ccmanager.claude.hook.HookEventStore
 import com.github.krpkbhdn.ccmanager.claude.hook.HookHelperCommand
 import com.github.krpkbhdn.ccmanager.claude.install.ClaudeInstallationService
@@ -11,6 +14,10 @@ import com.github.krpkbhdn.ccmanager.claude.launch.BackgroundAgentService
 import com.github.krpkbhdn.ccmanager.claude.launch.ClaudeLauncher
 import com.github.krpkbhdn.ccmanager.app.mcp.AssistantMcpTool
 import com.github.krpkbhdn.ccmanager.claude.proposal.ProposalService
+import com.github.krpkbhdn.ccmanager.codemode.CodeModeProperties
+import com.github.krpkbhdn.ccmanager.codemode.isolation.IsolationSettingsService
+import com.github.krpkbhdn.ccmanager.codemode.sandbox.ContainerRuntimeDetector
+import com.github.krpkbhdn.ccmanager.ui.settings.CodeModeBackend
 import com.github.krpkbhdn.ccmanager.claude.session.SessionProperties
 import com.github.krpkbhdn.ccmanager.claude.session.SessionRegistry
 import com.github.krpkbhdn.ccmanager.config.AppProperties
@@ -104,6 +111,10 @@ class Backend(
     val assistantTools: List<AssistantMcpTool> = emptyList(),
     val voice: VoiceBackend? = null,
     val hookHelper: HookHelperCommand? = null,
+    val codeMode: CodeModeBackend? = null,
+    val projectCodeMode: ProjectCodeModeService? = null,
+    val pluginMcpServers: PluginMcpServers? = null,
+    val codeModeExecutions: ExecutionRegistry? = null,
 ) {
     companion object {
         fun from(context: ConfigurableApplicationContext) = Backend(
@@ -158,6 +169,14 @@ class Backend(
                 context.getBean(Microphone::class.java),
             ),
             hookHelper = context.getBean(HookHelperCommand::class.java),
+            projectCodeMode = context.getBean(ProjectCodeModeService::class.java),
+            pluginMcpServers = context.getBean(PluginMcpServers::class.java),
+            codeModeExecutions = context.getBean(ExecutionRegistry::class.java),
+            codeMode = CodeModeBackend(
+                context.getBean(IsolationSettingsService::class.java),
+                context.getBean(ContainerRuntimeDetector::class.java),
+                context.getBean(CodeModeProperties::class.java).image(),
+            ),
         )
     }
 }

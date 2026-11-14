@@ -32,9 +32,11 @@ import com.github.krpkbhdn.ccmanager.ui.prompts.PromptsState
 import com.github.krpkbhdn.ccmanager.claude.proposal.Proposal
 import com.github.krpkbhdn.ccmanager.ui.proposal.ProposalState
 import com.github.krpkbhdn.ccmanager.ui.proposal.proposalHeadline
+import com.github.krpkbhdn.ccmanager.ui.codemode.CodeModeState
 import com.github.krpkbhdn.ccmanager.ui.queue.QueueState
 import com.github.krpkbhdn.ccmanager.ui.queue.QueuedPrompt
 import com.github.krpkbhdn.ccmanager.ui.run.RunState
+import com.github.krpkbhdn.ccmanager.ui.settings.CodeModeSettingsState
 import com.github.krpkbhdn.ccmanager.ui.settings.SettingsState
 import com.github.krpkbhdn.ccmanager.ui.presets.PresetsState
 import com.github.krpkbhdn.ccmanager.ui.presets.apply.ApplyPresetState
@@ -152,6 +154,7 @@ class AppState(
         onClosed = { projectId, id -> views[projectId]?.let { views[projectId] = it.closeShell(id) } },
         reportError = notifications::reportError,
     )
+    val codeMode = CodeModeState(backend.codeModeExecutions, scope, notifications::reportError)
     val proposals = ProposalState(backend.proposals, scope, notifications::reportError, focusTerminal = { terminal.focus(it) }, onArrived = ::announceAssistantProposal)
     val answers = ProposalAnswers(proposals, assistant, { route }, ::viewOf, { live }, notifications::toast, ::openSession)
     val osNotifications = OsNotifications(
@@ -196,6 +199,7 @@ class AppState(
     )
     val settingsDialog = SettingsState()
     val voice: VoiceSettingsState? = voiceSettingsOf(backend.voice, scope, { settings }, prefs::update, notifications::reportError)
+    val codeModeSettings = CodeModeSettingsState(backend.codeMode, scope) { notifications.reportError(it) }
     val update = UpdateState(backend.updates, scope, notifications::reportError, ::requestQuit) { exitApp() }
     var exitApp: () -> Unit = {}
     val agents = AgentsState(backend.transcripts, scope, { live }, ::showSessionTerminal)
@@ -240,6 +244,7 @@ class AppState(
         sessionSearch.start()
         reviews.start()
         queue.start()
+        codeMode.start()
         author.offerAtStart()
         runs.start()
         usage.start()
@@ -276,6 +281,7 @@ class AppState(
         reviews.dispose()
         web.close()
         queue.dispose()
+        codeMode.dispose()
         voice?.let { Thread(it::close, "voice-close").apply { isDaemon = true }.start() }
         runs.dispose()
         usage.dispose()

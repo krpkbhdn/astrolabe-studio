@@ -92,6 +92,14 @@ class ProposalServiceTest {
     }
 
     @Test
+    void onlyAProposalHeldForTheAppIsReportedAsAppHeld() {
+        holdForApp(service);
+
+        assertThat(service.isHeldForApp("app-1")).isTrue();
+        assertThat(service.isHeldForApp("unknown")).isFalse();
+    }
+
+    @Test
     void appHeldProposalIsNotReleasedWhenItsSessionIsIdleAndStillAnswerable() throws Exception {
         var held = holdForApp(service);
 

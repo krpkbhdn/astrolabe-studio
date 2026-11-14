@@ -3,6 +3,7 @@ package com.github.krpkbhdn.ccmanager.ui.presets
 import com.github.krpkbhdn.ccmanager.preset.PresetComponent
 import com.github.krpkbhdn.ccmanager.preset.PresetComponentKind
 import com.github.krpkbhdn.ccmanager.preset.PresetComponentKind.AGENT
+import com.github.krpkbhdn.ccmanager.preset.PresetComponentKind.CODE_MODE
 import com.github.krpkbhdn.ccmanager.preset.PresetComponentKind.FILE
 import com.github.krpkbhdn.ccmanager.preset.PresetComponentKind.INSTRUCTION
 import com.github.krpkbhdn.ccmanager.preset.PresetComponentKind.MARKETPLACE
@@ -21,12 +22,13 @@ enum class PresetTab(val label: String, val kinds: List<PresetComponentKind>, va
     AGENTS("Agents", listOf(AGENT), "Add agent", "No agents", "Subagents Claude can hand work to, copied into the project's .claude/agents folder."),
     FILES("Files", listOf(FILE), "Add file", "No files", "Files created in the project, optionally with lines added to its .gitignore."),
     SETTINGS("Settings", listOf(PresetComponentKind.SETTINGS), "Add settings", "No settings", "Claude Code settings merged into the project's .claude/settings.json."),
+    CODE_MODE("Code Mode", listOf(PresetComponentKind.CODE_MODE), "Add Code Mode", "No Code Mode", "Turns Code Mode on for the project with the MCP servers named here."),
     ;
 
     fun componentsOf(preset: ProjectPreset): List<PresetComponent> = preset.components().filter { it.kind() in kinds }
 
     /** Marketplaces are not counted: they are a detail of the plugins. */
-    fun countIn(preset: ProjectPreset): Int = if (this == PresetTab.SETTINGS) 0 else preset.components().count { it.kind() == kinds.first() }
+    fun countIn(preset: ProjectPreset): Int = if (this == PresetTab.SETTINGS || this == PresetTab.CODE_MODE) 0 else preset.components().count { it.kind() == kinds.first() }
 }
 
 private val summaryOrder = listOf(
@@ -42,7 +44,7 @@ private val summaryOrder = listOf(
 fun summaryOf(components: List<PresetComponent>): String {
     val parts = summaryOrder.mapNotNull { (kind, one, many) ->
         components.count { it.kind() == kind }.takeIf { it > 0 }?.let { "$it ${if (it == 1) one else many}" }
-    } + listOfNotNull("settings".takeIf { components.any { it.kind() == SETTINGS } })
+    } + listOfNotNull("settings".takeIf { components.any { it.kind() == SETTINGS } }, "Code Mode".takeIf { components.any { it.kind() == CODE_MODE } })
     return if (parts.isEmpty()) "Empty" else parts.joinToString(SEPARATOR)
 }
 

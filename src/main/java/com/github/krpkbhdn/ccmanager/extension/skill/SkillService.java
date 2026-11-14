@@ -141,7 +141,7 @@ public class SkillService {
         return switch (scope) {
             case USER -> host.claudeConfigDirectory().resolve(SKILLS_DIRECTORY);
             case PROJECT -> ExtensionScope.PROJECT.workingDirectory(projectDirectory).resolve(CLAUDE_DIRECTORY).resolve(SKILLS_DIRECTORY);
-            case LOCAL -> throw new ExtensionException("Skills exist only in user and project scope");
+            case LOCAL, PLUGIN -> throw new ExtensionException("Skills exist only in user and project scope");
         };
     }
 

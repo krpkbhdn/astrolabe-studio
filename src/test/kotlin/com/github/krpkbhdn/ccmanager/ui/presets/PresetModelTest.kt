@@ -22,6 +22,7 @@ class PresetModelTest {
     fun `summary leaves out marketplaces and names settings without a count`() {
         val components = listOf(component(PresetComponentKind.MARKETPLACE), component(PresetComponentKind.PLUGIN), component(PresetComponentKind.MCP_SERVER), component(PresetComponentKind.SETTINGS))
         assertThat(summaryOf(components)).isEqualTo("1 plugin · 1 MCP server · settings")
+        assertThat(summaryOf(components + component(PresetComponentKind.CODE_MODE))).isEqualTo("1 plugin · 1 MCP server · settings · Code Mode")
     }
 
     @Test

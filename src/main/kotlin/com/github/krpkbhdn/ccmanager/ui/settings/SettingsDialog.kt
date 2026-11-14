@@ -58,6 +58,7 @@ private fun SettingsCategory.icon(): ImageVector = when (this) {
     SettingsCategory.VOICE -> Icons.Mic
     SettingsCategory.UPDATES -> Icons.Download
     SettingsCategory.PRESETS -> Icons.Tasks
+    SettingsCategory.CODE_MODE -> Icons.Settings
     SettingsCategory.AUTHOR -> Icons.User
     SettingsCategory.ABOUT -> Icons.Info
 }
@@ -134,6 +135,7 @@ private fun CategoryPage(app: AppState, category: SettingsCategory, modifier: Mo
                 SettingsCategory.VOICE -> VoicePage(app)
                 SettingsCategory.UPDATES -> UpdatesPage(app.update)
                 SettingsCategory.PRESETS -> Unit
+                SettingsCategory.CODE_MODE -> CodeModeSettingsPage(app.codeModeSettings)
                 SettingsCategory.AUTHOR -> AuthorPage(app)
                 SettingsCategory.ABOUT -> AboutPage(app)
             }

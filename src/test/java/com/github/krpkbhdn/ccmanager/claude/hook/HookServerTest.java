@@ -15,6 +15,7 @@ import com.github.krpkbhdn.ccmanager.app.mcp.AssistantMcpEndpoint;
 import com.github.krpkbhdn.ccmanager.app.mcp.AssistantMcpTool;
 import com.github.krpkbhdn.ccmanager.claude.session.SessionRegistry;
 import com.github.krpkbhdn.ccmanager.claude.mcp.McpEndpoint;
+import com.github.krpkbhdn.ccmanager.codemode.mcp.CodeModeEndpoint;
 import com.github.krpkbhdn.ccmanager.claude.proposal.ProposalService;
 import java.net.URI;
 import java.time.Duration;
@@ -41,6 +42,7 @@ class HookServerTest {
     private final ApplicationEventPublisher publisher = mock(ApplicationEventPublisher.class);
     private final McpEndpoint mcp = mock(McpEndpoint.class);
     private final AssistantMcpEndpoint assistantMcp = mock(AssistantMcpEndpoint.class);
+    private final CodeModeEndpoint codeMode = mock(CodeModeEndpoint.class);
     private final ProposalService proposals = mock(ProposalService.class);
     private final HttpClient client = HttpClient.newHttpClient();
     private HookServer server;
@@ -48,7 +50,7 @@ class HookServerTest {
     @BeforeEach
     void setUp() {
         server = new HookServer(store, publisher, JsonMapper.builder().build(),
-                new HookProperties(10, MAX_BODY, 500, Duration.ofSeconds(5), 10, 1000, 1000), mcp, assistantMcp, proposals);
+                new HookProperties(10, MAX_BODY, 500, Duration.ofSeconds(5), 10, 1000, 1000), mcp, assistantMcp, codeMode, proposals);
         server.start();
     }
 
@@ -146,7 +148,7 @@ class HookServerTest {
     @Test
     void callsBeyondTheQueueBoundAreDroppedWhileTheWorkerIsStuck() throws Exception {
         var bounded = new HookServer(store, publisher, JsonMapper.builder().build(),
-                new HookProperties(10, MAX_BODY, 500, Duration.ofSeconds(5), 10, 1000, 2), mcp, assistantMcp, proposals);
+                new HookProperties(10, MAX_BODY, 500, Duration.ofSeconds(5), 10, 1000, 2), mcp, assistantMcp, codeMode, proposals);
         var release = new java.util.concurrent.CountDownLatch(1);
         org.mockito.Mockito.doAnswer(call -> {
             release.await();
@@ -172,12 +174,7 @@ class HookServerTest {
     void aStatusEndingEventWaitsForRoomAndStaysBehindQueuedEventsOfItsSession() throws Exception {
         var bounded = boundedServer();
         var release = new java.util.concurrent.CountDownLatch(1);
-        var names = new java.util.concurrent.CopyOnWriteArrayList<String>();
-        org.mockito.Mockito.doAnswer(call -> {
-            names.add(call.<HookEvent>getArgument(0).text("hook_event_name"));
-            release.await();
-            return null;
-        }).when(publisher).publishEvent(any(HookEvent.class));
+        var names = recordEventNamesUntil(release);
         bounded.start();
         try {
             for (var name : new String[] {"PreToolUse", "PreToolUse", "PreToolUse", "PreToolUse", "Stop"}) {
@@ -198,12 +195,7 @@ class HookServerTest {
     void nothingRunsAfterStopEvenForAStatusEndingEventStillWaitingForRoom() throws Exception {
         var bounded = boundedServer();
         var release = new java.util.concurrent.CountDownLatch(1);
-        var names = new java.util.concurrent.CopyOnWriteArrayList<String>();
-        org.mockito.Mockito.doAnswer(call -> {
-            names.add(call.<HookEvent>getArgument(0).text("hook_event_name"));
-            release.await();
-            return null;
-        }).when(publisher).publishEvent(any(HookEvent.class));
+        var names = recordEventNamesUntil(release);
         bounded.start();
         for (var name : new String[] {"PreToolUse", "PreToolUse", "PreToolUse", "PreToolUse", "Stop"}) {
             postWithAuthorization(bounded.hookUrl("sess-1"), "{\"hook_event_name\":\"" + name + "\"}",
@@ -221,12 +213,7 @@ class HookServerTest {
     void anEventOfTheSessionAfterAStatusEndingEventWaitingForRoomStaysBehindIt() throws Exception {
         var bounded = boundedServer();
         var release = new java.util.concurrent.CountDownLatch(1);
-        var names = new java.util.concurrent.CopyOnWriteArrayList<String>();
-        org.mockito.Mockito.doAnswer(call -> {
-            names.add(call.<HookEvent>getArgument(0).text("hook_event_name"));
-            release.await();
-            return null;
-        }).when(publisher).publishEvent(any(HookEvent.class));
+        var names = recordEventNamesUntil(release);
         bounded.start();
         try {
             for (var name : new String[] {"PreToolUse", "PreToolUse", "PreToolUse", "PreToolUse", "Stop", "UserPromptSubmit"}) {
@@ -245,7 +232,7 @@ class HookServerTest {
 
     private HookServer boundedServer() {
         return new HookServer(store, publisher, JsonMapper.builder().build(),
-                new HookProperties(10, MAX_BODY, 500, Duration.ofSeconds(5), 10, 1000, 2), mcp, assistantMcp, proposals);
+                new HookProperties(10, MAX_BODY, 500, Duration.ofSeconds(5), 10, 1000, 2), mcp, assistantMcp, codeMode, proposals);
     }
 
     @Test
@@ -386,6 +373,18 @@ class HookServerTest {
         verifyNoInteractions(mcp);
     }
 
+    @Test
+    void codeModeRouteNeedsTheSessionTokenAndNeverReachesTheProjectOrAssistantServer() throws Exception {
+        when(codeMode.handle("sess-1", "{}".getBytes(StandardCharsets.UTF_8))).thenReturn(Optional.of("{\"result\":{}}"));
+        var url = server.codeModeUrl("sess-1");
+
+        assertThat(postWithAuthorization(url, "").statusCode()).isEqualTo(404);
+        assertThat(postWithAuthorization(url, "Bearer " + server.assistantMcpToken()).statusCode()).isEqualTo(404);
+        assertThat(postWithAuthorization(url, "Bearer " + server.sessionToken("sess-2")).statusCode()).isEqualTo(404);
+        assertThat(postWithAuthorization(url, "Bearer " + server.sessionToken("sess-1")).body()).isEqualTo("{\"result\":{}}");
+        verifyNoInteractions(mcp);
+    }
+
     private HttpResponse<String> postWithAuthorization(String url, String authorization) throws Exception {
         return postWithAuthorization(url, "{}", authorization);
     }
@@ -418,7 +417,7 @@ class HookServerTest {
         when(tool.name()).thenReturn("git_push");
         var real = new AssistantMcpEndpoint(List.of(tool), JsonMapper.builder().build(), proposals, mock(SessionRegistry.class));
         var secured = new HookServer(store, publisher, JsonMapper.builder().build(),
-                new HookProperties(10, MAX_BODY, 500, Duration.ofSeconds(5), 10, 1000, 1000), mcp, real, proposals);
+                new HookProperties(10, MAX_BODY, 500, Duration.ofSeconds(5), 10, 1000, 1000), mcp, real, codeMode, proposals);
         secured.start();
         try {
             var call = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"git_push\",\"arguments\":{}}}";
@@ -464,5 +463,16 @@ class HookServerTest {
         server.start();
         server.stop();
         assertThat(Thread.getAllStackTraces().keySet()).noneMatch(t -> t.getName().equals("hook-worker") && t.isAlive());
+    }
+
+    /** Publishing records the hook event name and then blocks until {@code release} opens. */
+    private java.util.List<String> recordEventNamesUntil(java.util.concurrent.CountDownLatch release) {
+        var names = new java.util.concurrent.CopyOnWriteArrayList<String>();
+        org.mockito.Mockito.doAnswer(call -> {
+            names.add(call.<HookEvent>getArgument(0).text("hook_event_name"));
+            release.await();
+            return null;
+        }).when(publisher).publishEvent(any(HookEvent.class));
+        return names;
     }
 }

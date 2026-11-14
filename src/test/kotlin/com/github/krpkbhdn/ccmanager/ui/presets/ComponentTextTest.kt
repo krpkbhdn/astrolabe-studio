@@ -75,4 +75,16 @@ class ComponentTextTest {
     fun `front matter is only read at the top of the file`() {
         assertThat(frontmatterField("text\n---\ndescription: x\n---", "description")).isEmpty()
     }
+
+    @Test
+    fun `code mode lists its servers`() {
+        val line = line(PresetComponentKind.CODE_MODE, CODE_MODE_NAME, PresetPayloads.codeMode(listOf("github", "playwright")))
+        assertThat(line.title).isEqualTo("Code Mode")
+        assertThat(line.secondary).isEqualTo("github, playwright")
+    }
+
+    @Test
+    fun `server box turns into trimmed names without blanks`() {
+        assertThat(parseServerNames(" github \n\n playwright\n")).containsExactly("github", "playwright")
+    }
 }

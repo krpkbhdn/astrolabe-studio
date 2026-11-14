@@ -48,6 +48,7 @@ private fun ProjectSettingsSection.icon(): ImageVector = when (this) {
     ProjectSettingsSection.PLUGINS -> Icons.Plug
     ProjectSettingsSection.MCP -> Icons.Server
     ProjectSettingsSection.SKILLS -> Icons.Book
+    ProjectSettingsSection.CODE_MODE -> Icons.Code
 }
 
 /** IDE-style settings of one project: a panel of sections on the left, the page of the selected one on the right. */
@@ -94,6 +95,7 @@ private fun sectionCount(state: ProjectSettingsState, section: ProjectSettingsSe
         ProjectSettingsSection.PLUGINS -> remember(state.plugins.installed) { installedEntries(state.plugins.installed, context).size }
         ProjectSettingsSection.MCP -> remember(state.mcp.servers, state.mcp.health) { mcpGroups(state.mcp.servers, state.mcp.health, context).size }
         ProjectSettingsSection.SKILLS -> remember(state.skills.skills) { skillGroups(state.skills.skills, context).size }
+        ProjectSettingsSection.CODE_MODE -> 0
     }
 }
 
@@ -115,5 +117,6 @@ private fun SectionPage(state: ProjectSettingsState) {
         ProjectSettingsSection.PLUGINS -> PluginsPage(state.context, state.plugins)
         ProjectSettingsSection.MCP -> McpPage(state.context, state.mcp)
         ProjectSettingsSection.SKILLS -> SkillsPage(state.context, state.skills)
+        ProjectSettingsSection.CODE_MODE -> CodeModePage(state.codeMode, state.mcp)
     }
 }

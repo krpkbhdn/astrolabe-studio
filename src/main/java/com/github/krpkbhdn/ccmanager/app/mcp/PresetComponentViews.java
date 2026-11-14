@@ -50,6 +50,7 @@ final class PresetComponentViews {
             case INSTRUCTION -> trimmed(payload.path("markdown").asString());
             case SETTINGS -> "keys: " + String.join(", ", payload.path("fragment").propertyNames()) + " (values hidden)";
             case FILE -> payload.path("path").asString() + " (" + payload.path("content").asString().length() + " characters)";
+            case CODE_MODE -> "servers: " + String.join(", ", payload.path("servers").valueStream().map(JsonNode::asString).toList());
         };
     }
 

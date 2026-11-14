@@ -47,6 +47,7 @@ private fun PresetTab.editor(): ComponentEditor = when (this) {
     PresetTab.AGENTS -> ComponentEditor.AGENT
     PresetTab.FILES -> ComponentEditor.FILE
     PresetTab.SETTINGS -> ComponentEditor.SETTINGS
+    PresetTab.CODE_MODE -> ComponentEditor.CODE_MODE
 }
 
 private fun PresetComponentKind.editor(): ComponentEditor? = when (this) {
@@ -56,6 +57,7 @@ private fun PresetComponentKind.editor(): ComponentEditor? = when (this) {
     PresetComponentKind.AGENT -> ComponentEditor.AGENT
     PresetComponentKind.FILE -> ComponentEditor.FILE
     PresetComponentKind.SETTINGS -> ComponentEditor.SETTINGS
+    PresetComponentKind.CODE_MODE -> ComponentEditor.CODE_MODE
     PresetComponentKind.PLUGIN, PresetComponentKind.MARKETPLACE -> null
 }
 
@@ -68,6 +70,7 @@ internal fun PresetComponentKind.icon(): ImageVector = when (this) {
     PresetComponentKind.AGENT -> Icons.Bot
     PresetComponentKind.FILE -> Icons.FileEdit
     PresetComponentKind.SETTINGS -> Icons.Settings
+    PresetComponentKind.CODE_MODE -> Icons.Code
 }
 
 private fun PresetTab.reorderable(): Boolean = this == PresetTab.INSTRUCTIONS || this == PresetTab.PLUGINS
@@ -84,7 +87,7 @@ fun ComponentList(state: PresetsState, preset: ProjectPreset, tab: PresetTab, mo
     val list = rememberLazyListState()
     Box(modifier) {
         LazyColumn(Modifier.fillMaxSize(), list, contentPadding = PaddingValues(start = Spacing.lg, end = Spacing.lg, top = Spacing.xxs, bottom = Spacing.lg), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-            item(key = "add") { AddRow(tab, add, canAdd = tab != PresetTab.SETTINGS) }
+            item(key = "add") { AddRow(tab, add, canAdd = tab != PresetTab.SETTINGS && tab != PresetTab.CODE_MODE) }
             val ordered = components.sortedBy { if (it.kind() == PresetComponentKind.MARKETPLACE) 1 else 0 }
             itemsIndexed(ordered, key = { _, component -> component.id() }) { index, component ->
                 if (component.kind() == PresetComponentKind.MARKETPLACE && component.id() == ordered.first { it.kind() == PresetComponentKind.MARKETPLACE }.id()) {

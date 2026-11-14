@@ -40,6 +40,13 @@ class ApplyPresetModelTest {
     }
 
     @Test
+    fun `code mode is its own group before settings`() {
+        val change = com.github.krpkbhdn.ccmanager.preset.apply.PlannedChange(99, PresetComponentKind.CODE_MODE, "code-mode", ChangeAction.CREATE, "Turn Code Mode on", null)
+
+        assertThat(groupChanges(plan + change).map { it.title }.takeLast(2)).containsExactly("Code Mode", "Settings")
+    }
+
+    @Test
     fun `apply button names the number of checked changes`() {
         assertThat(applyLabel(0)).isEqualTo("Apply")
         assertThat(applyLabel(1)).isEqualTo("Apply 1 change")

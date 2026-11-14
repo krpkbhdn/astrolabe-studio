@@ -30,7 +30,7 @@ public class PresetApplyService {
         case MARKETPLACE -> 0;
         case PLUGIN -> 1;
         case MCP_SERVER -> 2;
-        case SKILL, AGENT, FILE -> 3;
+        case SKILL, AGENT, FILE, CODE_MODE -> 3;
         case INSTRUCTION -> 4;
         case SETTINGS -> 5;
     });

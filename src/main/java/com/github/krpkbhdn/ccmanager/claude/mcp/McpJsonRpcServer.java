@@ -4,6 +4,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import tools.jackson.databind.JsonNode;
@@ -31,6 +32,30 @@ public abstract class McpJsonRpcServer<T extends McpToolDescriptor> {
         String call(T tool, JsonNode arguments);
     }
 
+    protected interface Handle extends AutoCloseable {
+        @Override
+        void close();
+    }
+
+    /** Lets a server cancel a running tool call when the client sends {@code notifications/cancelled}; ids are JSON-encoded (1 and "1" differ). */
+    protected interface Tracking {
+        Tracking NONE = new Tracking() {
+            @Override
+            public Handle started(String toolName, String requestId) {
+                return () -> { };
+            }
+
+            @Override
+            public void cancelled(String requestId) {
+            }
+        };
+
+        /** @return closed when the call ends */
+        Handle started(String toolName, String requestId);
+
+        void cancelled(String requestId);
+    }
+
     private final Map<String, T> tools = new LinkedHashMap<>();
     private final JsonMapper mapper;
     private final String serverName;
@@ -49,6 +74,15 @@ public abstract class McpJsonRpcServer<T extends McpToolDescriptor> {
 
     /** @return the JSON response, empty for a notification */
     protected final Optional<String> respond(byte[] body, ToolCall<T> toolCall) {
+        return respond(body, toolCall, () -> instructions);
+    }
+
+    /** @param initializeInstructions computed at each initialize, for a server whose instructions depend on the session */
+    protected final Optional<String> respond(byte[] body, ToolCall<T> toolCall, Supplier<String> initializeInstructions) {
+        return respond(body, toolCall, initializeInstructions, Tracking.NONE);
+    }
+
+    protected final Optional<String> respond(byte[] body, ToolCall<T> toolCall, Supplier<String> initializeInstructions, Tracking tracking) {
         JsonNode request;
         try {
             request = mapper.readTree(body);
@@ -64,12 +98,16 @@ public abstract class McpJsonRpcServer<T extends McpToolDescriptor> {
             return id == null && request.isObject() ? Optional.empty() : Optional.of(error(id, INVALID_REQUEST, "Invalid request"));
         }
         if (id == null) {
+            var requestId = request.path("params").get("requestId");
+            if ("notifications/cancelled".equals(request.path("method").asString()) && requestId != null && (requestId.isNumber() || requestId.isString())) {
+                tracking.cancelled(requestId.toString());
+            }
             return Optional.empty();
         }
         try {
             var response = mapper.createObjectNode().put("jsonrpc", "2.0");
             response.set("id", id);
-            response.set("result", dispatch(request.path("method").asString(), request.path("params"), toolCall));
+            response.set("result", dispatch(request.path("method").asString(), request.path("params"), toolCall, initializeInstructions, id, tracking));
             return Optional.of(mapper.writeValueAsString(response));
         } catch (RpcException e) {
             return Optional.of(error(id, e.code, e.getMessage()));
@@ -79,23 +117,23 @@ public abstract class McpJsonRpcServer<T extends McpToolDescriptor> {
         }
     }
 
-    private JsonNode dispatch(String method, JsonNode params, ToolCall<T> toolCall) {
+    private JsonNode dispatch(String method, JsonNode params, ToolCall<T> toolCall, Supplier<String> initializeInstructions, JsonNode id, Tracking tracking) {
         return switch (method) {
-            case "initialize" -> initialize(params);
+            case "initialize" -> initialize(params, initializeInstructions);
             case "ping" -> mapper.createObjectNode();
             case "tools/list" -> listTools();
-            case "tools/call" -> callTool(params, toolCall);
+            case "tools/call" -> callTool(params, toolCall, id, tracking);
             default -> throw new RpcException(METHOD_NOT_FOUND, "Method not found: " + method);
         };
     }
 
-    private ObjectNode initialize(JsonNode params) {
+    private ObjectNode initialize(JsonNode params, Supplier<String> initializeInstructions) {
         var requested = params.path("protocolVersion").asString("");
         var result = mapper.createObjectNode();
         result.put("protocolVersion", SUPPORTED_VERSIONS.contains(requested) ? requested : SUPPORTED_VERSIONS.getLast());
         result.putObject("capabilities").putObject("tools");
         result.putObject("serverInfo").put("name", serverName).put("version", SERVER_VERSION);
-        result.put("instructions", instructions);
+        result.put("instructions", initializeInstructions.get());
         return result;
     }
 
@@ -109,12 +147,12 @@ public abstract class McpJsonRpcServer<T extends McpToolDescriptor> {
         return result;
     }
 
-    private ObjectNode callTool(JsonNode params, ToolCall<T> toolCall) {
+    private ObjectNode callTool(JsonNode params, ToolCall<T> toolCall, JsonNode id, Tracking tracking) {
         var tool = tools.get(params.path("name").asString(""));
         if (tool == null) {
             throw new RpcException(INVALID_PARAMS, "Unknown tool: " + params.path("name").asString(""));
         }
-        try {
+        try (var ignored = tracking.started(tool.name(), id.toString())) {
             return toolResult(toolCall.call(tool, params.path("arguments")), false);
         } catch (IllegalArgumentException | IllegalStateException e) {
             return toolResult(e.getMessage(), true);

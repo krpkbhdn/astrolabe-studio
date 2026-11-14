@@ -8,6 +8,7 @@ import tools.jackson.databind.json.JsonMapper
 import tools.jackson.databind.node.ObjectNode
 
 const val SETTINGS_NAME = "settings"
+const val CODE_MODE_NAME = "code-mode"
 const val SKILL_FILE = "SKILL.md"
 
 private val mapper = JsonMapper.builder().build()
@@ -40,6 +41,13 @@ object PresetPayloads {
     fun settings(fragment: JsonNode): ObjectNode = mapper.createObjectNode().set("fragment", fragment)
 
     fun mcp(configJson: String): ObjectNode = mapper.createObjectNode().set("config", mapper.readTree(configJson))
+
+    fun codeMode(servers: List<String>): ObjectNode {
+        val node = mapper.createObjectNode()
+        val names = node.putArray("servers")
+        servers.forEach { names.add(it) }
+        return node
+    }
 }
 
 fun JsonNode.text(field: String): String = path(field).asString("")
@@ -89,3 +97,8 @@ fun folderNameProblem(name: String): String? = when {
     !folderName.matches(name.trim()) || name.contains("..") -> "Use letters, digits, '.', '_' or '-'"
     else -> null
 }
+
+fun JsonNode.serverNames(): List<String> = path("servers").toList().map { it.asString("") }
+
+/** The server box turned into names: trimmed, blanks dropped; duplicates and bad names are left for the backend to report. */
+fun parseServerNames(text: String): List<String> = text.lines().map { it.trim() }.filter { it.isNotEmpty() }

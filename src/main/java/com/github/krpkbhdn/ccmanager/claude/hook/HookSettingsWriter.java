@@ -5,6 +5,8 @@ import com.github.krpkbhdn.ccmanager.claude.install.ClaudeInstallationService;
 import com.github.krpkbhdn.ccmanager.claude.install.ClaudeVersion;
 import com.github.krpkbhdn.ccmanager.claude.mcp.AssistantMcpServer;
 import com.github.krpkbhdn.ccmanager.claude.mcp.McpEndpoint;
+import com.github.krpkbhdn.ccmanager.codemode.CodeModeProperties;
+import com.github.krpkbhdn.ccmanager.codemode.mcp.CodeModeEndpoint;
 import com.github.krpkbhdn.ccmanager.config.AppProperties;
 import com.github.krpkbhdn.ccmanager.workspace.TreeDeleter;
 import jakarta.annotation.PostConstruct;
@@ -14,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.Map;
@@ -26,6 +29,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 /** Writes the per-session files for claude: --settings (hooks, a statusLine that reports rate limits) and --mcp-config (cc-manager's own MCP server). */
@@ -42,6 +46,8 @@ public class HookSettingsWriter {
     private static final int HOOK_TIMEOUT_SECONDS = 5;
     /** These calls are held until the user answers; the hook timeout is HookProperties.decisionHold plus this margin. */
     private static final int DECISION_TIMEOUT_MARGIN_SECONDS = 10;
+    /** Claude Code's per-call limit for cc-manager-code must outlast the script limits so our own error texts name the real limit. */
+    private static final Duration CODE_MODE_TIMEOUT_MARGIN = Duration.ofSeconds(30);
     /** Claude Code that knows the hook {@code args} field (changelog 2.1.139); an older one would run the command bare and start a second app. */
     private static final String EXEC_FORM_SINCE = "2.1.139";
     /** WorktreeCreate replaces git behaviour, MessageDisplay is a token firehose, the rest never fire in sessions. */
@@ -57,11 +63,13 @@ public class HookSettingsWriter {
     private final int decisionTimeoutSeconds;
     private final HookHelperCommand helper;
     private final ClaudeInstallationService installation;
+    private final long codeModeTimeoutMillis;
     private final AtomicBoolean skipWarned = new AtomicBoolean();
 
     @Autowired
     public HookSettingsWriter(HookServer server, AppProperties properties, JsonMapper mapper, HookProperties hookProperties, HookHelperCommand helper,
-            ClaudeInstallationService installation) {
+            ClaudeInstallationService installation, CodeModeProperties codeModeProperties) {
+        this.codeModeTimeoutMillis = codeModeProperties.maxScriptTime().plus(CODE_MODE_TIMEOUT_MARGIN).toMillis();
         this.installation = installation;
         this.helper = helper;
         this.server = server;
@@ -103,7 +111,17 @@ public class HookSettingsWriter {
 
     /** [extraServers] join the MCP config; the app's own server name stays reserved. */
     public SessionFiles write(String ccmSessionId, Map<String, JsonNode> extraServers) {
-        return write(ccmSessionId, mcpConfig(McpEndpoint.SERVER_NAME, server.mcpUrl(ccmSessionId), HookServer.SESSION_TOKEN_ENV, extraServers));
+        return write(ccmSessionId, extraServers, CodeModeAccess.OFF);
+    }
+
+    /** With [codeMode] other than OFF the session also gets the Code Mode server and the listed servers are hidden from the model. */
+    public SessionFiles write(String ccmSessionId, Map<String, JsonNode> extraServers, CodeModeAccess codeMode) {
+        var config = mcpConfig(McpEndpoint.SERVER_NAME, server.mcpUrl(ccmSessionId), HookServer.SESSION_TOKEN_ENV, extraServers);
+        if (codeMode != CodeModeAccess.OFF) {
+            config.withObject("/mcpServers").putObject(CodeModeEndpoint.SERVER_NAME).put("type", "http").put("url", server.codeModeUrl(ccmSessionId))
+                    .put("timeout", codeModeTimeoutMillis).putObject("headers").put("Authorization", "Bearer ${" + HookServer.SESSION_TOKEN_ENV + "}");
+        }
+        return write(ccmSessionId, config, codeMode);
     }
 
     /**
@@ -112,7 +130,7 @@ public class HookSettingsWriter {
      * The token alone reaches only auto-approved tools, every other tool needs the user's Allow in the app.
      */
     public SessionFiles writeAssistant(String ccmSessionId) {
-        return write(ccmSessionId, mcpConfig(AssistantMcpServer.SERVER_NAME, server.assistantMcpUrl(), HookServer.ASSISTANT_TOKEN_ENV, Map.of()));
+        return write(ccmSessionId, mcpConfig(AssistantMcpServer.SERVER_NAME, server.assistantMcpUrl(), HookServer.ASSISTANT_TOKEN_ENV, Map.of()), CodeModeAccess.OFF);
     }
 
     /** Value of {@link HookServer#SESSION_TOKEN_ENV} for the process of every session whose files this writer wrote. */
@@ -125,12 +143,12 @@ public class HookSettingsWriter {
         return server.assistantMcpToken();
     }
 
-    private SessionFiles write(String ccmSessionId, ObjectNode mcpConfig) {
+    private SessionFiles write(String ccmSessionId, ObjectNode mcpConfig, CodeModeAccess codeMode) {
         var file = fileOf(ccmSessionId);
         var mcpFile = mcpFileOf(ccmSessionId);
         try {
             restrictToOwner(Files.createDirectories(hooksDir), "rwx------");
-            writeOwnerOnly(file, mapper.writeValueAsString(settings(ccmSessionId)));
+            writeOwnerOnly(file, mapper.writeValueAsString(settings(ccmSessionId, codeMode)));
             writeOwnerOnly(mcpFile, mapper.writeValueAsString(mcpConfig));
         } catch (IOException e) {
             throw new UncheckedIOException("Cannot write hook settings " + file, e);
@@ -169,6 +187,10 @@ public class HookSettingsWriter {
     }
 
     ObjectNode settings(String ccmSessionId) {
+        return settings(ccmSessionId, CodeModeAccess.OFF);
+    }
+
+    ObjectNode settings(String ccmSessionId, CodeModeAccess codeMode) {
         var hooks = mapper.createObjectNode();
         Arrays.stream(HookEventType.values())
                 .filter(type -> !NOT_SUBSCRIBED.contains(type))
@@ -180,8 +202,23 @@ public class HookSettingsWriter {
         var permissions = settings.putObject("permissions");
         permissions.putArray("allow")
                 .add("mcp__" + McpEndpoint.SERVER_NAME + "__" + LIST_RUN_CONFIGURATIONS_TOOL);
-        permissions.putArray("deny").add("Read(" + absoluteRule(hooksRoot) + "/**)");
+        var deny = permissions.putArray("deny");
+        deny.add("Read(" + absoluteRule(hooksRoot) + "/**)");
+        if (codeMode != CodeModeAccess.OFF) {
+            applyCodeMode(settings, permissions, deny, codeMode);
+        }
         return settings;
+    }
+
+    /** Only the read-only tools are pre-approved; execute keeps Claude's own permission dialog. */
+    private static void applyCodeMode(ObjectNode settings, ObjectNode permissions, ArrayNode deny, CodeModeAccess codeMode) {
+        var allow = (ArrayNode) permissions.get("allow");
+        allow.add("mcp__" + CodeModeEndpoint.SERVER_NAME + "__search_tools").add("mcp__" + CodeModeEndpoint.SERVER_NAME + "__list_servers");
+        codeMode.deniedServers().forEach(name -> deny.add("mcp__" + name));
+        if (!codeMode.hiddenProjectServers().isEmpty()) {
+            var hidden = settings.putArray("disabledMcpjsonServers");
+            codeMode.hiddenProjectServers().forEach(hidden::add);
+        }
     }
 
     private boolean execFormSupported(String ccmSessionId) {

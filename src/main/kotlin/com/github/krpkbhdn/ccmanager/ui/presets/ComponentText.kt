@@ -31,6 +31,7 @@ fun lineOf(component: PresetComponent): ComponentLine {
         }
         PresetComponentKind.FILE -> ComponentLine(payload.text("path").ifBlank { name }, fileSummary(payload))
         PresetComponentKind.SETTINGS -> ComponentLine("Project settings", settingsKeys(payload.path("fragment")))
+        PresetComponentKind.CODE_MODE -> ComponentLine("Code Mode", payload.serverNames().joinToString(", "))
     }
 }
 

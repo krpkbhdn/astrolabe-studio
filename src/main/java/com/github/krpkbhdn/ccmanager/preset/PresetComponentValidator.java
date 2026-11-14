@@ -1,7 +1,10 @@
 package com.github.krpkbhdn.ccmanager.preset;
 
+import com.github.krpkbhdn.ccmanager.codemode.ProjectCodeModeService;
+import com.github.krpkbhdn.ccmanager.config.NameRules;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.regex.Pattern;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -44,6 +47,7 @@ final class PresetComponentValidator {
             case INSTRUCTION -> instruction(cleanName, body);
             case SETTINGS -> settings(body);
             case FILE -> file(body);
+            case CODE_MODE -> codeMode(body);
         };
         if (normalised.toString().getBytes(StandardCharsets.UTF_8).length > MAX_PAYLOAD_BYTES) {
             throw new IllegalArgumentException("The component content is larger than " + MAX_PAYLOAD_BYTES / 1000 + " KB.");
@@ -159,6 +163,30 @@ final class PresetComponentValidator {
             }
             lines.add(line.asString().strip());
         }
+        return result;
+    }
+
+    private static ObjectNode codeMode(JsonNode body) {
+        requireObject(body);
+        var servers = body.path("servers");
+        if (!servers.isArray() || servers.isEmpty()) {
+            throw new IllegalArgumentException("Code Mode needs a list of MCP server names.");
+        }
+        if (servers.size() > ProjectCodeModeService.MAX_SERVERS) {
+            throw new IllegalArgumentException("At most " + ProjectCodeModeService.MAX_SERVERS + " servers are allowed.");
+        }
+        var names = new LinkedHashSet<String>();
+        for (var server : servers) {
+            if (!server.isString()) {
+                throw new IllegalArgumentException("A server name must be text.");
+            }
+            if (!names.add(NameRules.requireName(server.asString(), ProjectCodeModeService.MAX_SERVER_NAME))) {
+                throw new IllegalArgumentException("Server names must be unique.");
+            }
+        }
+        var result = MAPPER.createObjectNode();
+        var array = result.putArray("servers");
+        names.forEach(array::add);
         return result;
     }
 

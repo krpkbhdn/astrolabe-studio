@@ -159,4 +159,10 @@ class McpServerToolsTest {
         assertThat(new AddMcpServerTool(mcp, projects).autoApproved()).isFalse();
         assertThat(new RemoveMcpServerTool(mcp, projects).autoApproved()).isFalse();
     }
+
+    @Test
+    void scopePluginIsRejectedBecauseTheCliHasOnlyUserProjectAndLocal() {
+        assertThatThrownBy(() -> new RemoveMcpServerTool(mcp, projects).call(args("{\"name\":\"remote\",\"scope\":\"plugin\"}")))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("user, project or local").hasMessageContaining("plugin");
+    }
 }

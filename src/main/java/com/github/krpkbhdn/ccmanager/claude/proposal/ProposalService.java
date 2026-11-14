@@ -93,6 +93,12 @@ public class ProposalService implements DecisionHolder {
         return Optional.of(decision);
     }
 
+    /** True for a proposal held with {@link #holdForApp}: no terminal dialog exists for it, so dismissing denies it. */
+    public boolean isHeldForApp(String proposalId) {
+        var pending = held.get(proposalId);
+        return pending != null && pending.forApp();
+    }
+
     public List<Proposal> pending() {
         return held.values().stream().map(Held::proposal).sorted(Comparator.comparing(Proposal::createdAt)).toList();
     }

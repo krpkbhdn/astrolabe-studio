@@ -1,5 +1,6 @@
 package com.github.krpkbhdn.ccmanager.claude.launch;
 
+import com.github.krpkbhdn.ccmanager.claude.hook.CodeModeAccess;
 import com.github.krpkbhdn.ccmanager.claude.hook.HookSettingsWriter;
 import com.github.krpkbhdn.ccmanager.claude.hook.SessionFiles;
 import com.github.krpkbhdn.ccmanager.claude.install.ClaudeInstallation;
@@ -7,7 +8,11 @@ import com.github.krpkbhdn.ccmanager.claude.install.ClaudeInstallationService;
 import com.github.krpkbhdn.ccmanager.claude.mcp.AssistantMcpServer;
 import com.github.krpkbhdn.ccmanager.claude.plugin.ClaudePluginWriter;
 import com.github.krpkbhdn.ccmanager.claude.session.SessionRegistry;
+import com.github.krpkbhdn.ccmanager.codemode.ProjectCodeModeService;
 import com.github.krpkbhdn.ccmanager.config.AppProperties;
+import com.github.krpkbhdn.ccmanager.extension.ExtensionScope;
+import com.github.krpkbhdn.ccmanager.extension.mcp.McpConfigReader;
+import com.github.krpkbhdn.ccmanager.extension.mcp.McpServerConfig;
 import com.github.krpkbhdn.ccmanager.extension.mcp.ProjectMcpServers;
 import com.github.krpkbhdn.ccmanager.project.GroupWorkspace;
 import com.github.krpkbhdn.ccmanager.project.Project;
@@ -50,11 +55,16 @@ public class ClaudeLauncher {
     private final ProjectMcpServers projectMcpServers;
     private final AssistantMcpServer assistantMcp;
     private final WorkDirectories workDirectories;
+    private final ProjectCodeModeService codeModes;
+    private final McpConfigReader mcpConfigs;
 
     public ClaudeLauncher(ProjectService projects, ClaudeInstallationService installation,
             HookSettingsWriter hookSettings, ClaudePluginWriter plugin, SessionRegistry sessions, AppProperties properties,
             ProjectGroupService groups, GroupWorkspace groupWorkspace, ProjectMcpServers projectMcpServers,
-            AssistantMcpServer assistantMcp, WorkDirectories workDirectories) {
+            AssistantMcpServer assistantMcp, WorkDirectories workDirectories,
+            ProjectCodeModeService codeModes, McpConfigReader mcpConfigs) {
+        this.codeModes = codeModes;
+        this.mcpConfigs = mcpConfigs;
         this.assistantMcp = assistantMcp;
         this.workDirectories = workDirectories;
         this.dataDir = properties.dataDir();
@@ -174,7 +184,7 @@ public class ClaudeLauncher {
             }
             SessionFiles files = projectId == ASSISTANT_PROJECT_ID ? hookSettings.writeAssistant(ccmSessionId)
                     : group ? hookSettings.write(ccmSessionId, projectMcpServers.approved(memberPaths))
-                    : hookSettings.write(ccmSessionId);
+                    : writeProjectFiles(ccmSessionId, codeModeAccess(ccmSessionId, projectId, directory));
             List<String> command = new ArrayList<>(commandFactory.build(files, executable, modelSelection));
             if (group) {
                 ClaudeCommand.addDirectories(command, memberPaths);
@@ -194,6 +204,27 @@ public class ClaudeLauncher {
             cleanUp(ccmSessionId);
             log.warn("Claude failed to start in {}", directory, e);
             throw new IllegalStateException("Could not start Claude: " + e.getMessage(), e);
+        }
+    }
+
+    private SessionFiles writeProjectFiles(String ccmSessionId, CodeModeAccess codeMode) {
+        return codeMode == CodeModeAccess.OFF ? hookSettings.write(ccmSessionId) : hookSettings.write(ccmSessionId, Map.of(), codeMode);
+    }
+
+    /** Single-project sessions only; the Assistant and group sessions get no Code Mode in v1. A failure to read the setting means no Code Mode, never a failed launch. */
+    private CodeModeAccess codeModeAccess(String ccmSessionId, long projectId, Path directory) {
+        try {
+            var codeMode = codeModes.get(projectId);
+            if (!codeMode.enabled() || codeMode.servers().isEmpty()) {
+                return CodeModeAccess.OFF;
+            }
+            codeModes.rememberDirectory(ccmSessionId, directory);
+            var inProjectFile = mcpConfigs.read(directory).stream().filter(server -> server.scope() == ExtensionScope.PROJECT)
+                    .map(McpServerConfig::name).toList();
+            return new CodeModeAccess(codeMode.servers().stream().filter(inProjectFile::contains).toList(), codeMode.servers());
+        } catch (RuntimeException e) {
+            log.warn("Code Mode skipped for project {}: {}", projectId, e.getMessage());
+            return CodeModeAccess.OFF;
         }
     }
 
@@ -238,7 +269,7 @@ public class ClaudeLauncher {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } finally {
-            deleteSettings(ccmSessionId);
+            release(ccmSessionId);
         }
     }
 
@@ -246,8 +277,13 @@ public class ClaudeLauncher {
         try {
             sessions.markEnded(ccmSessionId, SPAWN_FAILED_EXIT_CODE);
         } finally {
-            deleteSettings(ccmSessionId);
+            release(ccmSessionId);
         }
+    }
+
+    private void release(String ccmSessionId) {
+        codeModes.forgetDirectory(ccmSessionId);
+        deleteSettings(ccmSessionId);
     }
 
     private void deleteSettings(String ccmSessionId) {

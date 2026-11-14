@@ -11,12 +11,14 @@ fun ExtensionScope.label(): String = when (this) {
     ExtensionScope.USER -> "User"
     ExtensionScope.PROJECT -> "Project"
     ExtensionScope.LOCAL -> "Local"
+    ExtensionScope.PLUGIN -> "Plugin"
 }
 
 fun ExtensionScope.description(): String = when (this) {
     ExtensionScope.USER -> "Every project of yours"
     ExtensionScope.PROJECT -> "Shared with the team through git"
     ExtensionScope.LOCAL -> "Only you, only in this project"
+    ExtensionScope.PLUGIN -> "Provided by an installed plugin"
 }
 
 /** Wording for choosing where to install. */
@@ -24,6 +26,7 @@ fun ExtensionScope.choiceLabel(): String = when (this) {
     ExtensionScope.USER -> "For you, in every project"
     ExtensionScope.PROJECT -> "This project, shared through git"
     ExtensionScope.LOCAL -> "This project, only you"
+    ExtensionScope.PLUGIN -> "Provided by a plugin"
 }
 
 @Composable
@@ -31,6 +34,7 @@ private fun ExtensionScope.tint(): Color = when (this) {
     ExtensionScope.USER -> colors.textSecondary
     ExtensionScope.PROJECT -> colors.accent
     ExtensionScope.LOCAL -> colors.warning
+    ExtensionScope.PLUGIN -> colors.textSecondary
 }
 
 @Composable

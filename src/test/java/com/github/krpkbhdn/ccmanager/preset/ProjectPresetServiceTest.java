@@ -403,4 +403,16 @@ class ProjectPresetServiceTest {
         assertThatThrownBy(() -> service.addComponent(id, PresetComponentKind.INSTRUCTION, "huge", JSON.createObjectNode().put("markdown", huge)))
                 .hasMessageContaining("larger than");
     }
+
+    @Test
+    void codeModeComponentRoundTripsThroughTheDatabase() {
+        var service = service();
+        var preset = service.create("cm", "");
+
+        service.addComponent(preset.id(), PresetComponentKind.CODE_MODE, "code-mode", json("{\"servers\":[\"a\",\"b\"]}"));
+        var component = service.get(preset.id()).orElseThrow().components().getFirst();
+
+        assertThat(component.kind()).isEqualTo(PresetComponentKind.CODE_MODE);
+        assertThat(component.payload().toString()).isEqualTo("{\"servers\":[\"a\",\"b\"]}");
+    }
 }

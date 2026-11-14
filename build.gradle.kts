@@ -10,7 +10,7 @@ plugins {
 }
 
 group = "com.github.krpkbhdn"
-version = "2.1.10"
+version = "2.2.0"
 
 java {
     toolchain {
@@ -37,6 +37,8 @@ dependencies {
     implementation("org.jetbrains.jewel:jewel-int-ui-standalone:0.41.0-262.10968.63")
     implementation("org.jetbrains.jewel:jewel-int-ui-decorated-window:0.41.0-262.10968.63")
     implementation("org.jetbrains.runtime:jbr-api:1.9.0")
+    implementation("org.graalvm.polyglot:polyglot:25.5.5.0.3")
+    runtimeOnly("org.graalvm.polyglot:js-community:25.5.5.0.3")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test")
@@ -55,6 +57,9 @@ val awtOpens: List<String> = buildList {
     }
 }
 
+/** GraalJS (Code Mode) loads a native library and uses Unsafe; JDK 25 warns about both without these. */
+val graalJsArgs = listOf("--enable-native-access=ALL-UNNAMED", "--sun-misc-unsafe-memory-access=allow")
+
 // Explicit override: claude does not count killed short dev runs as fullscreen start failures.
 val claudeFullscreen = mapOf("CLAUDE_CODE_NO_FLICKER" to "1")
 
@@ -63,7 +68,7 @@ tasks.test {
     useJUnitPlatform()
     maxParallelForks = (Runtime.getRuntime().availableProcessors() / 2).coerceIn(1, 4)
     // java.awt.event is opened only so the real-browser test can give synthetic key events the native rawCode CEF reads.
-    jvmArgs("--enable-native-access=ALL-UNNAMED", "--add-opens=java.desktop/java.awt.event=ALL-UNNAMED", *awtOpens.toTypedArray())
+    jvmArgs(graalJsArgs + "--add-opens=java.desktop/java.awt.event=ALL-UNNAMED" + awtOpens)
 }
 
 val jbrHome: Provider<File> = javaToolchains.launcherFor(java.toolchain).map { it.metadata.installationPath.asFile }
@@ -181,7 +186,7 @@ compose.desktop {
     application {
         mainClass = "com.github.krpkbhdn.ccmanager.ui.MainKt"
         javaHome = javaToolchains.launcherFor(java.toolchain).get().metadata.installationPath.asFile.absolutePath
-        jvmArgs += listOf("--enable-native-access=ALL-UNNAMED", "-Dcc-manager.update.version=$version") + awtOpens
+        jvmArgs += graalJsArgs + "-Dcc-manager.update.version=$version" + awtOpens
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe, TargetFormat.Deb, TargetFormat.Dmg)
             packageName = "Claude Code Manager"

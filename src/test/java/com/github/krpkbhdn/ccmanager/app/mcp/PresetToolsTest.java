@@ -90,6 +90,7 @@ class PresetToolsTest {
         addComponent(id, "FILE", "env-example", "\"path\":\".env.example\",\"content\":\"A=1\",\"gitignore\":[\".env\"]");
         addComponent(id, "MCP_SERVER", "db", "\"config\":{\"command\":\"npx\",\"env\":{\"TOKEN\":\"" + SECRET + "\"}}");
         addComponent(id, "SETTINGS", "settings", "\"fragment\":{\"env\":{\"K\":\"" + SECRET + "\"}}");
+        addComponent(id, "CODE_MODE", "code-mode", "\"servers\":[\"db\"]");
         addComponent(id, "MARKETPLACE", "mp", "\"source\":\"owner/repo\"");
         addComponent(id, "PLUGIN", "tool@mp", "\"source\":\"owner/repo\"");
 

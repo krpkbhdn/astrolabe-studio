@@ -3,6 +3,7 @@ package com.github.krpkbhdn.ccmanager.claude.hook;
 import com.github.krpkbhdn.ccmanager.claude.event.HookEventType;
 import com.github.krpkbhdn.ccmanager.claude.event.HookEvent;
 import com.github.krpkbhdn.ccmanager.claude.mcp.McpEndpoint;
+import com.github.krpkbhdn.ccmanager.codemode.mcp.CodeModeEndpoint;
 import com.github.krpkbhdn.ccmanager.claude.mcp.AssistantMcpServer;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -39,6 +40,7 @@ public class HookServer implements SmartLifecycle {
     private static final String CONTEXT_PATH = "/hook/";
     private static final String STATUS_LINE_CONTEXT_PATH = "/statusline/";
     private static final String MCP_CONTEXT_PATH = "/mcp/";
+    private static final String CODE_MODE_CONTEXT_PATH = "/code-mode/";
     private static final String ASSISTANT_MCP_PATH = "/assistant-mcp";
     /** Env variable of the Assistant process that carries the bearer token its mcp file refers to. */
     public static final String ASSISTANT_TOKEN_ENV = "CCM_ASSISTANT_TOKEN";
@@ -60,6 +62,7 @@ public class HookServer implements SmartLifecycle {
     private final HookProperties properties;
     private final McpEndpoint mcp;
     private final AssistantMcpServer assistantMcp;
+    private final CodeModeEndpoint codeMode;
     private final DecisionHolder proposals;
     private final DecisionHold decisionHold;
     private final HookPayloadParser parser;
@@ -71,12 +74,13 @@ public class HookServer implements SmartLifecycle {
     private ExecutorService requestExecutor;
 
     public HookServer(HookEventStore store, ApplicationEventPublisher publisher, JsonMapper mapper, HookProperties properties,
-            McpEndpoint mcp, AssistantMcpServer assistantMcp, DecisionHolder proposals) {
+            McpEndpoint mcp, AssistantMcpServer assistantMcp, CodeModeEndpoint codeMode, DecisionHolder proposals) {
         this.store = store;
         this.publisher = publisher;
         this.properties = properties;
         this.mcp = mcp;
         this.assistantMcp = assistantMcp;
+        this.codeMode = codeMode;
         this.proposals = proposals;
         this.decisionHold = new DecisionHold(proposals, properties);
         this.parser = new HookPayloadParser(mapper, properties);
@@ -102,6 +106,11 @@ public class HookServer implements SmartLifecycle {
     /** URL of the MCP server a session talks to; same bearer token, own path because it answers instead of just accepting. */
     public String mcpUrl(String ccmSessionId) {
         return hookUrl(ccmSessionId).replace(CONTEXT_PATH, MCP_CONTEXT_PATH);
+    }
+
+    /** URL of the Code Mode MCP server of a session; same bearer token as {@link #mcpUrl}, own path so the project server never lists its tools. */
+    public String codeModeUrl(String ccmSessionId) {
+        return hookUrl(ccmSessionId).replace(CONTEXT_PATH, CODE_MODE_CONTEXT_PATH);
     }
 
     /** URL of the app MCP server of the Assistant session; carries no secret, the bearer token is {@link #assistantMcpToken()}. */
@@ -134,6 +143,7 @@ public class HookServer implements SmartLifecycle {
         server.createContext(STATUS_LINE_CONTEXT_PATH, exchange -> serve(exchange, STATUS_LINE_CONTEXT_PATH,
                 (ex, id, body) -> respondToHook(ex, id, body, this::acceptStatusLine)));
         server.createContext(MCP_CONTEXT_PATH, exchange -> serve(exchange, MCP_CONTEXT_PATH, (ex, id, body) -> respondToMcp(ex, bytes -> mcp.handle(id, bytes), body)));
+        server.createContext(CODE_MODE_CONTEXT_PATH, exchange -> serve(exchange, CODE_MODE_CONTEXT_PATH, (ex, id, body) -> respondToMcp(ex, bytes -> codeMode.handle(id, bytes), body)));
         server.createContext(ASSISTANT_MCP_PATH, this::serveAssistantMcp);
         worker = new OrderedWorker("hook-worker", properties.maxQueuedCalls());
         persister = new OrderedWorker("hook-persister", properties.maxQueuedCalls());
