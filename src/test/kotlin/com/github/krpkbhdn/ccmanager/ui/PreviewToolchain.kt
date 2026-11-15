@@ -6,6 +6,8 @@ import com.github.krpkbhdn.ccmanager.toolchain.ToolInstallService.DownloadPlan
 import java.nio.file.Path
 import com.github.krpkbhdn.ccmanager.toolchain.ProjectToolsService
 import com.github.krpkbhdn.ccmanager.toolchain.ToolKind
+import com.github.krpkbhdn.ccmanager.toolchain.LspHealthMonitor
+import com.github.krpkbhdn.ccmanager.toolchain.LspSetupService
 import com.github.krpkbhdn.ccmanager.toolchain.ToolCatalog
 import com.github.krpkbhdn.ccmanager.toolchain.ToolInstallService
 import com.github.krpkbhdn.ccmanager.toolchain.ToolInstallService.InstallPlan
@@ -86,7 +88,7 @@ fun previewToolchain(): ToolchainBackend {
         else if (id == MANAGED_TOOL) InstallResult(Outcome.INSTALLED, 0, ToolStatus(id, ToolState.INSTALLED, "1.64.0", ""), "Installed Java 1.64.0")
         else InstallResult(Outcome.INSTALLED, 0, ToolStatus(id, ToolState.INSTALLED, "1.0.0", ""), "Installed $id")
     }
-    return ToolchainBackend(catalog, probe, installer, previewProjectTools(catalog, ::statusOf))
+    return ToolchainBackend(catalog, probe, installer, previewProjectTools(catalog, ::statusOf), mock(LspSetupService::class.java), mock(LspHealthMonitor::class.java))
 }
 
 private val previewDetected = setOf("typescript", "angular", "pyright")

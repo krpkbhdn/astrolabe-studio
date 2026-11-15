@@ -51,13 +51,24 @@ public final class ManagedToolInstaller {
     /** @param onOutput gets the whole progress text so far, the download percentage line replaced in place */
     public Installed install(ToolDefinition tool, DownloadSource source, Consumer<String> onOutput)
             throws IOException, InterruptedException {
+        return install(tool, source, onOutput, false);
+    }
+
+    /** Fetches and verifies a fresh copy even when the newest version is already installed; the old copy is replaced only after that, and restored if the swap fails. */
+    public Installed reinstall(ToolDefinition tool, DownloadSource source, Consumer<String> onOutput)
+            throws IOException, InterruptedException {
+        return install(tool, source, onOutput, true);
+    }
+
+    private Installed install(ToolDefinition tool, DownloadSource source, Consumer<String> onOutput, boolean repair)
+            throws IOException, InterruptedException {
         var log = new Progress(onOutput);
         directory.sweepStale(tool.id());
         log.line("Looking up the latest version of " + tool.name() + "...");
         var version = latestVersion(source.latest());
         var target = directory.versionDirectory(tool.id(), version);
         log.line("Latest version: " + version);
-        if (Files.exists(target.resolve(ManagedToolsDirectory.COMPLETE_MARKER))) {
+        if (!repair && Files.exists(target.resolve(ManagedToolsDirectory.COMPLETE_MARKER))) {
             if (launcherTargetExists(source.launcher(), target)) {
                 var launcher = writeLauncher(tool, source.launcher(), target);
                 log.line("Already up to date. Launcher: " + launcher);
@@ -68,13 +79,20 @@ public final class ManagedToolInstaller {
         var archiveUri = URI.create(source.archiveUrl().replace("{version}", version));
         var expectedChecksum = checksumText(URI.create(archiveUri + CHECKSUM_SUFFIX));
         var partial = target.resolveSibling(version + ".partial-" + UUID.randomUUID());
+        Path replaced;
         try {
             unpack(source.archive(), archiveUri, expectedChecksum, partial, log);
-            publish(partial, target, version);
+            replaced = publish(partial, target);
         } finally {
             ManagedToolsDirectory.deleteTree(partial);
         }
-        var launcher = publishLauncher(tool, source.launcher(), target);
+        Path launcher;
+        try {
+            launcher = publishLauncher(tool, source.launcher(), target);
+        } catch (IOException e) {
+            restore(tool, source.launcher(), replaced, target);
+            throw e;
+        }
         directory.markComplete(target);
         log.line("Launcher: " + launcher);
         directory.deleteOtherVersions(tool.id(), version);
@@ -134,12 +152,36 @@ public final class ManagedToolInstaller {
         }
     }
 
-    /** A folder left without the marker by a crash is moved aside, where the next cleanup removes it. */
-    private static void publish(Path partial, Path target, String version) throws IOException {
+    /** The folder already at the target is moved aside, not deleted, so a failed swap can bring it back; the next cleanup removes it. */
+    private static Path publish(Path partial, Path target) throws IOException {
+        Path aside = null;
         if (Files.exists(target)) {
-            Files.move(target, target.resolveSibling(version + ".partial-stale-" + UUID.randomUUID()), StandardCopyOption.ATOMIC_MOVE);
+            aside = target.resolveSibling(target.getFileName() + ".partial-stale-" + UUID.randomUUID());
+            Files.move(target, aside, StandardCopyOption.ATOMIC_MOVE);
         }
-        Files.move(partial, target, StandardCopyOption.ATOMIC_MOVE);
+        try {
+            Files.move(partial, target, StandardCopyOption.ATOMIC_MOVE);
+        } catch (IOException e) {
+            if (aside != null) {
+                Files.move(aside, target, StandardCopyOption.ATOMIC_MOVE);
+            }
+            throw e;
+        }
+        return aside;
+    }
+
+    /** Puts a complete folder that was moved aside back and rewrites its launcher; best effort, the install error is what gets reported. */
+    private void restore(ToolDefinition tool, LauncherSpec spec, Path aside, Path target) {
+        if (aside == null || !Files.exists(aside.resolve(ManagedToolsDirectory.COMPLETE_MARKER))) {
+            return;
+        }
+        try {
+            ManagedToolsDirectory.deleteTree(target);
+            Files.move(aside, target, StandardCopyOption.ATOMIC_MOVE);
+            writeLauncher(tool, spec, target);
+        } catch (IOException e) {
+            // the old copy stays in its folder; only its launcher may be stale
+        }
     }
 
     private Path writeLauncher(ToolDefinition tool, LauncherSpec spec, Path install) throws IOException {

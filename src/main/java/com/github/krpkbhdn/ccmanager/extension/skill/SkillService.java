@@ -146,11 +146,11 @@ public class SkillService {
     }
 
     private List<InstalledPlugin> activePlugins(Path projectDirectory) {
-        return plugins.installed().stream()
+        return plugins.installed(projectDirectory).stream()
                 .filter(InstalledPlugin::enabled)
                 .filter(plugin -> !plugin.installPath().toString().isEmpty())
                 .filter(plugin -> plugin.scope() == ExtensionScope.USER
-                        || projectDirectory != null && projectDirectory.equals(plugin.projectPath()))
+                        || projectDirectory != null && InstalledPlugin.sameDirectory(projectDirectory, plugin.projectPath()))
                 .toList();
     }
 

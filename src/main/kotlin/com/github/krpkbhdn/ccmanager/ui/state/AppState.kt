@@ -42,6 +42,9 @@ import com.github.krpkbhdn.ccmanager.ui.presets.PresetsState
 import com.github.krpkbhdn.ccmanager.ui.presets.apply.ApplyPresetState
 import com.github.krpkbhdn.ccmanager.ui.presets.apply.PresetOfferState
 import com.github.krpkbhdn.ccmanager.ui.teams.TeamsState
+import com.github.krpkbhdn.ccmanager.ui.projectsettings.DetectedTechState
+import com.github.krpkbhdn.ccmanager.ui.projectsettings.LspSetupState
+import com.github.krpkbhdn.ccmanager.ui.tools.InstallFlow
 import com.github.krpkbhdn.ccmanager.ui.tools.ToolsState
 import com.github.krpkbhdn.ccmanager.ui.usage.UsageState
 import com.github.krpkbhdn.ccmanager.ui.voice.VoiceSettingsState
@@ -201,7 +204,9 @@ class AppState(
     val settingsDialog = SettingsState()
     val voice: VoiceSettingsState? = voiceSettingsOf(backend.voice, scope, { settings }, prefs::update, notifications::reportError)
     val codeModeSettings = CodeModeSettingsState(backend.codeMode, scope) { notifications.reportError(it) }
-    val tools = ToolsState(backend.toolchain, scope, notifications::reportError)
+    val tools: ToolsState = ToolsState(backend.toolchain, scope, { lspSetup.running }, notifications::reportError)
+    val detectedTech = DetectedTechState(backend.toolchain?.health, scope)
+    val lspSetup: LspSetupState = LspSetupState(backend.toolchain?.lspSetup, scope, { tools.install != InstallFlow.Idle || tools.installRunning }, detectedTech::refresh, notifications::reportError)
     val update = UpdateState(backend.updates, scope, notifications::reportError, ::requestQuit) { exitApp() }
     var exitApp: () -> Unit = {}
     val agents = AgentsState(backend.transcripts, scope, { live }, ::showSessionTerminal)

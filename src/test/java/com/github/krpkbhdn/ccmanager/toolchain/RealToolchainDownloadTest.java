@@ -33,7 +33,7 @@ class RealToolchainDownloadTest {
         var pathBefore = System.getenv("PATH");
         var properties = new ToolchainProperties(Duration.ofSeconds(10), Duration.ofSeconds(60), Duration.ofMinutes(10),
                 Duration.ofSeconds(30), Duration.ofMinutes(30), Duration.ofSeconds(10), DataSize.ofGigabytes(1),
-                DataSize.ofGigabytes(4), 200000, Duration.ofSeconds(30));
+                DataSize.ofGigabytes(4), 200000, Duration.ofSeconds(30), 5, 2000, 500);
         var directory = new ManagedToolsDirectory(new AppProperties(dataDir));
         var host = new SystemHostEnvironment();
         var catalog = new ToolCatalog();

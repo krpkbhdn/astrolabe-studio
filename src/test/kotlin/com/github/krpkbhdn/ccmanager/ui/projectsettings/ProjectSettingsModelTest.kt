@@ -21,7 +21,7 @@ class ProjectSettingsModelTest {
 
     private val typescript = row("ts", ToolKind.LANGUAGE_SERVER, "Web")
     private val angular = row("angular", ToolKind.ADD_ON, "Web", base = "ts", detected = true)
-    private val vue = row("vue", ToolKind.ADD_ON, "Web", base = "ts", plugin = "")
+    private val vue = row("vue", ToolKind.ADD_ON, "Web", base = "ts", plugin = "", detected = true)
     private val go = row("gopls", ToolKind.LANGUAGE_SERVER, "Go")
 
     @Test
@@ -46,6 +46,33 @@ class ProjectSettingsModelTest {
         assertThat(web.rows.map { it.row.tool.id() }).containsExactly("ts")
         assertThat(web.rows.single().extras.map { it.row.tool.id() }).containsExactly("angular", "vue")
         assertThat(web.rows.single().extras.map { it.base?.tool?.id() }).containsOnly("ts")
+    }
+
+    @Test
+    fun `an add-on the project does not use is not listed under a detected base`() {
+        val extras = languageGroups(listOf(typescript, angular, vue.copy(detected = false))).single().rows.single().extras
+
+        assertThat(extras.map { it.row.tool.id() }).containsExactly("angular")
+    }
+
+    @Test
+    fun `a detected add-on shows although its base is not marked`() {
+        val groups = languageGroups(listOf(typescript, angular))
+
+        assertThat(groups.single().rows.single().extras.map { it.row.tool.id() }).containsExactly("angular")
+        assertThat(groups.single().rows.single().row.detected()).isFalse()
+    }
+
+    @Test
+    fun `two detected add-ons both nest and an undetected one stays out`() {
+        val extras = languageGroups(listOf(typescript, angular, vue)).single().rows.single().extras
+        assertThat(extras.map { it.row.tool.id() }).containsExactly("angular", "vue")
+    }
+
+    @Test
+    fun `an undetected base with only a detected add-on is shown and its group comes first`() {
+        val groups = languageGroups(listOf(go, typescript, angular))
+        assertThat(groups.map { it.title }).containsExactly("Web", "Go")
     }
 
     @Test
@@ -132,4 +159,6 @@ class ProjectSettingsModelTest {
     fun `a plain row with its own plugin has no chip`() {
         assertThat(pluginChipOf(LanguageRowView(typescript))).isNull()
     }
+
+    private fun ProjectToolRow.copy(detected: Boolean) = ProjectToolRow(tool, status, detected, pluginEnabled, userLevelEnabled)
 }

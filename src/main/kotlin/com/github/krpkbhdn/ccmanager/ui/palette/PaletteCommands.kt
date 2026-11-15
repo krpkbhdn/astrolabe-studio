@@ -5,6 +5,7 @@ import com.github.krpkbhdn.ccmanager.claude.launch.LaunchMode
 import com.github.krpkbhdn.ccmanager.claude.session.AgentStatus
 import com.github.krpkbhdn.ccmanager.project.Project
 import com.github.krpkbhdn.ccmanager.ui.icons.Icons
+import com.github.krpkbhdn.ccmanager.ui.projectsettings.ProjectSettingsSection
 import com.github.krpkbhdn.ccmanager.ui.run.RunEntry
 import com.github.krpkbhdn.ccmanager.ui.shortcuts.AppShortcut
 import com.github.krpkbhdn.ccmanager.ui.sessions.SessionsTab
@@ -130,6 +131,7 @@ private fun projectOnlyActions(state: AppState, project: Project, here: String):
         PaletteItem("open-ide", "Open in IDE", PaletteGroup.ACTIONS, here, Icons.Code) { state.environment.openIde(project) },
         PaletteItem("add-ide", "Add IDE...", PaletteGroup.ACTIONS, here, Icons.Code) { state.environment.ideDialogOpen = true },
         PaletteItem("project-settings", "Project settings", PaletteGroup.ACTIONS, "$here: model, languages, plugins, MCP servers, skills", Icons.Settings, shortcut = AppShortcut.PROJECT_SETTINGS) { state.extensions.openProjectSettings(project) },
+        PaletteItem("set-up-languages", "Set up languages", PaletteGroup.ACTIONS, here, Icons.Code) { state.extensions.openProjectSettings(project, ProjectSettingsSection.LANGUAGES) },
         state.runs.selectedOf(project.id)?.let { runItem(state, it, here) },
         state.runs.selectedOf(project.id)?.takeIf { it.running }?.let { entry -> PaletteItem("stop-run", "Stop ${entry.name}", PaletteGroup.ACTIONS, here, Icons.Stop) { state.runs.stop(entry.id) } },
         PaletteItem("show-run", "Show run console", PaletteGroup.ACTIONS, here, Icons.SquareTerminal) { state.select(project.id, ProjectTab.Run) },

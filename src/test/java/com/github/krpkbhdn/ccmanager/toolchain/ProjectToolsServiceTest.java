@@ -53,7 +53,7 @@ class ProjectToolsServiceTest {
                 .filter(tool -> tool.id().equals(call.getArgument(0))).findFirst());
         when(probe.probeAll()).thenReturn(List.of(status("go"), status("vue"), status("typescript")));
         when(plugins.marketplaces()).thenReturn(List.of(new Marketplace("claude-plugins-official", "github", "x", "y")));
-        when(plugins.installed()).thenReturn(List.of());
+        when(plugins.installed(DIR)).thenReturn(List.of());
     }
 
     @Test
@@ -67,7 +67,7 @@ class ProjectToolsServiceTest {
     @Test
     void pluginEnabledOnlyForEnabledProjectInstallation() {
         when(detector.detect(any(), any())).thenReturn(Set.of());
-        when(plugins.installed()).thenReturn(List.of(
+        when(plugins.installed(DIR)).thenReturn(List.of(
                 installed(TS_PLUGIN, true, DIR),
                 installed("gopls-lsp@claude-plugins-official", false, DIR)));
         var rows = service.rows(DIR);
@@ -97,7 +97,7 @@ class ProjectToolsServiceTest {
 
     @Test
     void enablingAnInstalledPluginTurnsItOn() {
-        when(plugins.installed()).thenReturn(List.of(installed(TS_PLUGIN, false, DIR)));
+        when(plugins.installed(DIR)).thenReturn(List.of(installed(TS_PLUGIN, false, DIR)));
         service.enableLsp(DIR, "typescript");
         verify(plugins).setEnabled(TS_PLUGIN, ExtensionScope.PROJECT, DIR, true);
         verify(plugins, never()).install(any(), any(), any());
@@ -105,14 +105,38 @@ class ProjectToolsServiceTest {
 
     @Test
     void disableTurnsTheProjectPluginOff() {
-        when(plugins.installed()).thenReturn(List.of(installed(TS_PLUGIN, true, DIR)));
+        when(plugins.installed(DIR)).thenReturn(List.of(installed(TS_PLUGIN, true, DIR)));
         service.disableLsp(DIR, "typescript");
         verify(plugins).setEnabled(TS_PLUGIN, ExtensionScope.PROJECT, DIR, false);
     }
 
     @Test
+    void disableTurnsALocalOnlyInstallationOffAtLocalScope() {
+        when(plugins.installed(DIR)).thenReturn(List.of(new InstalledPlugin(TS_PLUGIN, "1", ExtensionScope.LOCAL, true, null, DIR)));
+        service.disableLsp(DIR, "typescript");
+        verify(plugins).setEnabled(TS_PLUGIN, ExtensionScope.LOCAL, DIR, false);
+        verify(plugins, never()).setEnabled(TS_PLUGIN, ExtensionScope.PROJECT, DIR, false);
+    }
+
+    @Test
+    void disableTurnsEveryEnabledProjectAndLocalEntryOff() {
+        when(plugins.installed(DIR)).thenReturn(List.of(installed(TS_PLUGIN, true, DIR),
+                new InstalledPlugin(TS_PLUGIN, "1", ExtensionScope.LOCAL, true, null, DIR)));
+        service.disableLsp(DIR, "typescript");
+        verify(plugins).setEnabled(TS_PLUGIN, ExtensionScope.PROJECT, DIR, false);
+        verify(plugins).setEnabled(TS_PLUGIN, ExtensionScope.LOCAL, DIR, false);
+    }
+
+    @Test
+    void disableLeavesAUserLevelPluginAlone() {
+        when(plugins.installed(DIR)).thenReturn(List.of(userInstalled(TS_PLUGIN, true)));
+        service.disableLsp(DIR, "typescript");
+        verify(plugins, never()).setEnabled(any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
+    }
+
+    @Test
     void disablingAnAddOnWithoutOwnPluginLeavesTheBasePluginOn() {
-        when(plugins.installed()).thenReturn(List.of(installed(TS_PLUGIN, true, DIR)));
+        when(plugins.installed(DIR)).thenReturn(List.of(installed(TS_PLUGIN, true, DIR)));
         service.disableLsp(DIR, "vue");
         verify(plugins, never()).setEnabled(any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
     }
@@ -135,7 +159,7 @@ class ProjectToolsServiceTest {
     @Test
     void userLevelOnlyShowsFlagAndEnableDoesNothing() {
         when(detector.detect(any(), any())).thenReturn(Set.of());
-        when(plugins.installed()).thenReturn(List.of(userInstalled(TS_PLUGIN, true)));
+        when(plugins.installed(DIR)).thenReturn(List.of(userInstalled(TS_PLUGIN, true)));
         var rows = service.rows(DIR);
         assertThat(rows).filteredOn(row -> row.tool().id().equals("typescript"))
                 .allMatch(row -> row.userLevelEnabled() && !row.pluginEnabled());
@@ -150,7 +174,7 @@ class ProjectToolsServiceTest {
     @Test
     void bothScopesSetBothFlags() {
         when(detector.detect(any(), any())).thenReturn(Set.of());
-        when(plugins.installed()).thenReturn(List.of(userInstalled(TS_PLUGIN, true), installed(TS_PLUGIN, true, DIR)));
+        when(plugins.installed(DIR)).thenReturn(List.of(userInstalled(TS_PLUGIN, true), installed(TS_PLUGIN, true, DIR)));
         assertThat(service.rows(DIR)).filteredOn(row -> row.tool().id().equals("typescript"))
                 .allMatch(row -> row.userLevelEnabled() && row.pluginEnabled());
     }
@@ -175,7 +199,7 @@ class ProjectToolsServiceTest {
         var firstInside = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         var secondStarted = new AtomicBoolean();
-        when(plugins.installed()).thenReturn(List.of(installed(TS_PLUGIN, true, DIR)));
+        when(plugins.installed(DIR)).thenReturn(List.of(installed(TS_PLUGIN, false, DIR)), List.of(installed(TS_PLUGIN, true, DIR)));
         doAnswer(call -> {
             if (call.getArgument(3).equals(Boolean.FALSE)) {
                 secondStarted.set(true);
@@ -215,14 +239,107 @@ class ProjectToolsServiceTest {
     }
 
     @Test
+    void localEnabledInstallationCountsAsEnabledAndIsNeverWritten() {
+        when(detector.detect(any(), any())).thenReturn(Set.of());
+        var local = new InstalledPlugin(TS_PLUGIN, "1", ExtensionScope.LOCAL, true, null, DIR);
+        when(plugins.installed(DIR)).thenReturn(List.of(local));
+        assertThat(service.rows(DIR)).filteredOn(row -> row.tool().id().equals("typescript")).allMatch(ProjectToolRow::pluginEnabled);
+        service.enableLsp(DIR, "typescript");
+        verify(plugins, never()).install(any(), any(), any());
+        verify(plugins, never()).setEnabled(any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
+    }
+
+    @Test
+    void enabledProjectInstallationIsNotEnabledAgain() {
+        when(plugins.installed(DIR)).thenReturn(List.of(installed(TS_PLUGIN, true, DIR)));
+        service.enableLsp(DIR, "typescript");
+        verify(plugins, never()).setEnabled(any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
+    }
+
+    @Test
+    void projectPathIsComparedNormalised() {
+        when(detector.detect(any(), any())).thenReturn(Set.of());
+        when(plugins.installed(DIR)).thenReturn(List.of(installed(TS_PLUGIN, true, DIR.resolve("sub").resolve(".."))));
+        assertThat(service.rows(DIR)).filteredOn(row -> row.tool().id().equals("typescript")).allMatch(ProjectToolRow::pluginEnabled);
+    }
+
+    @Test
+    void detectedIsEmptyForAnEmptyFolder() {
+        when(detector.detect(any(), any())).thenReturn(Set.of());
+        assertThat(service.detected(DIR)).isEmpty();
+    }
+
+    @Test
+    void detectedMissingServerKeepsItsState() {
+        when(detector.detect(any(), any())).thenReturn(Set.of("go"));
+        when(probe.probe("go")).thenReturn(new ToolStatus("go", ToolState.MISSING, "", ""));
+        assertThat(service.detected(DIR)).containsExactly(new DetectedTechnology(go, ToolState.MISSING));
+    }
+
+    @Test
+    void detectedServersKeepTheirProbeState() {
+        when(detector.detect(any(), any())).thenReturn(Set.of("go", "typescript"));
+        when(probe.probe("go")).thenReturn(status("go"));
+        when(probe.probe("typescript")).thenReturn(new ToolStatus("typescript", ToolState.RESPONDING, "1", ""));
+        assertThat(service.detected(DIR)).containsExactly(new DetectedTechnology(go, ToolState.INSTALLED), new DetectedTechnology(typescript, ToolState.RESPONDING));
+    }
+
+    @Test
+    void detectedAddOnAlsoYieldsItsBaseTool() {
+        when(detector.detect(any(), any())).thenReturn(Set.of("vue", "typescript"));
+        when(probe.probe(any())).thenReturn(new ToolStatus("x", ToolState.FAILED, "", ""));
+        assertThat(service.detected(DIR)).extracting(found -> found.tool().id()).containsExactly("vue", "typescript");
+    }
+
+    @Test
+    void detectedNeverListsPrerequisitesNorTouchesPlugins() {
+        when(detector.detect(any(), any())).thenReturn(Set.of("node", "go"));
+        when(probe.probe(any())).thenReturn(status("go"));
+        assertThat(service.detected(DIR)).extracting(found -> found.tool().id()).containsExactly("go");
+        verifyNoInteractions(plugins);
+        verify(probe, never()).probeAll();
+        verify(probe, never()).probe("node");
+    }
+
+    @Test
     void enableAndDisableQueryInstalledPluginsOnce() {
-        when(plugins.installed()).thenReturn(List.of(installed(TS_PLUGIN, false, DIR)));
+        when(plugins.installed(DIR)).thenReturn(List.of(installed(TS_PLUGIN, false, DIR)));
 
         service.enableLsp(DIR, "typescript");
-        verify(plugins, org.mockito.Mockito.times(1)).installed();
+        verify(plugins, org.mockito.Mockito.times(1)).installed(DIR);
 
         org.mockito.Mockito.clearInvocations(plugins);
         service.disableLsp(DIR, "typescript");
-        verify(plugins, org.mockito.Mockito.times(1)).installed();
+        verify(plugins, org.mockito.Mockito.times(1)).installed(DIR);
+    }
+
+    @Test
+    void disableTurnsOffOnlyTheEnabledLocalEntryWhenProjectEntryIsAlreadyOff() {
+        when(plugins.installed(DIR)).thenReturn(List.of(installed(TS_PLUGIN, false, DIR),
+                new InstalledPlugin(TS_PLUGIN, "1", ExtensionScope.LOCAL, true, null, DIR)));
+        service.disableLsp(DIR, "typescript");
+        verify(plugins).setEnabled(TS_PLUGIN, ExtensionScope.LOCAL, DIR, false);
+        verify(plugins, never()).setEnabled(TS_PLUGIN, ExtensionScope.PROJECT, DIR, false);
+    }
+
+    @Test
+    void disableIgnoresEntriesOfAnotherProjectAndOtherPlugins() {
+        var other = DIR.resolveSibling("another-project");
+        when(plugins.installed(DIR)).thenReturn(List.of(installed(TS_PLUGIN, true, other),
+                new InstalledPlugin(TS_PLUGIN, "1", ExtensionScope.LOCAL, true, null, other),
+                installed("gopls-lsp@claude-plugins-official", true, DIR)));
+        service.disableLsp(DIR, "typescript");
+        verify(plugins, never()).setEnabled(any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
+    }
+
+    @Test
+    void anotherProjectsEnabledEntryDoesNotCountAsEnabledForRowsOrEnable() {
+        when(detector.detect(any(), any())).thenReturn(Set.of());
+        var other = DIR.resolveSibling("another-project");
+        when(plugins.installed(DIR)).thenReturn(List.of(installed(TS_PLUGIN, true, other)));
+        assertThat(service.rows(DIR)).filteredOn(row -> row.tool().id().equals("typescript")).noneMatch(ProjectToolRow::pluginEnabled);
+        when(plugins.install(any(), any(), any())).thenReturn(mock(com.github.krpkbhdn.ccmanager.extension.plugin.PluginInstallResult.class));
+        service.enableLsp(DIR, "typescript");
+        verify(plugins).install(TS_PLUGIN, ExtensionScope.PROJECT, DIR);
     }
 }

@@ -62,7 +62,7 @@ class FakePlugins : PluginService(mock(ClaudeCli::class.java), ExtensionProperti
         Marketplace("acme-internal", "git", "https://git.acme.dev/platform/claude-plugins.git", "C:/Users/dev/.claude/plugins/marketplaces/acme-internal"),
     )
 
-    override fun installed(): List<InstalledPlugin> = installs.toList()
+    override fun installed(projectDirectory: Path?): List<InstalledPlugin> = installs.toList()
 
     override fun available(): List<AvailablePlugin> = catalog
 

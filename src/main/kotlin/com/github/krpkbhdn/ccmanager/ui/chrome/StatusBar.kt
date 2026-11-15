@@ -21,6 +21,8 @@ import com.github.krpkbhdn.ccmanager.ui.components.Label
 import com.github.krpkbhdn.ccmanager.ui.components.Pressable
 import com.github.krpkbhdn.ccmanager.ui.components.StatusDot
 import com.github.krpkbhdn.ccmanager.ui.icons.Icons
+import com.github.krpkbhdn.ccmanager.ui.projectsettings.ProjectSettingsSection
+import com.github.krpkbhdn.ccmanager.ui.projectsettings.lspIndicatorOf
 import com.github.krpkbhdn.ccmanager.ui.state.AppState
 import com.github.krpkbhdn.ccmanager.ui.state.ProjectTab
 import com.github.krpkbhdn.ccmanager.ui.state.Route
@@ -47,6 +49,7 @@ fun StatusBar(state: AppState, modifier: Modifier = Modifier) {
         ) {
             Breadcrumb(state, Modifier.weight(1f))
             ContextMeterSegment(state)
+            LspIndicatorSegment(state)
             SessionCounters(state)
             state.environment.installation?.let { ClaudeSegment(it) }
         }
@@ -85,6 +88,15 @@ private fun ContextMeterSegment(state: AppState) {
         CompactAlert(view.percentText, commandBlockedReason(state.live.find(id), state.sessions.isAttached(id)), { state.requestCompactContext(id) }, { state.contextAlerts.dismiss(id) })
     }
     ContextMeter(view) { state.contextSessionId = id }
+}
+
+/** Language server health of the project on screen; absent for groups and projects with no detected language. */
+@Composable
+private fun LspIndicatorSegment(state: AppState) {
+    val route = state.route as? Route.Project ?: return
+    val project = state.projects.all.firstOrNull { it.id == route.id }?.takeUnless { it.group } ?: return
+    val indicator = lspIndicatorOf(state.detectedTech.of(project.id)) ?: return
+    LspChip(indicator) { state.extensions.openProjectSettings(project, ProjectSettingsSection.LANGUAGES) }
 }
 
 @Composable

@@ -40,7 +40,7 @@ class ToolProbeTest {
     private static final ToolchainProperties PROPERTIES =
             new ToolchainProperties(Duration.ofSeconds(5), Duration.ofSeconds(10), Duration.ofMinutes(10), Duration.ofSeconds(30),
                     Duration.ofMinutes(30), Duration.ofSeconds(10), DataSize.ofGigabytes(1), DataSize.ofGigabytes(4), 200_000,
-                    Duration.ofSeconds(30));
+                    Duration.ofSeconds(30), 5, 2000, 500);
 
     private Clock clock = Clock.systemUTC();
     private final LspHandshake handshake = mock(LspHandshake.class);

@@ -218,9 +218,12 @@ class HookSettingsWriterTest {
     void statusLineCommandRunsTheHelperAgainstTheStatusLineEndpoint() throws Exception {
         var statusLine = mapper.readTree(Files.readString(writer.write("abc-1").settings())).path("statusLine");
 
+        var tokenFile = ownDir().resolve("abc-1.token").toAbsolutePath().toString();
+        var tokenFileWord = tokenFile.indexOf('\\') >= 0 ? "'" + tokenFile + "'" : tokenFile;
+
         assertThat(statusLine.path("type").asString()).isEqualTo("command");
         assertThat(statusLine.path("command").asString())
-                .isEqualTo("/opt/ccm/ccm-app --post-hook " + STATUS_LINE_URL + " --token-file " + ownDir().resolve("abc-1.token").toAbsolutePath());
+                .isEqualTo("/opt/ccm/ccm-app --post-hook " + STATUS_LINE_URL + " --token-file " + tokenFileWord);
         assertThat(statusLine.path("command").asString()).doesNotContain(TOKEN);
     }
 

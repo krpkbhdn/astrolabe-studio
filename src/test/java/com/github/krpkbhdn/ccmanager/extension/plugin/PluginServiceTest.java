@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class PluginServiceTest {
 
@@ -103,6 +104,71 @@ class PluginServiceTest {
     }
 
     @Test
+    void installedListRunsInTheProjectDirectory(@TempDir Path directory) {
+        cli.answering("[]");
+
+        service.installed(directory);
+
+        assertThat(cli.lastCall()).containsExactly("plugin", "list", "--json");
+        assertThat(cli.directories).containsExactly(directory);
+    }
+
+    @Test
+    void installedListFallsBackToNoDirectoryWhenTheProjectFolderIsMissing(@TempDir Path existing) {
+        cli.answering("[]");
+
+        service.installed(existing.resolve("gone"));
+        service.installed(existing);
+
+        assertThat(cli.directories).containsExactly(null, existing);
+    }
+
+    @Test
+    void installedListWithoutProjectRunsWithoutDirectory() {
+        cli.answering("[]");
+
+        service.installed();
+
+        assertThat(cli.directories).containsExactly((Path) null);
+    }
+
+    @Test
+    void enablingWhatIsAlreadyEnabledIsNotAnError() {
+        cli.answering(1, "{\"success\":false,\"failureCode\":\"already_in_goal_state\"}", "");
+        service.setEnabled("a@m", ExtensionScope.PROJECT, PROJECT, true);
+
+        cli.answering(1, "", "Plugin \"a@m\" is already enabled");
+        service.setEnabled("a@m", ExtensionScope.PROJECT, PROJECT, true);
+
+        cli.answering(1, "", "Plugin \"a@m\" is already disabled");
+        service.setEnabled("a@m", ExtensionScope.PROJECT, PROJECT, false);
+    }
+
+    @Test
+    void alreadyInGoalStateTextOfAnotherPluginStaysAnError() {
+        cli.answering(1, "", "Plugin \"other@m\" is already enabled");
+
+        assertThatThrownBy(() -> service.setEnabled("a@m", ExtensionScope.PROJECT, PROJECT, true)).isInstanceOf(ExtensionException.class);
+    }
+
+    @Test
+    void alreadyInGoalStateTextNeverMakesInstallUninstallOrUpdateSucceed() {
+        cli.answering(1, "", "Plugin \"a@m\" is already enabled");
+
+        assertThatThrownBy(() -> service.install("a@m", ExtensionScope.USER, null)).isInstanceOf(ExtensionException.class);
+        assertThatThrownBy(() -> service.uninstall("a@m", ExtensionScope.USER, null)).isInstanceOf(ExtensionException.class);
+        assertThatThrownBy(() -> service.update("a@m", ExtensionScope.USER, null)).isInstanceOf(ExtensionException.class);
+    }
+
+    @Test
+    void otherEnableFailuresStayErrors() {
+        cli.answering(1, "", "Plugin \"a@m\" not found");
+
+        assertThatThrownBy(() -> service.setEnabled("a@m", ExtensionScope.PROJECT, PROJECT, true))
+                .isInstanceOf(ExtensionException.class).hasMessageContaining("not found");
+    }
+
+    @Test
     void availableCatalogueIsFetchedOnceUntilRefreshed() {
         cli.answering("{\"available\":[{\"pluginId\":\"x@m\",\"name\":\"x\"}]}");
 
@@ -170,5 +236,24 @@ class PluginServiceTest {
             return arguments.contains("--json") ? new CommandRunner.Result(1, "", stderr, false)
                     : new CommandRunner.Result(0, "installed", "", false);
         }
+    }
+
+    @Test
+    void alreadyEnabledTextOnStdoutAndOtherFailureCodesAreHandledExactly() {
+        cli.answering(1, "Plugin \"a@m\" is already enabled", "");
+        service.setEnabled("a@m", ExtensionScope.PROJECT, PROJECT, true);
+
+        cli.answering(1, "{\"success\":false,\"failureCode\":\"not_found\"}", "");
+        assertThatThrownBy(() -> service.setEnabled("a@m", ExtensionScope.PROJECT, PROJECT, true)).isInstanceOf(ExtensionException.class);
+    }
+
+    @Test
+    void installedListFallsBackToNoDirectoryForAFile(@TempDir Path folder) throws Exception {
+        cli.answering("[]");
+        var file = java.nio.file.Files.writeString(folder.resolve("f.txt"), "x");
+
+        service.installed(file);
+
+        assertThat(cli.directories).containsExactly((Path) null);
     }
 }

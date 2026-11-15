@@ -44,18 +44,24 @@ class ToolchainPropertiesTest {
         var one = Duration.ofSeconds(1);
         var size = DataSize.ofMegabytes(1);
 
-        assertThatThrownBy(() -> new ToolchainProperties(one, one, one, one, Duration.ZERO, one, size, size, 1, one))
+        assertThatThrownBy(() -> new ToolchainProperties(one, one, one, one, Duration.ZERO, one, size, size, 1, one, 5, 2000, 500))
                 .hasMessageContaining("download-timeout");
-        assertThatThrownBy(() -> new ToolchainProperties(one, one, one, one, one, one, DataSize.ofBytes(0), size, 1, one))
+        assertThatThrownBy(() -> new ToolchainProperties(one, one, one, one, one, one, DataSize.ofBytes(0), size, 1, one, 5, 2000, 500))
                 .hasMessageContaining("max-download-size");
-        assertThatThrownBy(() -> new ToolchainProperties(one, one, one, one, one, one, size, size, 0, one))
+        assertThatThrownBy(() -> new ToolchainProperties(one, one, one, one, one, one, size, size, 0, one, 5, 2000, 500))
                 .hasMessageContaining("max-archive-entries");
-        assertThatThrownBy(() -> new ToolchainProperties(one, one, one, one, one, one, size, size, 1, Duration.ZERO))
+        assertThatThrownBy(() -> new ToolchainProperties(one, one, one, one, one, one, size, size, 1, Duration.ZERO, 5, 2000, 500))
                 .hasMessageContaining("metadata-timeout");
+        assertThatThrownBy(() -> new ToolchainProperties(one, one, one, one, one, one, size, size, 1, one, 0, 2000, 500))
+                .hasMessageContaining("max-scan-depth");
+        assertThatThrownBy(() -> new ToolchainProperties(one, one, one, one, one, one, size, size, 1, one, 5, 0, 500))
+                .hasMessageContaining("max-scan-folders");
+        assertThatThrownBy(() -> new ToolchainProperties(one, one, one, one, one, one, size, size, 1, one, 5, 2000, 0))
+                .hasMessageContaining("max-folder-entries");
     }
 
     private static ToolchainProperties with(Duration version, Duration handshake, Duration install, Duration ttl) {
         var size = DataSize.ofMegabytes(1);
-        return new ToolchainProperties(version, handshake, install, ttl, Duration.ofSeconds(1), Duration.ofSeconds(1), size, size, 1, Duration.ofSeconds(1));
+        return new ToolchainProperties(version, handshake, install, ttl, Duration.ofSeconds(1), Duration.ofSeconds(1), size, size, 1, Duration.ofSeconds(1), 5, 2000, 500);
     }
 }

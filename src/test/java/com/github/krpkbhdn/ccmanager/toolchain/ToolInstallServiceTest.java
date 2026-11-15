@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 import com.github.krpkbhdn.ccmanager.toolchain.ToolInstallService.InstallRunner;
@@ -318,6 +320,77 @@ class ToolInstallServiceTest {
         assertThat(installed.message()).isEqualTo("Install cancelled");
         assertThat(Thread.interrupted()).isTrue();
         assertThat(service().isInstalling()).isFalse();
+    }
+
+    @Test
+    void reinstallUsesTheRepairPathOfTheManagedInstaller() throws Exception {
+        registerDownloadTool();
+        when(installer.reinstall(any(), any(), any())).thenReturn(new ManagedToolInstaller.Installed("1.2", false, Path.of("l")));
+
+        var repaired = service().reinstall("dl");
+
+        assertThat(repaired.outcome()).isEqualTo(Outcome.INSTALLED);
+        verify(installer, never()).install(any(), any(), any());
+    }
+
+    @Test
+    void failedReinstallIsReportedAndNothingIsUninstalled() throws Exception {
+        registerDownloadTool();
+        var version = directory.versionDirectory("dl", "1.0");
+        Files.createDirectories(version);
+        directory.markComplete(version);
+        when(installer.reinstall(any(), any(), any())).thenThrow(new IOException("offline"));
+
+        var repaired = service().reinstall("dl");
+
+        assertThat(repaired.outcome()).isEqualTo(Outcome.FAILED);
+        assertThat(service().isManaged("dl")).isTrue();
+    }
+
+    @Test
+    void reinstallOfACommandInstalledToolIsBlocked() {
+        assertThat(service().reinstall("ts").outcome()).isEqualTo(Outcome.BLOCKED);
+        assertThat(started).isEmpty();
+    }
+
+    @Test
+    void reinstallWhileAnotherInstallRunsIsBlockedWithoutTouchingTheInstaller() throws Exception {
+        registerDownloadTool();
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        when(installer.install(any(), any(), any())).thenAnswer(call -> {
+            entered.countDown();
+            release.await();
+            return new ManagedToolInstaller.Installed("1.2", false, Path.of("l"));
+        });
+        var service = service();
+        try (var pool = Executors.newSingleThreadExecutor()) {
+            var first = pool.submit(() -> service.install("dl", line -> {}));
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+
+            assertThat(service.reinstall("dl").outcome()).isEqualTo(Outcome.BLOCKED);
+            release.countDown();
+            first.get(5, TimeUnit.SECONDS);
+        }
+        verify(installer, never()).reinstall(any(), any(), any());
+    }
+
+    @Test
+    void onlyTheLauncherInTheManagedBinFolderCountsAsTheManagedCopy() throws Exception {
+        registerDownloadTool();
+        var version = directory.versionDirectory("dl", "1.0");
+        Files.createDirectories(version);
+        directory.markComplete(version);
+        var managedLauncher = directory.binDirectory().resolve("dl");
+        var pathCopy = Path.of("usr", "bin").toAbsolutePath().resolve("dl");
+        when(host.pathDirectories()).thenReturn(List.of(pathCopy.getParent()));
+        when(host.isFile(any())).thenAnswer(call -> pathCopy.equals(call.getArgument(0)));
+        var service = new ToolInstallService(catalog, probe, new ExecutableLookup(host, directory), host, properties, runner, directory, installer);
+
+        assertThat(service.runsManagedLauncher("dl")).isFalse();
+
+        when(host.isFile(any())).thenAnswer(call -> managedLauncher.equals(call.getArgument(0)));
+        assertThat(service.runsManagedLauncher("dl")).isTrue();
     }
 
     @Test

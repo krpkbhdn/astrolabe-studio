@@ -18,10 +18,10 @@ data class LanguageGroupView(val title: String, val detected: Boolean, val rows:
 
 data class ToggleView(val checked: Boolean, val enabled: Boolean, val note: String?)
 
-/** Groups of the catalog in catalog order, those the project uses first; add-ons nest under their base language server. */
+/** Groups of the catalog in catalog order, those the project uses first; add-ons nest under their base language server and only when the project uses them. */
 fun languageGroups(rows: List<ProjectToolRow>): List<LanguageGroupView> {
     val nesting = nestAddOns(rows) { it.tool }
-    fun view(row: ProjectToolRow) = LanguageRowView(row, extras = nesting.extrasOf(row).map { LanguageRowView(it, base = row) })
+    fun view(row: ProjectToolRow) = LanguageRowView(row, extras = nesting.extrasOf(row).filter { it.detected() }.map { LanguageRowView(it, base = row) })
     return nesting.topLevel
         .groupBy { it.tool.group() }
         .map { (title, members) -> members.map(::view).let { views -> LanguageGroupView(title, views.any(::usedByProject), views) } }

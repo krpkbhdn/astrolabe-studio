@@ -18,7 +18,10 @@ public record ToolchainProperties(
         @DefaultValue("1GB") DataSize maxDownloadSize,
         @DefaultValue("4GB") DataSize maxUnpackedSize,
         @DefaultValue("200000") int maxArchiveEntries,
-        @DefaultValue("30s") Duration metadataTimeout) {
+        @DefaultValue("30s") Duration metadataTimeout,
+        @DefaultValue("5") int maxScanDepth,
+        @DefaultValue("2000") int maxScanFolders,
+        @DefaultValue("500") int maxFolderEntries) {
 
     public ToolchainProperties {
         positive("cc-manager.toolchain.version-timeout", versionTimeout);
@@ -31,5 +34,8 @@ public record ToolchainProperties(
         positive("cc-manager.toolchain.max-unpacked-size", maxUnpackedSize.toBytes());
         positive("cc-manager.toolchain.max-archive-entries", maxArchiveEntries);
         positive("cc-manager.toolchain.metadata-timeout", metadataTimeout);
+        positive("cc-manager.toolchain.max-scan-depth", maxScanDepth);
+        positive("cc-manager.toolchain.max-scan-folders", maxScanFolders);
+        positive("cc-manager.toolchain.max-folder-entries", maxFolderEntries);
     }
 }

@@ -62,6 +62,7 @@ class PluginsState(
     private val scope: CoroutineScope,
     private val confirm: (ConfirmRequest) -> Unit,
     private val notify: (NotificationKind, String, String) -> Unit,
+    private val projectDir: Path? = null,
 ) {
     var installed by mutableStateOf<List<InstalledPlugin>>(emptyList())
         private set
@@ -212,7 +213,7 @@ class PluginsState(
     }
 
     private fun keyOfInstalled(command: PendingCommand) =
-        installed.firstOrNull { it.id == command.pluginId && it.scope == command.scope && it.projectPath == command.projectPath }?.key() ?: installKey(command.pluginId)
+        installed.firstOrNull { it.id == command.pluginId && it.scope == command.scope && InstalledPlugin.sameDirectory(it.projectPath, command.projectPath) }?.key() ?: installKey(command.pluginId)
 
     private fun startCommand(action: PendingAction, pluginId: String, target: ExtensionScope, projectPath: Path?, key: String, call: () -> PluginInstallResult) {
         val name = pluginName(pluginId)
@@ -228,7 +229,7 @@ class PluginsState(
 
     private class Snapshot(val installed: List<InstalledPlugin>, val marketplaces: List<Marketplace>)
 
-    private fun snapshot() = Snapshot(service.installed(), service.marketplaces())
+    private fun snapshot() = Snapshot(service.installed(projectDir), service.marketplaces())
 
     private fun apply(snapshot: Snapshot) {
         installed = snapshot.installed

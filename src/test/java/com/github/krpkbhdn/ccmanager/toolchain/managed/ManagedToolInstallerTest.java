@@ -41,7 +41,7 @@ class ManagedToolInstallerTest {
 
     private static final ToolchainProperties PROPERTIES = new ToolchainProperties(Duration.ofSeconds(5), Duration.ofSeconds(10),
             Duration.ofMinutes(10), Duration.ofSeconds(30), Duration.ofMinutes(30), Duration.ofSeconds(10), DataSize.ofGigabytes(1),
-            DataSize.ofGigabytes(4), 200_000, Duration.ofSeconds(30));
+            DataSize.ofGigabytes(4), 200_000, Duration.ofSeconds(30), 5, 2000, 500);
     private static final ToolDefinition TOOL = new ToolDefinition("demo", "Demo", "g", ToolKind.LANGUAGE_SERVER, "demo", List.of(),
             "", "", "", List.of(), Map.of(), "", Map.of(), Map.of());
 
@@ -250,6 +250,83 @@ class ManagedToolInstallerTest {
 
         assertThat(directory.installedVersion("demo")).contains("1.0.0");
         assertThat(directory.versionDirectory("demo", "1.1.0")).doesNotExist();
+    }
+
+    @Test
+    void reinstallOfTheSameVersionFetchesAFreshCopyAndLeavesOneFolder() throws Exception {
+        installer.install(TOOL, zipSource(), line -> {});
+        var binary = directory.versionDirectory("demo", "1.0.0").resolve("bin/demo");
+        Files.writeString(binary, "broken");
+
+        var repaired = installer.reinstall(TOOL, zipSource(), line -> {});
+
+        assertThat(repaired.upToDate()).isFalse();
+        assertThat(archiveRequests).hasValue(2);
+        assertThat(binary).hasContent("one");
+        assertThat(directory.installedVersion("demo")).contains("1.0.0");
+        assertThat(entries(directory.root().resolve("demo"))).containsExactlyInAnyOrder("1.0.0", "state");
+    }
+
+    @Test
+    void failedReinstallDownloadLeavesTheOldInstallationUntouched() throws Exception {
+        installer.install(TOOL, zipSource(), line -> {});
+        var binary = directory.versionDirectory("demo", "1.0.0").resolve("bin/demo");
+        Files.writeString(binary, "old");
+        checksumOverride.set("0".repeat(64) + "  demo.zip");
+
+        assertThatThrownBy(() -> installer.reinstall(TOOL, zipSource(), line -> {})).isInstanceOf(IOException.class);
+
+        assertThat(binary).hasContent("old");
+        assertThat(directory.installedVersion("demo")).contains("1.0.0");
+        assertThat(directory.binDirectory().resolve("demo")).exists();
+    }
+
+    @Test
+    void reinstallThatCannotWriteTheLauncherRestoresTheOldFolder() throws Exception {
+        installer.install(TOOL, zipSource(), line -> {});
+        var binary = directory.versionDirectory("demo", "1.0.0").resolve("bin/demo");
+        Files.writeString(binary, "old");
+        var launcher = directory.binDirectory().resolve("demo");
+        Files.delete(launcher);
+        Files.createDirectories(launcher.resolve("blocker"));
+
+        assertThatThrownBy(() -> installer.reinstall(TOOL, zipSource(), line -> {})).isInstanceOf(IOException.class);
+
+        assertThat(binary).hasContent("old");
+        assertThat(directory.installedVersion("demo")).contains("1.0.0");
+        assertThat(entries(directory.root().resolve("demo"))).containsExactlyInAnyOrder("1.0.0", "state");
+    }
+
+    @Test
+    void interruptedReinstallKeepsTheOldInstallationAndLeavesNoPartialFolder() throws Exception {
+        installer.install(TOOL, zipSource(), line -> {});
+        var binary = directory.versionDirectory("demo", "1.0.0").resolve("bin/demo");
+        Files.writeString(binary, "old");
+
+        assertThatThrownBy(() -> installer.reinstall(TOOL, zipSource(), text -> {
+            if (text.contains("Checksum verified")) {
+                Thread.currentThread().interrupt();
+            }
+        })).isInstanceOf(InterruptedException.class);
+
+        assertThat(Thread.interrupted()).isFalse();
+        assertThat(binary).hasContent("old");
+        assertThat(directory.installedVersion("demo")).contains("1.0.0");
+        assertThat(entries(directory.root().resolve("demo"))).containsExactlyInAnyOrder("1.0.0", "state");
+        assertThat(entries(directory.downloadsDirectory())).isEmpty();
+    }
+
+    @Test
+    void failedReinstallLauncherWriteLeavesNoStaleAsideFolderAndKeepsTheOldMarker() throws Exception {
+        installer.install(TOOL, zipSource(), line -> {});
+        var launcher = directory.binDirectory().resolve("demo");
+        Files.delete(launcher);
+        Files.createDirectories(launcher.resolve("blocker"));
+
+        assertThatThrownBy(() -> installer.reinstall(TOOL, zipSource(), line -> {})).isInstanceOf(IOException.class);
+
+        assertThat(directory.versionDirectory("demo", "1.0.0").resolve(ManagedToolsDirectory.COMPLETE_MARKER)).exists();
+        assertThat(entries(directory.root().resolve("demo"))).noneMatch(name -> name.contains("partial"));
     }
 
     @Test

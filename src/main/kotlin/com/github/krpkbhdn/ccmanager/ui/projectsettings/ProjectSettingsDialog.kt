@@ -122,7 +122,7 @@ private fun SectionRow(section: ProjectSettingsSection, selected: Boolean, count
 private fun SectionPage(state: ProjectSettingsState, app: AppState) {
     when (state.section) {
         ProjectSettingsSection.GENERAL -> GeneralPage(app, state.context.id)
-        ProjectSettingsSection.LANGUAGES -> LanguagesPage(state.languages, app.tools)
+        ProjectSettingsSection.LANGUAGES -> app.projects.all.firstOrNull { it.id == state.context.id }?.let { LanguagesPage(state.languages, app.tools, app.lspSetup, app.detectedTech, it) }
         ProjectSettingsSection.PLUGINS -> PluginsPage(state.context, state.plugins)
         ProjectSettingsSection.MCP -> McpPage(state.context, state.mcp)
         ProjectSettingsSection.SKILLS -> SkillsPage(state.context, state.skills)

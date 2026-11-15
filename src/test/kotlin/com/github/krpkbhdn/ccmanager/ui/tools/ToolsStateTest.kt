@@ -1,5 +1,7 @@
 package com.github.krpkbhdn.ccmanager.ui.tools
 
+import com.github.krpkbhdn.ccmanager.toolchain.LspHealthMonitor
+import com.github.krpkbhdn.ccmanager.toolchain.LspSetupService
 import com.github.krpkbhdn.ccmanager.toolchain.ProjectToolsService
 import com.github.krpkbhdn.ccmanager.toolchain.ToolCatalog
 import com.github.krpkbhdn.ccmanager.toolchain.ToolDefinition
@@ -46,7 +48,7 @@ class ToolsStateTest {
 
     private fun state(blocker: String? = null): ToolsState {
         `when`(installer.plan(anyString())).thenAnswer { Optional.of(plan(blocker)) }
-        return ToolsState(ToolchainBackend(catalog, probe, installer, mock(ProjectToolsService::class.java)), scope) { title, _ -> errors += title }
+        return ToolsState(ToolchainBackend(catalog, probe, installer, mock(ProjectToolsService::class.java), mock(LspSetupService::class.java), mock(LspHealthMonitor::class.java)), scope) { title, _ -> errors += title }
     }
 
     private fun ToolsState.loaded(): ToolsState {
@@ -87,6 +89,7 @@ class ToolsStateTest {
         tools.requestInstall("a")
         tools.confirmInstall()
         await { tools.install is InstallFlow.Done }
+        assertThat(tools.statuses["a"]?.state).isEqualTo(ToolState.INSTALLED)
 
         tools.checkAll()
         await { tools.statuses["a"]?.state == ToolState.MISSING }
@@ -155,7 +158,7 @@ class ToolsStateTest {
     @Test
     fun `a plan without an automatic command opens the manual dialog and never runs`() {
         `when`(installer.plan(anyString())).thenAnswer { Optional.of(InstallPlan(tool, listOf(), "", Optional.empty(), "brew install a", Optional.empty())) }
-        val tools = ToolsState(ToolchainBackend(catalog, probe, installer, mock(ProjectToolsService::class.java)), scope) { title, _ -> errors += title }.loaded()
+        val tools = ToolsState(ToolchainBackend(catalog, probe, installer, mock(ProjectToolsService::class.java), mock(LspSetupService::class.java), mock(LspHealthMonitor::class.java)), scope) { title, _ -> errors += title }.loaded()
 
         tools.requestInstall("a")
 
@@ -168,7 +171,7 @@ class ToolsStateTest {
     fun `a download plan opens the confirm step`() {
         val download = ToolInstallService.DownloadPlan("h", "https://h/latest", "https://h/{version}.zip", Path.of("tools", "a"), LauncherSpec(LauncherSpec.Kind.BINARY, "bin/a"))
         `when`(installer.plan(anyString())).thenAnswer { Optional.of(InstallPlan(tool, listOf(), "", Optional.empty(), "", Optional.of(download))) }
-        val tools = ToolsState(ToolchainBackend(catalog, probe, installer, mock(ProjectToolsService::class.java)), scope) { title, _ -> errors += title }.loaded()
+        val tools = ToolsState(ToolchainBackend(catalog, probe, installer, mock(ProjectToolsService::class.java), mock(LspSetupService::class.java), mock(LspHealthMonitor::class.java)), scope) { title, _ -> errors += title }.loaded()
 
         tools.requestInstall("a")
 
@@ -212,5 +215,35 @@ class ToolsStateTest {
 
         await { tools.install is InstallFlow.Done }
         assertThat(tools.statuses).doesNotContainKey("a")
+    }
+
+    @Test
+    fun `install and uninstall requests are refused while the blocked lambda is true`() {
+        `when`(installer.plan(anyString())).thenAnswer { Optional.of(plan()) }
+        `when`(installer.isManaged(anyString())).thenReturn(true)
+        var blocked = true
+        val tools = ToolsState(ToolchainBackend(catalog, probe, installer, mock(ProjectToolsService::class.java), mock(LspSetupService::class.java), mock(LspHealthMonitor::class.java)), scope, { blocked }) { title, _ -> errors += title }.loaded()
+
+        tools.requestInstall("a")
+        tools.requestUninstall("a")
+        assertThat(tools.install).isEqualTo(InstallFlow.Idle)
+
+        blocked = false
+        tools.requestInstall("a")
+        assertThat(tools.install).isInstanceOf(InstallFlow.Confirm::class.java)
+    }
+
+    @Test
+    fun `confirming an install is refused when a setup took over after the request`() {
+        `when`(installer.plan(anyString())).thenAnswer { Optional.of(plan()) }
+        var blocked = false
+        val tools = ToolsState(ToolchainBackend(catalog, probe, installer, mock(ProjectToolsService::class.java), mock(LspSetupService::class.java), mock(LspHealthMonitor::class.java)), scope, { blocked }) { title, _ -> errors += title }.loaded()
+        tools.requestInstall("a")
+
+        blocked = true
+        tools.confirmInstall()
+
+        assertThat(tools.install).isInstanceOf(InstallFlow.Confirm::class.java)
+        org.mockito.Mockito.verify(installer, org.mockito.Mockito.never()).install(anyString(), any())
     }
 }

@@ -5,6 +5,8 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.github.krpkbhdn.ccmanager.toolchain.LspHealthMonitor
+import com.github.krpkbhdn.ccmanager.toolchain.LspSetupService
 import com.github.krpkbhdn.ccmanager.toolchain.ProjectToolsService
 import com.github.krpkbhdn.ccmanager.toolchain.ToolCatalog
 import com.github.krpkbhdn.ccmanager.toolchain.ToolDefinition
@@ -24,7 +26,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /** Toolchain beans the UI talks to; [projectTools] is for the per-project tools UI. */
-data class ToolchainBackend(val catalog: ToolCatalog, val probe: ToolProbe, val installer: ToolInstallService, val projectTools: ProjectToolsService)
+data class ToolchainBackend(val catalog: ToolCatalog, val probe: ToolProbe, val installer: ToolInstallService, val projectTools: ProjectToolsService, val lspSetup: LspSetupService, val health: LspHealthMonitor)
 
 /** Where the install dialog stands: confirm the command, watch it run, read the result. */
 sealed interface InstallFlow {
@@ -42,10 +44,11 @@ sealed interface InstallFlow {
 
 val InstallFlow.isBusy: Boolean get() = this is InstallFlow.Running || this is InstallFlow.Removing
 
-/** Compose state of the Tools settings page: catalog, probe results, and the install flow. Probes and installs run off the UI thread. */
+/** Compose state of the Tools settings page: catalog, probe results, and the install flow ([isBlocked]: a setup owns the install slot). Probes and installs run off the UI thread. */
 class ToolsState(
     private val backend: ToolchainBackend?,
     private val scope: CoroutineScope,
+    private val isBlocked: () -> Boolean = { false },
     private val reportError: (title: String, message: String) -> Unit,
 ) {
     var tools by mutableStateOf<List<ToolDefinition>>(emptyList())
@@ -145,7 +148,7 @@ class ToolsState(
 
     fun requestInstall(id: String) {
         val plan = plans[id] ?: return
-        if (install != InstallFlow.Idle) return
+        if (install != InstallFlow.Idle || isBlocked()) return
         if (plan.command().isEmpty() && plan.download().isEmpty) install = InstallFlow.Manual(plan)
         else if (plan.blocker().isEmpty) install = InstallFlow.Confirm(plan)
     }
@@ -153,14 +156,16 @@ class ToolsState(
     fun confirmInstall() {
         val tooling = backend ?: return
         val confirm = install as? InstallFlow.Confirm ?: return
+        if (isBlocked()) return
         val id = confirm.plan.tool().id()
         install = InstallFlow.Running(confirm.plan, emptyList())
         scope.launch {
             try {
                 val result = io { tooling.installer.install(id) { text -> scope.launch { showLog(confirm.plan, text) } } }
-                install = InstallFlow.Done(confirm.plan, result, (install as? InstallFlow.Running)?.log.orEmpty())
                 writeOrder.withLock {
                     if (result.outcome() != ToolInstallService.Outcome.BLOCKED) record(id, result.status())
+                    // Done is published after the status, so a check started on seeing Done gets a newer stamp
+                    install = InstallFlow.Done(confirm.plan, result, (install as? InstallFlow.Running)?.log.orEmpty())
                     refreshPlans(tooling, tools)
                 }
             } catch (e: CancellationException) {
@@ -174,12 +179,13 @@ class ToolsState(
 
     fun requestUninstall(id: String) {
         val plan = plans[id] ?: return
-        if (install == InstallFlow.Idle && isManaged(id)) install = InstallFlow.ConfirmRemove(plan)
+        if (install == InstallFlow.Idle && !isBlocked() && isManaged(id)) install = InstallFlow.ConfirmRemove(plan)
     }
 
     fun confirmUninstall() {
         val tooling = backend ?: return
         val confirm = install as? InstallFlow.ConfirmRemove ?: return
+        if (isBlocked()) return
         val id = confirm.plan.tool().id()
         install = InstallFlow.Removing(confirm.plan)
         scope.launch {

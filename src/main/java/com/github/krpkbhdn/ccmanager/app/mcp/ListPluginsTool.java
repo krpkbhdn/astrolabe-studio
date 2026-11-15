@@ -34,7 +34,7 @@ class ListPluginsTool extends ExtensionScopeTool {
 
     @Override
     public String description() {
-        return "Lists installed plugins and added marketplaces; available=true also lists the plugins the marketplaces offer (a long list).";
+        return "Lists installed plugins and added marketplaces; available=true also lists the plugins the marketplaces offer (a long list). enabled reflects no project, so use it only to learn which ids are installed.";
     }
 
     @Override

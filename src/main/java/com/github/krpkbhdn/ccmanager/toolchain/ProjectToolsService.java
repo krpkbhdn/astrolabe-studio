@@ -45,13 +45,22 @@ public class ProjectToolsService {
         return buildRows(projectDir, probe.probeAllFresh());
     }
 
+    /** Technologies found in the folder in catalog order with their tool states; blocking, the probe may run the binary on a cache miss, no plugin or claude calls. */
+    public List<DetectedTechnology> detected(Path projectDir) {
+        var tools = catalog.all().stream().filter(tool -> tool.kind() != ToolKind.PREREQUISITE).toList();
+        var found = detector.detect(projectDir, tools);
+        return tools.stream().filter(tool -> found.contains(tool.id()))
+                .map(tool -> new DetectedTechnology(tool, probe.probe(tool.id()).state()))
+                .toList();
+    }
+
     private List<ProjectToolRow> buildRows(Path projectDir, List<ToolStatus> probed) {
         var tools = catalog.all().stream().filter(tool -> tool.kind() != ToolKind.PREREQUISITE).toList();
         var detected = detector.detect(projectDir, tools);
         var statuses = probed.stream().collect(Collectors.toMap(ToolStatus::id, Function.identity(), (a, b) -> a));
-        var installedPlugins = plugins.installed();
+        var installedPlugins = plugins.installed(projectDir);
         var enabledPlugins = installedPlugins.stream()
-                .filter(plugin -> plugin.enabled() && isProjectInstallation(plugin, projectDir))
+                .filter(plugin -> plugin.enabled() && isProjectOrLocalInstallation(plugin, projectDir))
                 .map(InstalledPlugin::id).collect(Collectors.toSet());
         var userPlugins = installedPlugins.stream()
                 .filter(plugin -> plugin.enabled() && plugin.isInstallationOf(plugin.id(), ExtensionScope.USER, null))
@@ -76,8 +85,8 @@ public class ProjectToolsService {
         }
         pluginWrites.lock();
         try {
-            var installedPlugins = plugins.installed();
-            if (isEnabledAtUserLevel(installedPlugins, pluginId)) {
+            var installedPlugins = plugins.installed(projectDir);
+            if (isEnabledAtUserLevel(installedPlugins, pluginId) || isEnabledForProject(installedPlugins, pluginId, projectDir)) {
                 return;
             }
             ensureMarketplace(pluginId);
@@ -92,7 +101,7 @@ public class ProjectToolsService {
         }
     }
 
-    /** Disables the plugin for the project; an add-on without its own plugin does nothing, because the base plugin is shared with its language server. */
+    /** Disables the plugin at the scope of each of the project's enabled entries (project and local), so it ends up off; an add-on without its own plugin does nothing, because the base plugin is shared with its language server. */
     public void disableLsp(Path projectDir, String toolId) {
         requireProjectDir(projectDir);
         var tool = requireTool(toolId);
@@ -102,9 +111,9 @@ public class ProjectToolsService {
         var pluginId = tool.lspPlugin();
         pluginWrites.lock();
         try {
-            if (findInstallation(plugins.installed(), pluginId, projectDir).isPresent()) {
-                plugins.setEnabled(pluginId, ExtensionScope.PROJECT, projectDir, false);
-            }
+            plugins.installed(projectDir).stream()
+                    .filter(plugin -> plugin.enabled() && plugin.id().equals(pluginId) && isProjectOrLocalInstallation(plugin, projectDir))
+                    .forEach(plugin -> plugins.setEnabled(pluginId, plugin.scope(), projectDir, false));
         } finally {
             pluginWrites.unlock();
         }
@@ -128,6 +137,16 @@ public class ProjectToolsService {
 
     private static boolean isProjectInstallation(InstalledPlugin plugin, Path projectDir) {
         return plugin.isInstallationOf(plugin.id(), ExtensionScope.PROJECT, projectDir);
+    }
+
+    /** A local install of the same project is on for it too; it is only read, every write uses project scope. */
+    private static boolean isProjectOrLocalInstallation(InstalledPlugin plugin, Path projectDir) {
+        return isProjectInstallation(plugin, projectDir) || plugin.isInstallationOf(plugin.id(), ExtensionScope.LOCAL, projectDir);
+    }
+
+    private static boolean isEnabledForProject(List<InstalledPlugin> installedPlugins, String pluginId, Path projectDir) {
+        return installedPlugins.stream()
+                .anyMatch(plugin -> plugin.enabled() && plugin.id().equals(pluginId) && isProjectOrLocalInstallation(plugin, projectDir));
     }
 
     private void ensureMarketplace(String pluginId) {

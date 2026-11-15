@@ -26,20 +26,29 @@ private val tooltipGap = 8.dp
 private val tooltipMaxWidth = 320.dp
 private val tooltipElevation = 8.dp
 
+/** Where the tooltip sits relative to its component; the status bar uses [ABOVE] so the tooltip never covers the item. */
+@OptIn(ExperimentalFoundationApi::class)
+enum class TooltipSide(private val edge: Alignment, private val gapSign: Int) {
+    BELOW(Alignment.BottomCenter, 1),
+    ABOVE(Alignment.TopCenter, -1);
+
+    internal fun placement() = TooltipPlacement.ComponentRect(
+        anchor = edge,
+        alignment = edge,
+        offset = DpOffset(0.dp, tooltipGap * gapSign),
+    )
+}
+
 /** Wraps [content] in a hover tooltip showing [text] (and an optional shortcut [hint]); no tooltip when [text] is null. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun WithTooltip(text: String?, modifier: Modifier = Modifier, hint: String? = null, content: @Composable () -> Unit) {
+fun WithTooltip(text: String?, modifier: Modifier = Modifier, hint: String? = null, side: TooltipSide = TooltipSide.BELOW, content: @Composable () -> Unit) {
     if (text == null) return content()
     TooltipArea(
         tooltip = { TooltipBubble(text, hint) },
         modifier = modifier,
         delayMillis = TOOLTIP_DELAY_MILLIS,
-        tooltipPlacement = TooltipPlacement.ComponentRect(
-            anchor = Alignment.BottomCenter,
-            alignment = Alignment.BottomCenter,
-            offset = DpOffset(0.dp, tooltipGap),
-        ),
+        tooltipPlacement = side.placement(),
         content = content,
     )
 }

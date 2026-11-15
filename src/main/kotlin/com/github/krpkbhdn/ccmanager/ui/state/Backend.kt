@@ -51,6 +51,8 @@ import com.github.krpkbhdn.ccmanager.usage.RateLimitService
 import com.github.krpkbhdn.ccmanager.update.UpdateService
 import com.github.krpkbhdn.ccmanager.usage.SessionUsageService
 import com.github.krpkbhdn.ccmanager.usage.context.ContextBreakdownService
+import com.github.krpkbhdn.ccmanager.toolchain.LspHealthMonitor
+import com.github.krpkbhdn.ccmanager.toolchain.LspSetupService
 import com.github.krpkbhdn.ccmanager.toolchain.ProjectToolsService
 import com.github.krpkbhdn.ccmanager.toolchain.ToolCatalog
 import com.github.krpkbhdn.ccmanager.toolchain.ToolInstallService
@@ -182,6 +184,8 @@ class Backend(
                 context.getBean(ToolProbe::class.java),
                 context.getBean(ToolInstallService::class.java),
                 context.getBean(ProjectToolsService::class.java),
+                context.getBean(LspSetupService::class.java),
+                context.getBean(LspHealthMonitor::class.java),
             ),
             projectCodeMode = context.getBean(ProjectCodeModeService::class.java),
             pluginMcpServers = context.getBean(PluginMcpServers::class.java),

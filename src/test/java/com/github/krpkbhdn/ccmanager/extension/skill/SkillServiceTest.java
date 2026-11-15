@@ -3,6 +3,7 @@ package com.github.krpkbhdn.ccmanager.extension.skill;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.github.krpkbhdn.ccmanager.extension.ExtensionException;
@@ -48,7 +49,7 @@ class SkillServiceTest {
         Files.createDirectories(home.resolve(".claude/skills/empty"));
         skill(project.resolve(".claude/skills"), "shared", "---\ndescription: Project skill\n---\n");
         skill(pluginDirectory.resolve("skills"), "from-plugin", "---\nname: from-plugin\ndescription: P\n---\n");
-        when(plugins.installed()).thenReturn(List.of(
+        when(plugins.installed(project)).thenReturn(List.of(
                 new InstalledPlugin("p@m", "1", ExtensionScope.USER, true, pluginDirectory, null),
                 new InstalledPlugin("off@m", "1", ExtensionScope.USER, false, pluginDirectory, null),
                 new InstalledPlugin("other@m", "1", ExtensionScope.PROJECT, true, pluginDirectory, Path.of("/elsewhere"))));
@@ -63,8 +64,20 @@ class SkillServiceTest {
     }
 
     @Test
+    void readsPluginsInTheProjectDirectoryForAProjectAndGloballyForUserOnly() {
+        when(plugins.installed(project)).thenReturn(List.of());
+        when(plugins.installed(null)).thenReturn(List.of());
+
+        service().list(project);
+        service().list(null);
+
+        verify(plugins).installed(project);
+        verify(plugins).installed(null);
+    }
+
+    @Test
     void createWritesATemplateThatListsBack() {
-        when(plugins.installed()).thenReturn(List.of());
+        when(plugins.installed(project)).thenReturn(List.of());
         var service = service();
 
         var created = service.create(ExtensionScope.PROJECT, project, "code-review", "Reviews\ncode carefully");
@@ -108,7 +121,7 @@ class SkillServiceTest {
         } catch (IOException | UnsupportedOperationException | SecurityException e) {
             Assumptions.abort("cannot create links here");
         }
-        when(plugins.installed()).thenReturn(List.of());
+        when(plugins.installed(null)).thenReturn(List.of());
         var service = service();
 
         assertThat(service.list(null)).isEmpty();
@@ -127,7 +140,7 @@ class SkillServiceTest {
         } catch (IOException | UnsupportedOperationException | SecurityException e) {
             Assumptions.abort("cannot create links here");
         }
-        when(plugins.installed()).thenReturn(List.of());
+        when(plugins.installed(null)).thenReturn(List.of());
         var service = service();
 
         assertThat(service.list(null)).isEmpty();
@@ -152,7 +165,7 @@ class SkillServiceTest {
     void aSkillWithInvalidUtf8StillListsAndAnEmptyPluginInstallPathContributesNothing() throws IOException {
         var directory = Files.createDirectories(home.resolve(".claude/skills/binary"));
         Files.write(directory.resolve("SKILL.md"), new byte[] {'-', '-', '-', '\n', 'n', 'a', 'm', 'e', ':', ' ', 'b', '\n', (byte) 0xFF, (byte) 0xFE, '\n', '-', '-', '-'});
-        when(plugins.installed()).thenReturn(List.of(new InstalledPlugin("p@m", "1", ExtensionScope.USER, true, Path.of(""), null)));
+        when(plugins.installed(null)).thenReturn(List.of(new InstalledPlugin("p@m", "1", ExtensionScope.USER, true, Path.of(""), null)));
 
         assertThat(service().list(null)).extracting(Skill::name).containsExactly("b");
     }
@@ -205,7 +218,7 @@ class SkillServiceTest {
     void honoursClaudeConfigDirForListingCreatingAndDeletingUserSkills() {
         var configDirectory = project.resolve("custom-config");
         var host = new FakeHostEnvironment(HostEnvironment.OperatingSystem.LINUX, home).withEnv("CLAUDE_CONFIG_DIR", configDirectory.toString());
-        when(plugins.installed()).thenReturn(List.of());
+        when(plugins.installed(null)).thenReturn(List.of());
         var service = new SkillService(host, plugins, new ExtensionProperties(30, 180, 90, 300, 16384));
 
         var created = service.create(ExtensionScope.USER, null, "mine", "d");

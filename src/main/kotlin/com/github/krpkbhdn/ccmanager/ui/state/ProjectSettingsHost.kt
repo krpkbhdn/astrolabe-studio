@@ -37,7 +37,7 @@ internal class ProjectSettingsHost(
             ExtensionContext.ForProject(project.id, project.name, project.path),
             section,
             dialogScope,
-            PluginsState(backend.plugins, dialogScope, requestConfirm, notifications::toast),
+            PluginsState(backend.plugins, dialogScope, requestConfirm, notifications::toast, project.path),
             McpState(backend.mcp, project.path, dialogScope, requestConfirm, notifications::toast),
             SkillsState(backend.skills, project.path, dialogScope, requestConfirm, notifications::toast, skillHost),
             ProjectCodeModeState(backend.projectCodeMode, project.id, dialogScope, { backend.pluginMcpServers?.servers(project.path) ?: emptyList() }, notifications::reportError),

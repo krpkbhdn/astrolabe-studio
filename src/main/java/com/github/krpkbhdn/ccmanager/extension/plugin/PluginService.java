@@ -4,7 +4,9 @@ import com.github.krpkbhdn.ccmanager.extension.ClaudeCli;
 import com.github.krpkbhdn.ccmanager.extension.ExtensionException;
 import com.github.krpkbhdn.ccmanager.extension.ExtensionProperties;
 import com.github.krpkbhdn.ccmanager.extension.ExtensionScope;
+import com.github.krpkbhdn.ccmanager.extension.Json;
 import com.github.krpkbhdn.ccmanager.workspace.CommandRunner;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,6 +22,8 @@ public class PluginService {
 
     private static final Pattern PLUGIN_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9_.@-]*");
 
+    private static final String ALREADY_IN_GOAL_STATE = "already_in_goal_state";
+
     private static final String JSON_FLAG = "--json";
     private static final String UNKNOWN_JSON_OPTION = "unknown option '--json'";
 
@@ -32,9 +36,19 @@ public class PluginService {
         this.properties = properties;
     }
 
-    /** Every installation in every scope; project and local entries carry their projectPath. */
+    /** Every installation in every scope for views without a project; project entries then read as disabled, see {@link #installed(Path)}. */
     public List<InstalledPlugin> installed() {
-        return PluginParser.installed(cli.executeChecked(null, properties.queryTimeout(), List.of("plugin", "list", "--json")));
+        return installed(null);
+    }
+
+    /**
+     * Every installation in every scope; project and local entries carry their projectPath. The CLI computes {@code enabled} of
+     * project entries relative to its working directory, so a project's view must pass that project's folder; a missing folder
+     * falls back to the global read (project-scoped {@code enabled} is then unreliable, but the screens keep working).
+     */
+    public List<InstalledPlugin> installed(Path projectDirectory) {
+        var directory = projectDirectory != null && Files.isDirectory(projectDirectory) ? projectDirectory : null;
+        return PluginParser.installed(cli.executeChecked(directory, properties.queryTimeout(), List.of("plugin", "list", "--json")));
     }
 
     /** The marketplace catalogue (thousands of entries), fetched once; {@link #refreshAvailable()} reloads it. */
@@ -99,7 +113,24 @@ public class PluginService {
     }
 
     public void setEnabled(String pluginId, ExtensionScope scope, Path projectDirectory, boolean enabled) {
-        run(scoped(enabled ? "enable" : "disable", pluginId, scope), scope, projectDirectory);
+        var arguments = scoped(enabled ? "enable" : "disable", pluginId, scope);
+        var result = executeWithJsonFallback(scope.workingDirectory(projectDirectory), arguments);
+        if (!result.succeeded() && !alreadyInGoalState(pluginId, result)) {
+            throw ClaudeCli.failure(arguments, result);
+        }
+    }
+
+    /** The CLI's refusal to enable or disable what already is: the JSON failureCode, else the exact text of older versions for this plugin. */
+    private static boolean alreadyInGoalState(String pluginId, CommandRunner.Result result) {
+        try {
+            if (ALREADY_IN_GOAL_STATE.equals(Json.text(Json.parse(result.stdout()), "failureCode"))) {
+                return true;
+            }
+        } catch (ExtensionException notJson) {
+            // older versions answer in plain text
+        }
+        var text = Pattern.compile("Plugin \"" + Pattern.quote(pluginId) + "\" is already (?:enabled|disabled)");
+        return !result.succeeded() && text.matcher(result.stdout() + result.stderr()).find();
     }
 
     public void addMarketplace(String source, ExtensionScope scope, Path projectDirectory) {

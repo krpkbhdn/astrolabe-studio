@@ -57,6 +57,7 @@ import com.github.krpkbhdn.ccmanager.ui.icons.Icons
 import com.github.krpkbhdn.ccmanager.ui.palette.CommandPalette
 import com.github.krpkbhdn.ccmanager.ui.palette.paletteItems
 import com.github.krpkbhdn.ccmanager.ui.picker.FolderPickerDialog
+import com.github.krpkbhdn.ccmanager.ui.projectsettings.LspSetupDialog
 import com.github.krpkbhdn.ccmanager.ui.projectsettings.ProjectSettingsDialog
 import com.github.krpkbhdn.ccmanager.ui.prompts.PromptDialog
 import com.github.krpkbhdn.ccmanager.ui.prompts.PromptsScreen
@@ -139,6 +140,7 @@ fun AppRoot(state: AppState, osName: String = System.getProperty("os.name"), mod
                 if (state.applyPreset.pickingProject) ProjectPickerDialog(state.projects.all.filter { !it.group }, { state.teams.defaultTeamOf(it.id) }, state.applyPreset::chooseProject, state.applyPreset::close)
                 if (state.applyPreset.project != null) ApplyPresetDialog(state.applyPreset)
                 InstallToolDialog(state.tools)
+                LspSetupDialog(state.lspSetup, state.tools)
             }
             state.presetOffer.offer?.let { PresetOfferDialog(it, state.presets.presets, state.presetOffer) }
             state.extensions.plugins.pending?.let { PluginCommandDialog(it, state.extensions.plugins.job == null, state.extensions.plugins::confirmPending, state.extensions.plugins::dismissPending) }

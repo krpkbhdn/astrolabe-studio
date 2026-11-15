@@ -42,8 +42,8 @@ import com.github.krpkbhdn.ccmanager.ui.theme.Spacing
 import com.github.krpkbhdn.ccmanager.ui.theme.Type
 import com.github.krpkbhdn.ccmanager.ui.theme.colors
 
-private val dialogWidth = 560.dp
-private val contentHeight = 360.dp
+internal val dialogWidth = 560.dp
+internal val contentHeight = 360.dp
 private const val PERMISSION_NOTE = "This runs on your computer with your permissions. The app does not request administrator rights; some installers may ask for approval themselves."
 
 /** Confirm, live log and result of one tool install, or the manual install hint; the size is fixed and closing is refused while it runs. */
@@ -101,7 +101,7 @@ private fun Confirm(plan: InstallPlan, verb: String, tools: ToolsState) {
 }
 
 @Composable
-private fun Fact(fact: DownloadFact) {
+internal fun Fact(fact: DownloadFact) {
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
         Label(fact.label, color = colors.textTertiary, style = Type.overline)
         SelectionContainer { Label(fact.value, style = Type.monoSmall, maxLines = Int.MAX_VALUE) }
@@ -165,7 +165,7 @@ private fun PathHint(download: DownloadPlan, version: String) {
 }
 
 @Composable
-private fun Output(
+internal fun Output(
     log: List<String>,
     finished: Boolean,
     message: Pair<String, androidx.compose.ui.graphics.Color>?,
@@ -201,7 +201,7 @@ private fun LogViewport(text: String, lineCount: Int, modifier: Modifier) {
 }
 
 @Composable
-private fun CodeBlock(text: String) {
+internal fun CodeBlock(text: String) {
     Column(Modifier.fillMaxWidth().codeBox().padding(Spacing.md)) {
         Label(text, style = Type.monoBody, maxLines = Int.MAX_VALUE)
     }
@@ -213,6 +213,6 @@ private fun Modifier.codeBox(): Modifier = composed {
 }
 
 @Composable
-private fun Actions(content: @Composable () -> Unit) {
+internal fun Actions(content: @Composable () -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm, Alignment.End)) { content() }
 }

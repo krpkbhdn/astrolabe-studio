@@ -30,10 +30,15 @@ class HookHelperCommandTest {
         var helper = helper("/opt/ccm/ccm-app", "/classes", false, NO_SHORT_NAME, false);
 
         assertThat(helper.execForm(URL, file).orElseThrow().args()).containsExactly("--post-hook", URL, "--token-file", file.toString());
-        assertThat(helper.shellCommand(URL, file)).hasValue("/opt/ccm/ccm-app --post-hook " + URL + " --token-file " + file);
+        assertThat(helper.shellCommand(URL, file)).hasValue("/opt/ccm/ccm-app --post-hook " + URL + " --token-file " + posixShellWord(file));
         var windows = helper("C:\\jdk\\bin\\java.exe", "C:\\cls", true, path -> path.replace("Users", "USERS~1"), false);
         assertThat(windows.shellCommand(URL, java.nio.file.Path.of("C:\\Users\\x\\abc-1.token")).orElseThrow()).endsWith(URL + " --token-file C:/USERS~1/x/abc-1.token");
         assertThat(windows.shellCommand(URL, java.nio.file.Path.of("C:\\a$b\\abc-1.token"))).isEmpty();
+    }
+
+    /** A host path with backslashes is not a plain word for a POSIX shell, so the command single-quotes it. */
+    private static String posixShellWord(java.nio.file.Path path) {
+        return path.toString().indexOf('\\') >= 0 ? "'" + path + "'" : path.toString();
     }
 
     @Test

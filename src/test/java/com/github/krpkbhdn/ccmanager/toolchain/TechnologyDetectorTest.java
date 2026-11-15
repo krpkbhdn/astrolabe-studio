@@ -1,14 +1,17 @@
 package com.github.krpkbhdn.ccmanager.toolchain;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.util.unit.DataSize;
 
 class TechnologyDetectorTest {
 
@@ -23,7 +26,7 @@ class TechnologyDetectorTest {
             tool("jdtls", ToolKind.LANGUAGE_SERVER, "", "pom.xml", "build.gradle", "build.gradle.kts", "*.java"),
             tool("node", ToolKind.PREREQUISITE, "", "package.json"));
 
-    private final TechnologyDetector detector = new TechnologyDetector();
+    private final TechnologyDetector detector = new TechnologyDetector(properties(5, 2000, 500));
 
     @TempDir
     Path dir;
@@ -81,11 +84,60 @@ class TechnologyDetectorTest {
     }
 
     @Test
-    void unknownFoldersAndNodeModulesAreNotScanned() throws IOException {
-        write("other/go.mod", "");
-        write("packages/node_modules/go.mod", "");
-        write("packages/a/b/go.mod", "");
+    void moduleInAnArbitraryFolderAtDepthThreeIsFound() throws IOException {
+        write("build.gradle", "");
+        write("services/portal/ui/package.json", "{}");
+        write("services/portal/ui/angular.json", "{}");
+        write("services/portal/ui/tsconfig.json", "{}");
+        assertThat(detect()).containsExactlyInAnyOrder("jdtls", "typescript", "angular");
+    }
+
+    @Test
+    void moduleDeeperThanTheMaximumDepthIsNotFound() throws IOException {
+        write("a/b/c/d/e/f/go.mod", "");
         assertThat(detect()).isEmpty();
+        write("a/b/c/d/e/go.mod", "");
+        assertThat(detect()).containsExactly("go");
+    }
+
+    @Test
+    void ignoredAndHiddenFoldersAreNeverEntered() throws IOException {
+        for (var name : List.of("node_modules", "build", "dist", "target", ".git", ".hidden", "vendor")) {
+            write(name + "/go.mod", "");
+        }
+        assertThat(detect()).isEmpty();
+    }
+
+    @Test
+    void symlinkedFolderIsNotFollowed() throws IOException {
+        write("build/real/go.mod", "");
+        try {
+            Files.createSymbolicLink(dir.resolve("link"), dir.resolve("build/real"));
+        } catch (UnsupportedOperationException | IOException | SecurityException e) {
+            assumeTrue(false, "symlinks not available: " + e);
+        }
+        assertThat(detect()).isEmpty();
+    }
+
+    @Test
+    void totalFolderCapStopsTheWalkBreadthFirst() throws IOException {
+        write("a/go.mod", "");
+        write("c/Cargo.toml", "");
+        write("a/deep/build.gradle", "");
+        var capped = new TechnologyDetector(properties(5, 2, 500));
+        assertThat(capped.detect(dir, TOOLS)).containsExactly("go");
+    }
+
+    @Test
+    void emptyAndMissingDirectoriesDoNotThrow() {
+        assertThat(detect()).isEmpty();
+        assertThat(detector.detect(dir.resolve("missing"), TOOLS)).isEmpty();
+    }
+
+    private static ToolchainProperties properties(int depth, int folders, int entries) {
+        var one = Duration.ofSeconds(1);
+        var size = DataSize.ofMegabytes(1);
+        return new ToolchainProperties(one, one, one, one, one, one, size, size, 1, one, depth, folders, entries);
     }
 
     @Test
@@ -105,19 +157,70 @@ class TechnologyDetectorTest {
     }
 
     @Test
-    void entriesBeyondTheLimitAreCutByName() throws IOException {
-        for (var i = 0; i < 600; i++) {
-            write("m%03d.txt".formatted(i), "");
-        }
+    void entriesBeyondTheLimitAreNotAllRead() throws IOException {
         write("a.rs", "");
-        write("z.kt", "");
-        assertThat(detect()).containsExactly("rust");
+        write("b.kt", "");
+        var capped = new TechnologyDetector(properties(5, 2000, 1));
+        assertThat(capped.detect(dir, TOOLS)).hasSize(1);
+    }
+
+    @Test
+    void foldersAreNotListedOnceTheQueueIsFull() throws IOException {
+        write("a/go.mod", "");
+        var capped = new TechnologyDetector(properties(5, 1, 500));
+        assertThat(capped.detect(dir, TOOLS)).isEmpty();
+    }
+
+    @Test
+    void severalPackageJsonMarkersAreAnsweredFromOneFile() throws IOException {
+        write("package.json", "{\"dependencies\":{\"react\":\"19\",\"vue\":\"3\"}}");
+        assertThat(detect()).containsExactlyInAnyOrder("typescript", "vue");
     }
 
     @Test
     void oversizePackageJsonIsIgnored() throws IOException {
         write("package.json", "{\"dependencies\":{\"react\":\"19\"}}" + " ".repeat(1_100_000));
         assertThat(detect()).isEmpty();
+    }
+
+    @Test
+    void gradleRootWithAngularAtDepthThreeFindsAllAndAtMaxPlusOneDoesNot() throws IOException {
+        write("build.gradle", "");
+        write("x/y/z/package.json", "{}");
+        write("x/y/z/angular.json", "{}");
+        assertThat(detect()).containsExactlyInAnyOrder("jdtls", "angular", "typescript");
+        var shallow = new TechnologyDetector(properties(2, 2000, 500));
+        assertThat(shallow.detect(dir, TOOLS)).containsExactly("jdtls");
+    }
+
+    @Test
+    void folderCapKeepsAShallowModuleWhenDeepSiblingsAreMany() throws IOException {
+        write("a/b/c/d/go.mod", "");
+        write("z/angular.json", "{}");
+        var capped = new TechnologyDetector(properties(5, 3, 500));
+        assertThat(capped.detect(dir, TOOLS)).containsExactlyInAnyOrder("angular", "typescript");
+    }
+
+    @Test
+    void addOnWithoutItsBaseMarkerStillImpliesTheBase() throws IOException {
+        write("m/n/angular.json", "{}");
+        assertThat(detect()).containsExactlyInAnyOrder("angular", "typescript");
+    }
+
+    @Test
+    void resultIsTheSameOnRepeatedScans() throws IOException {
+        for (var name : List.of("b", "a", "c")) {
+            write(name + "/go.mod", "");
+        }
+        write("a/q/Cargo.toml", "");
+        assertThat(detect()).isEqualTo(detect()).containsExactlyInAnyOrder("go", "rust");
+    }
+
+    @Test
+    void aFileNamedLikeAFolderMarkerIsNotEntered() throws IOException {
+        write("node_modules", "x");
+        write("f/g/go.mod", "");
+        assertThat(detect()).containsExactly("go");
     }
 
     private java.util.Set<String> detect() {

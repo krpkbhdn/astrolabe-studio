@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.github.krpkbhdn.ccmanager.ui.components.Label
 import com.github.krpkbhdn.ccmanager.ui.components.Pressable
+import com.github.krpkbhdn.ccmanager.ui.components.TooltipSide
 import com.github.krpkbhdn.ccmanager.ui.components.WithTooltip
 import com.github.krpkbhdn.ccmanager.ui.shortcuts.AppShortcut
 import com.github.krpkbhdn.ccmanager.ui.state.ContextUsageView
@@ -35,7 +36,7 @@ private const val NO_DATA = "ctx --"
 @Composable
 internal fun ContextMeter(view: ContextUsageView?, onClick: () -> Unit) {
     val tooltip = listOfNotNull("Context usage", view?.tokensText?.let { "$it tokens" }).joinToString(": ")
-    WithTooltip(tooltip, hint = AppShortcut.CONTEXT_USAGE.hint()) {
+    WithTooltip(tooltip, hint = AppShortcut.CONTEXT_USAGE.hint(), side = TooltipSide.ABOVE) {
         Pressable(onClick, Modifier.height(chipHeight), shape = RoundedCornerShape(Radius.sm + 1.dp), base = Color.Transparent) {
             Row(Modifier.fillMaxHeight().padding(horizontal = Spacing.md), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 if (view == null) {

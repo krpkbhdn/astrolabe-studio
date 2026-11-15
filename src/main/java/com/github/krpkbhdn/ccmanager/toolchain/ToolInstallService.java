@@ -117,6 +117,12 @@ public class ToolInstallService {
         }
     }
 
+    /** True when the binary that runs for this tool now is the launcher this app wrote, not a copy found on PATH. */
+    public boolean runsManagedLauncher(String toolId) {
+        return isManaged(toolId) && lookup.find(catalog.find(toolId).orElseThrow().binary())
+                .filter(found -> found.toAbsolutePath().normalize().startsWith(directory.binDirectory())).isPresent();
+    }
+
     public boolean isInstalling() {
         return installing.isLocked();
     }
@@ -143,6 +149,18 @@ public class ToolInstallService {
     }
 
     public InstallResult install(String toolId, Consumer<String> onOutput) {
+        return install(toolId, onOutput, false);
+    }
+
+    /**
+     * Repairs a downloaded tool in one locked step: a verified fresh copy replaces the old one only after it is unpacked,
+     * so on any failure (also BLOCKED when another install runs) the old installation stays as it was.
+     */
+    public InstallResult reinstall(String toolId) {
+        return install(toolId, output -> { }, true);
+    }
+
+    private InstallResult install(String toolId, Consumer<String> onOutput, boolean repair) {
         var plan = plan(toolId);
         if (plan.isEmpty()) {
             return blocked(toolId, "Unknown tool " + toolId);
@@ -159,7 +177,7 @@ public class ToolInstallService {
             if (current.blocker().isPresent()) {
                 return blocked(toolId, current.blocker().get());
             }
-            return run(current, onOutput);
+            return run(current, onOutput, repair);
         } finally {
             synchronized (threadLock) {
                 installThread = null;
@@ -182,15 +200,18 @@ public class ToolInstallService {
         }
     }
 
-    private InstallResult run(InstallPlan plan, Consumer<String> onOutput) {
+    private InstallResult run(InstallPlan plan, Consumer<String> onOutput, boolean repair) {
         var source = plan.tool().downloadSource(osKey());
-        return source.isPresent() ? runDownload(plan.tool(), source.get(), onOutput) : runCommand(plan, onOutput);
+        if (source.isPresent()) {
+            return runDownload(plan.tool(), source.get(), onOutput, repair);
+        }
+        return repair ? blocked(plan.tool().id(), "Only downloaded tools can be repaired") : runCommand(plan, onOutput);
     }
 
-    private InstallResult runDownload(ToolDefinition tool, DownloadSource source, Consumer<String> onOutput) {
+    private InstallResult runDownload(ToolDefinition tool, DownloadSource source, Consumer<String> onOutput, boolean repair) {
         var toolId = tool.id();
         try {
-            var installed = managed.install(tool, source, onOutput);
+            var installed = repair ? managed.reinstall(tool, source, onOutput) : managed.install(tool, source, onOutput);
             var status = probe.probeFresh(toolId);
             if (status.state() == ToolState.MISSING) {
                 return new InstallResult(Outcome.STILL_MISSING, 0, status, MANAGED_RESTART_HINT);
