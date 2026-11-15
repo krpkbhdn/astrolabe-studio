@@ -5,8 +5,10 @@ import com.github.krpkbhdn.ccmanager.workspace.WindowsArgument;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
@@ -34,6 +36,7 @@ public class LspHandshake {
     private static final int INITIALIZE_ID = 1;
     private static final int SHUTDOWN_ID = 2;
     static final int MAX_REASON_LENGTH = 140;
+    static final int MAX_STDERR_DETAIL = 200;
     private static final Duration KILL_WAIT = Duration.ofSeconds(5);
     private static final java.util.regex.Pattern ABSOLUTE_PATH = java.util.regex.Pattern.compile(
             "[A-Za-z]:[\\\\/][^\\s\"'`<>|]*|(?<![\\w/])/[^\\s/\"'`]+(?:/[^\\s\"'`]*)+");
@@ -45,10 +48,15 @@ public class LspHandshake {
 
     /** @param environment set on top of the inherited environment of the server process */
     public Result perform(List<String> command, Duration timeout, Map<String, String> environment) {
+        return perform(command, timeout, environment, null);
+    }
+
+    /** @param workspace the folder sent as the workspace root, or null for none (a workspace router refuses an initialize without one) */
+    public Result perform(List<String> command, Duration timeout, Map<String, String> environment, Path workspace) {
         Process process;
         try {
             WindowsArgument.requireSafeForBatchFile(command);
-            var builder = new ProcessBuilder(command).redirectError(ProcessBuilder.Redirect.DISCARD);
+            var builder = new ProcessBuilder(command);
             builder.environment().putAll(environment);
             process = builder.start();
         } catch (IllegalStateException e) {
@@ -56,17 +64,83 @@ public class LspHandshake {
         } catch (IOException | RuntimeException e) {
             return failed("could not start: " + e.getClass().getSimpleName());
         }
-        return performAndStop(process, timeout);
+        return performAndStop(process, timeout, workspace);
     }
 
-    /** The whole tree is killed because an npm shim runs the server as a child of cmd.exe. */
     Result performAndStop(Process process, Duration timeout) {
+        return performAndStop(process, timeout, null);
+    }
+
+    /** The whole tree is killed because an npm shim runs the server as a child of cmd.exe. A failure carries the tail of the server's stderr. */
+    private Result performAndStop(Process process, Duration timeout, Path workspace) {
+        var stderr = StderrTail.drain(process.getErrorStream());
+        Result result;
         try {
-            return perform(process.getInputStream(), process.getOutputStream(), timeout);
+            result = perform(process.getInputStream(), process.getOutputStream(), timeout, workspace);
         } finally {
             ProcessTree.killAndWait(process, KILL_WAIT);
             closeQuietly(process.getInputStream());
             closeQuietly(process.getOutputStream());
+        }
+        return result.outcome() == Outcome.FAILED ? failed(result.detail() + stderr.describe()) : result;
+    }
+
+    /** Reads a process's stderr in the background so the pipe never fills, keeping only the last characters. */
+    private static final class StderrTail implements Runnable {
+
+        private static final int KEPT_CHARACTERS = 2000;
+        private static final Duration JOIN_WAIT = Duration.ofSeconds(1);
+
+        private final InputStream stream;
+        private final StringBuilder text = new StringBuilder();
+        private Thread thread;
+
+        private StderrTail(InputStream stream) {
+            this.stream = stream;
+        }
+
+        static StderrTail drain(InputStream stream) {
+            var tail = new StderrTail(stream);
+            tail.thread = new Thread(tail, "lsp-handshake-stderr");
+            tail.thread.setDaemon(true);
+            tail.thread.start();
+            return tail;
+        }
+
+        @Override
+        public void run() {
+            try (var reader = new InputStreamReader(stream, StandardCharsets.UTF_8)) {
+                var buffer = new char[512];
+                int read;
+                while ((read = reader.read(buffer)) >= 0) {
+                    synchronized (text) {
+                        text.append(buffer, 0, read);
+                        if (text.length() > KEPT_CHARACTERS) {
+                            text.delete(0, text.length() - KEPT_CHARACTERS);
+                        }
+                    }
+                }
+            } catch (IOException e) {
+                // the process was killed; what was read so far is kept
+            }
+        }
+
+        /** Empty when the server wrote nothing, else "; stderr: ..." with paths replaced, cut to the last {@link #MAX_STDERR_DETAIL} characters. */
+        String describe() {
+            try {
+                thread.join(JOIN_WAIT.toMillis());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            String snapshot;
+            synchronized (text) {
+                snapshot = text.toString();
+            }
+            var clean = sanitize(snapshot, Integer.MAX_VALUE);
+            if (clean.isEmpty()) {
+                return "";
+            }
+            return "; stderr: " + (clean.length() > MAX_STDERR_DETAIL ? "..." + clean.substring(clean.length() - MAX_STDERR_DETAIL) : clean);
         }
     }
 
@@ -79,6 +153,11 @@ public class LspHandshake {
     }
 
     Result perform(InputStream fromServer, OutputStream toServer, Duration timeout) {
+        return perform(fromServer, toServer, timeout, null);
+    }
+
+    Result perform(InputStream fromServer, OutputStream toServer, Duration timeout, Path workspace) {
+        var rootUri = workspace == null ? "null" : JSON.writeValueAsString(workspace.toUri().toString());
         var reader = Executors.newSingleThreadExecutor(task -> {
             var thread = new Thread(task, "lsp-handshake-reader");
             thread.setDaemon(true);
@@ -86,7 +165,7 @@ public class LspHandshake {
         });
         try {
             send(toServer, "{\"jsonrpc\":\"2.0\",\"id\":" + INITIALIZE_ID + ",\"method\":\"initialize\","
-                    + "\"params\":{\"processId\":null,\"rootUri\":null,\"capabilities\":{}}}");
+                    + "\"params\":{\"processId\":null,\"rootUri\":" + rootUri + ",\"capabilities\":{}}}");
             Result result = await(reader, fromServer, timeout);
             if (result.outcome() == Outcome.RESPONDED) {
                 send(toServer, "{\"jsonrpc\":\"2.0\",\"method\":\"initialized\",\"params\":{}}");

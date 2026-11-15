@@ -41,6 +41,11 @@ public class ManagedToolsDirectory {
         return root.resolve("bin");
     }
 
+    /** Where the launcher of a command is written: a .cmd on Windows, a plain file elsewhere. */
+    public Path launcherFile(String command, boolean windows) {
+        return binDirectory().resolve(windows ? command + ".cmd" : command);
+    }
+
     public Path downloadsDirectory() {
         return root.resolve(".downloads");
     }
@@ -159,7 +164,8 @@ public class ManagedToolsDirectory {
         }
     }
 
-    static boolean deleteTree(Path directory) {
+    /** Best effort, links are deleted not followed; false when something stayed. */
+    public static boolean deleteTree(Path directory) {
         return deleteTreeLeftovers(directory).isEmpty();
     }
 

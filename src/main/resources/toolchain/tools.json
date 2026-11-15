@@ -69,7 +69,9 @@
    "docsUrl":"https://github.com/Kotlin/kotlin-lsp/releases",
    "download":{
     "windows":{"latest":{"kind":"REDIRECT","url":"https://github.com/Kotlin/kotlin-lsp/releases/latest","pattern":"/tag/kotlin-lsp/v([0-9]+(?:\\.[0-9]+)+)$"},
-     "archiveUrl":"https://download.jetbrains.com/language-server/kotlin-server/{version}/kotlin-server-{version}.win.zip","archive":"ZIP","launcher":{"kind":"BINARY","path":"bin/intellij-server.exe","args":["--system-path","{state}"]}},
+     "archiveUrl":"https://download.jetbrains.com/language-server/kotlin-server/{version}/kotlin-server-{version}.win.zip","archive":"ZIP","launcher":{"kind":"BINARY","path":"bin/lsp-router.exe","routed":true,
+      "args":["--server-launcher","{install}/bin/intellij-server.exe","--system-path","{state}"],
+      "fallback":{"kind":"BINARY","path":"bin/intellij-server.exe","args":["--system-path","{state}"]}}},
     "linux":{"latest":{"kind":"REDIRECT","url":"https://github.com/Kotlin/kotlin-lsp/releases/latest","pattern":"/tag/kotlin-lsp/v([0-9]+(?:\\.[0-9]+)+)$"},
      "archiveUrl":"https://download.jetbrains.com/language-server/kotlin-server/{version}/kotlin-server-{version}.tar.gz","archive":"TAR_GZ","launcher":{"kind":"BINARY","path":"bin/intellij-server","args":["--system-path","{state}"]}}}}
 ]}

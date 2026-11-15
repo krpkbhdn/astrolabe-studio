@@ -8,6 +8,7 @@ import com.github.krpkbhdn.ccmanager.workspace.CommandRunner;
 import com.github.krpkbhdn.ccmanager.workspace.HostEnvironment;
 import com.github.krpkbhdn.ccmanager.workspace.PtyCommandRunner;
 import com.github.krpkbhdn.ccmanager.workspace.WindowsArgument;
+import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.net.URI;
@@ -21,6 +22,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -50,6 +53,7 @@ public class ToolInstallService {
     /** The temp folder is user-writable too, so cmd.exe is kept from searching it by NoDefaultCurrentDirectoryInExePath in the environment. */
     static final Path NEUTRAL_DIRECTORY = Path.of(System.getProperty("java.io.tmpdir"));
 
+    private static final Logger log = LoggerFactory.getLogger(ToolInstallService.class);
     private static final Duration STOP_WAIT = Duration.ofSeconds(2);
     private static final int MAX_LISTED_LEFTOVERS = 3;
     private static final String MANAGED_RESTART_HINT =
@@ -89,6 +93,18 @@ public class ToolInstallService {
         this.runner = runner;
         this.directory = directory;
         this.managed = managed;
+    }
+
+    /** Brings the launchers of already downloaded tools to the form this app version writes; no download, a failure only keeps the old launcher. */
+    @PostConstruct
+    void refreshLaunchers() {
+        catalog.all().forEach(tool -> tool.downloadSource(osKey()).ifPresent(source -> {
+            try {
+                managed.refreshLauncher(tool, source.launcher());
+            } catch (IOException | RuntimeException e) {
+                log.warn("Could not refresh the launcher of {}: {}", tool.id(), e.getClass().getSimpleName());
+            }
+        }));
     }
 
     /** True when this app downloaded the tool, so it can be updated and removed here. */

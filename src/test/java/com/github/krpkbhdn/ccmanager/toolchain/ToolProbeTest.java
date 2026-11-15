@@ -16,6 +16,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.github.krpkbhdn.ccmanager.config.AppProperties;
+import com.github.krpkbhdn.ccmanager.toolchain.managed.AllowlistedHttp;
+import com.github.krpkbhdn.ccmanager.toolchain.managed.LauncherWriter;
+import com.github.krpkbhdn.ccmanager.toolchain.managed.ManagedToolInstaller;
 import com.github.krpkbhdn.ccmanager.toolchain.managed.ManagedToolsDirectory;
 import com.github.krpkbhdn.ccmanager.workspace.CommandRunner;
 import com.github.krpkbhdn.ccmanager.workspace.FakeHostEnvironment;
@@ -30,6 +33,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.util.unit.DataSize;
@@ -66,6 +70,85 @@ class ToolProbeTest {
                 (c, t, env) -> { throw new AssertionError("version command must not run"); }, clock);
 
         assertThat(probe.probe("kotlin-lsp").version()).isEqualTo("1.2.3");
+    }
+
+    @Test
+    void routedServerIsHandshakedThroughTheRouterWithItsOwnSystemPathAndWorkspace(@TempDir Path dataDir) throws IOException {
+        var tools = new ManagedToolsDirectory(new AppProperties(dataDir));
+        var install = tools.versionDirectory("kotlin-lsp", "1.0");
+        var probe = routedProbe(tools);
+
+        assertThat(probe.probe("kotlin-lsp").state()).isEqualTo(ToolState.RESPONDING);
+
+        var workspace = org.mockito.ArgumentCaptor.forClass(Path.class);
+        @SuppressWarnings("unchecked")
+        var command = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(handshake).perform(command.capture(), any(), anyMap(), workspace.capture());
+        assertThat(((List<?>) command.getValue()).stream().map(Object::toString).toList()).containsExactly(install.resolve("bin/lsp-router.exe").toString(), "--server-launcher",
+                install.resolve("bin/intellij-server.exe").toString(), "--system-path",
+                tools.stateDirectory("kotlin-lsp").resolve("probe-system").toString());
+        assertThat(workspace.getValue()).isEqualTo(tools.stateDirectory("kotlin-lsp").resolve("probe-workspace")).isEmptyDirectory();
+    }
+
+    private ToolProbe routedProbe(ManagedToolsDirectory tools) throws IOException {
+        var install = tools.versionDirectory("kotlin-lsp", "1.0");
+        Files.createDirectories(install.resolve("bin"));
+        Files.writeString(install.resolve("bin/lsp-router.exe"), "x");
+        tools.markComplete(install);
+        var tool = new ToolCatalog().find("kotlin-lsp").orElseThrow();
+        new ManagedToolInstaller(tools, new LauncherWriter(tools), PROPERTIES, new AllowlistedHttp(Set.of(), Duration.ofSeconds(1)),
+                LauncherWriter.Platform.WINDOWS).refreshLauncher(tool, tool.downloadSource("windows").orElseThrow().launcher());
+        var otherCopy = Path.of("other-bin");
+        var windows = new FakeHostEnvironment(WINDOWS, Path.of("home")).withPath(otherCopy).withPath(tools.binDirectory())
+                .withFile(otherCopy.resolve("kotlin-lsp.cmd")).withFile(tools.binDirectory().resolve("kotlin-lsp.cmd"));
+        when(handshake.perform(anyList(), any(), anyMap(), any(Path.class)))
+                .thenReturn(new LspHandshake.Result(LspHandshake.Outcome.RESPONDED, ""));
+        return new ToolProbe(new ToolCatalog(), new ExecutableLookup(windows, tools), windows, handshake, PROPERTIES, tools,
+                (c, t, env) -> { throw new AssertionError("version command must not run"); }, clock);
+    }
+
+    @Test
+    void staleLauncherIsProbedItselfInsteadOfTheRouter(@TempDir Path dataDir) throws IOException {
+        var tools = new ManagedToolsDirectory(new AppProperties(dataDir));
+        var probe = routedProbe(tools);
+        Files.writeString(tools.binDirectory().resolve("kotlin-lsp.cmd"), "stale launcher");
+        when(handshake.perform(anyList(), any(), anyMap())).thenReturn(new LspHandshake.Result(LspHandshake.Outcome.FAILED, "locked"));
+
+        var status = probe.probe("kotlin-lsp");
+
+        assertThat(status.state()).isEqualTo(ToolState.FAILED);
+        verify(handshake, never()).perform(anyList(), any(), anyMap(), any(Path.class));
+    }
+
+    @Test
+    void routedProbeClearsOnlyTheLogsOfItsSystemFolder(@TempDir Path dataDir) throws IOException {
+        var tools = new ManagedToolsDirectory(new AppProperties(dataDir));
+        var system = tools.stateDirectory("kotlin-lsp").resolve("probe-system");
+        Files.createDirectories(system.resolve("system/log/telemetry"));
+        Files.writeString(system.resolve("system/log/intellij-server.log"), "old");
+        Files.writeString(system.resolve("system/log/telemetry/m.json"), "old");
+        Files.createDirectories(system.resolve("system/index"));
+        Files.writeString(system.resolve("system/index/indices.enum"), "keep");
+        var probe = routedProbe(tools);
+
+        assertThat(probe.probe("kotlin-lsp").state()).isEqualTo(ToolState.RESPONDING);
+
+        assertThat(system.resolve("system/log")).doesNotExist();
+        assertThat(system.resolve("system/index/indices.enum")).hasContent("keep");
+    }
+
+    @Test
+    void routedProbeStillRespondsWhenALogFileCannotBeDeleted(@TempDir Path dataDir) throws IOException {
+        var tools = new ManagedToolsDirectory(new AppProperties(dataDir));
+        var logs = tools.stateDirectory("kotlin-lsp").resolve("probe-system/system/log");
+        Files.createDirectories(logs);
+        var held = logs.resolve("intellij-server.log");
+        Files.writeString(held, "old");
+        var probe = routedProbe(tools);
+
+        assertThat(held.toFile().setReadOnly()).isTrue(); // cannot be deleted on Windows
+        assertThat(probe.probe("kotlin-lsp").state()).isEqualTo(ToolState.RESPONDING);
+        held.toFile().setWritable(true);
     }
 
     private static CommandRunner.Result output(int exit, String stdout) {

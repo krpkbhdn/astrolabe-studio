@@ -106,6 +106,48 @@ class ManagedToolInstallerTest {
         assertThat(entries(directory.downloadsDirectory())).isEmpty();
     }
 
+    private static final LauncherSpec ROUTED = new LauncherSpec(LauncherSpec.Kind.BINARY, "bin/router", List.of("--server-launcher", "{install}/bin/server", "--system-path", "{state}"),
+            true, new LauncherSpec(LauncherSpec.Kind.BINARY, "bin/server", List.of("--system-path", "{state}")));
+
+    private Path installedWith(String... files) throws IOException {
+        var version = directory.versionDirectory("demo", "1.0.0");
+        for (var file : files) {
+            Files.createDirectories(version.resolve(file).getParent());
+            Files.writeString(version.resolve(file), "x");
+        }
+        directory.markComplete(version);
+        return version;
+    }
+
+    @Test
+    void refreshingAnInstalledToolWritesTheRouterLauncherWithoutCallerArguments() throws Exception {
+        var version = installedWith("bin/router", "bin/server");
+        Files.createDirectories(directory.binDirectory());
+        Files.writeString(directory.binDirectory().resolve("demo"), "old launcher");
+
+        installer.refreshLauncher(TOOL, ROUTED);
+
+        assertThat(Files.readString(directory.binDirectory().resolve("demo"))).isEqualTo("#!/bin/sh\nexec '" + version.resolve("bin/router")
+                + "' '--server-launcher' '" + version.resolve("bin/server") + "' '--system-path' '" + directory.stateDirectory("demo") + "'\n");
+    }
+
+    @Test
+    void refreshingAnArchiveWithoutTheRouterKeepsTheDirectServerLauncher() throws Exception {
+        var version = installedWith("bin/server");
+
+        installer.refreshLauncher(TOOL, ROUTED);
+
+        assertThat(Files.readString(directory.binDirectory().resolve("demo"))).isEqualTo("#!/bin/sh\nexec '" + version.resolve("bin/server")
+                + "' '--system-path' '" + directory.stateDirectory("demo") + "' \"$@\"\n");
+    }
+
+    @Test
+    void refreshingWithoutAnInstalledVersionWritesNothing() throws Exception {
+        installer.refreshLauncher(TOOL, ROUTED);
+
+        assertThat(directory.binDirectory().resolve("demo")).doesNotExist();
+    }
+
     @Test
     void sameVersionAgainOnlyRewritesTheLauncher() throws Exception {
         installer.install(TOOL, zipSource(), line -> {});

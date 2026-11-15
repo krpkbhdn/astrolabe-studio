@@ -180,6 +180,13 @@ final class ToolCatalogValidator {
             }
             return;
         }
+        if (launcher.fallback() != null) {
+            if (launcher.fallback().kind() != LauncherSpec.Kind.BINARY || launcher.fallback().fallback() != null) {
+                problems.add(where + ": a launcher fallback must be a BINARY launcher without a fallback");
+            } else {
+                checkLauncher(where + " fallback", launcher.fallback(), problems);
+            }
+        }
         launcher.args().stream()
                 .filter(arg -> arg.isEmpty() || hasMetacharacter(arg) || arg.chars().anyMatch(c -> Character.isWhitespace(c) || c > 127))
                 .forEach(arg -> problems.add(where + ": launcher arg '" + arg + "' must be a plain token"));

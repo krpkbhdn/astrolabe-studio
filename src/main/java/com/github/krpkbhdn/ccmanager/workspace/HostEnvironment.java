@@ -40,6 +40,11 @@ public interface HostEnvironment {
         return configured == null || configured.isBlank() ? home().resolve(".claude") : Path.of(configured);
     }
 
+    /** The OS key of the tool catalog: windows, macos or linux. */
+    default String catalogKey() {
+        return os().name().toLowerCase(java.util.Locale.ROOT);
+    }
+
     default boolean windows() {
         return os() == OperatingSystem.WINDOWS;
     }

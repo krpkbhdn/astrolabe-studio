@@ -252,6 +252,19 @@ class ToolCatalogValidatorTest {
     }
 
     @Test
+    void validatesTheLauncherFallbackAndRefusesANestedOne() {
+        var bad = new LauncherSpec(LauncherSpec.Kind.BINARY, "bin/y", List.of("a;b"));
+        var withBad = new LauncherSpec(LauncherSpec.Kind.BINARY, "bin/x", List.of(), true, bad);
+        var nested = new LauncherSpec(LauncherSpec.Kind.BINARY, "bin/x", List.of(), true,
+                new LauncherSpec(LauncherSpec.Kind.BINARY, "bin/y", List.of(), false, bad));
+
+        assertThatThrownBy(() -> ToolCatalogValidator.validate(List.of(download(LATEST, "x-(.+)", ARCHIVE, ArchiveKind.TAR_GZ, withBad))))
+                .hasMessageContaining("fallback").hasMessageContaining("launcher arg");
+        assertThatThrownBy(() -> ToolCatalogValidator.validate(List.of(download(LATEST, "x-(.+)", ARCHIVE, ArchiveKind.TAR_GZ, nested))))
+                .hasMessageContaining("without a fallback");
+    }
+
+    @Test
     void rejectsJdtlsLauncherWithPathNonServerAndInstallPlusDownload() {
         assertThatThrownBy(() -> ToolCatalogValidator.validate(List.of(download(LATEST, "x-(.+)", ARCHIVE, ArchiveKind.TAR_GZ,
                 new LauncherSpec(LauncherSpec.Kind.JDTLS, "bin/x"))))).hasMessageContaining("takes no path");

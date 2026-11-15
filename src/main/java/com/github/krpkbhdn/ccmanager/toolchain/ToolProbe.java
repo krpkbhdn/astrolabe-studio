@@ -1,9 +1,11 @@
 package com.github.krpkbhdn.ccmanager.toolchain;
 
+import com.github.krpkbhdn.ccmanager.toolchain.managed.LauncherWriter;
 import com.github.krpkbhdn.ccmanager.toolchain.managed.ManagedToolsDirectory;
 import com.github.krpkbhdn.ccmanager.workspace.CommandRunner;
 import com.github.krpkbhdn.ccmanager.workspace.HostEnvironment;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -11,6 +13,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
@@ -30,7 +33,10 @@ public class ToolProbe {
 
     private static final Logger log = LoggerFactory.getLogger(ToolProbe.class);
     private static final int MAX_VERSION_LENGTH = 100;
-    private static final int MAX_DETAIL_LENGTH = 200;
+    private static final int MAX_DETAIL_LENGTH = 400;
+    private static final String PROBE_WORKSPACE = "probe-workspace";
+    private static final String PROBE_SYSTEM = "probe-system";
+    private static final Path PROBE_LOGS = Path.of("system", "log");
     // shortcut: handshake args live here, move them into tools.json when more servers need args
     private static final Map<String, List<String>> HANDSHAKE_ARGS =
             Map.of("typescript", List.of("--stdio"),
@@ -184,18 +190,77 @@ public class ToolProbe {
     }
 
     private ToolStatus handshakeStatus(ToolDefinition tool, Path binary, ToolStatus installed) {
+        var router = routerCommand(tool);
         List<String> command;
         try {
-            command = ShimLaunch.command(host.windows(), binary, HANDSHAKE_ARGS.getOrDefault(tool.id(), List.of()));
+            command = router.isPresent() ? router.get()
+                    : ShimLaunch.command(host.windows(), binary, HANDSHAKE_ARGS.getOrDefault(tool.id(), List.of()));
         } catch (ShimLaunch.UnsafeLaunchException e) {
             return new ToolStatus(tool.id(), ToolState.FAILED, installed.version(), e.getMessage());
         }
-        var result = handshake.perform(command, properties.handshakeTimeout(), lookup.environment());
+        router.ifPresent(ignored -> clearProbeLogs(tool));
+        var result = router.isPresent()
+                ? handshake.perform(command, properties.handshakeTimeout(), lookup.environment(), probeWorkspace(tool))
+                : handshake.perform(command, properties.handshakeTimeout(), lookup.environment());
         return switch (result.outcome()) {
             case RESPONDED -> new ToolStatus(tool.id(), ToolState.RESPONDING, installed.version(), "");
             case NO_RESPONSE_IN_TIME -> installed;
             case FAILED -> new ToolStatus(tool.id(), ToolState.FAILED, installed.version(), truncate(result.detail(), MAX_DETAIL_LENGTH));
         };
+    }
+
+    /**
+     * The router of the installed version, started directly with the launcher's own arguments but a state directory of its own:
+     * a session's server owns the launcher's system path, so a probe sharing it would start a second server there and be refused.
+     * Empty when the tool is not routed, the installed archive has no router, or the app's own launcher in tools/bin is not exactly what the app writes
+     * now (a stale launcher must show its real state, so the launcher itself is then probed).
+     */
+    Optional<List<String>> routerCommand(ToolDefinition tool) {
+        var spec = tool.downloadSource(host.catalogKey()).map(DownloadSource::launcher).filter(LauncherSpec::routed);
+        var version = managedTools.installedVersion(tool.id());
+        if (spec.isEmpty() || version.isEmpty()) {
+            return Optional.empty();
+        }
+        var install = managedTools.versionDirectory(tool.id(), version.get());
+        var router = install.resolve(spec.get().path()).normalize();
+        if (!router.startsWith(install) || !Files.isRegularFile(router)) {
+            return Optional.empty();
+        }
+        var sessionArguments = spec.get().argumentsFor(managedTools.stateDirectory(tool.id()), install);
+        if (!launcherIsCurrent(managedTools.launcherFile(tool.binary(), host.windows()), router, sessionArguments)) {
+            return Optional.empty();
+        }
+        var command = new ArrayList<String>(List.of(router.toString()));
+        command.addAll(spec.get().argumentsFor(managedTools.stateDirectory(tool.id()).resolve(PROBE_SYSTEM), install));
+        return Optional.of(command);
+    }
+
+    private boolean launcherIsCurrent(Path launcher, Path router, List<String> arguments) {
+        var platform = host.windows() ? LauncherWriter.Platform.WINDOWS : LauncherWriter.Platform.LINUX;
+        try {
+            return Files.readString(launcher).equals(LauncherWriter.binaryLauncherText(router, arguments, false, platform));
+        } catch (IOException | RuntimeException e) {
+            return false;
+        }
+    }
+
+    /** The server appends logs and telemetry on every start; the probe's system folder would grow with each probe. */
+    void clearProbeLogs(ToolDefinition tool) {
+        var logs = managedTools.stateDirectory(tool.id()).resolve(PROBE_SYSTEM).resolve(PROBE_LOGS);
+        if (!ManagedToolsDirectory.deleteTree(logs)) {
+            log.debug("Could not clear the probe logs of {}", tool.id());
+        }
+    }
+
+    /** An empty folder of its own, so the probe never shares a workspace (and its server) with a project. */
+    private Path probeWorkspace(ToolDefinition tool) {
+        var folder = managedTools.stateDirectory(tool.id()).resolve(PROBE_WORKSPACE);
+        try {
+            return Files.createDirectories(folder);
+        } catch (IOException e) {
+            log.debug("Cannot create the probe workspace of {}", tool.id(), e);
+            return folder;
+        }
     }
 
     private static String firstLine(String stdout, String stderr) {

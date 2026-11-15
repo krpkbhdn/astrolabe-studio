@@ -102,11 +102,18 @@ class ToolCatalogContentTest {
 
     @Test
     void kotlinLspLauncherPassesItsStateDirectoryAsSystemPath() {
-        for (var os : List.of("windows", "linux")) {
-            var launcher = catalog.find("kotlin-lsp").orElseThrow().download().get(os).launcher();
+        var install = java.nio.file.Path.of("I");
+        var windows = catalog.find("kotlin-lsp").orElseThrow().download().get("windows").launcher();
+        var linux = catalog.find("kotlin-lsp").orElseThrow().download().get("linux").launcher();
 
-            assertThat(launcher.argumentsFor(java.nio.file.Path.of("S"))).containsExactly("--system-path", "S");
-        }
+        assertThat(windows.routed()).isTrue();
+        assertThat(windows.path()).isEqualTo("bin/lsp-router.exe");
+        assertThat(windows.argumentsFor(java.nio.file.Path.of("S"), install))
+                .containsExactly("--server-launcher", install.resolve("bin/intellij-server.exe").toString(), "--system-path", "S")
+                .doesNotContain("--stdio");
+        assertThat(windows.fallback().argumentsFor(java.nio.file.Path.of("S"), install)).containsExactly("--system-path", "S");
+        assertThat(linux.routed()).isFalse();
+        assertThat(linux.argumentsFor(java.nio.file.Path.of("S"), install)).containsExactly("--system-path", "S");
     }
 
     @Test

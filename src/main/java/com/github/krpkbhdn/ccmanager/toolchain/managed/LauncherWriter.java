@@ -51,17 +51,31 @@ public class LauncherWriter {
 
     /** {@code arguments} come before the caller's own arguments, each quoted as one token. */
     public Path writeBinary(String command, Path binary, List<String> arguments, Platform platform) throws IOException {
+        return writeBinary(command, binary, arguments, true, platform);
+    }
+
+    /** With {@code passCallerArguments} false the caller's own arguments are dropped, for a binary that rejects unknown ones. */
+    public Path writeBinary(String command, Path binary, List<String> arguments, boolean passCallerArguments, Platform platform)
+            throws IOException {
         var target = launcherPath(command, platform);
-        var windows = platform == Platform.WINDOWS;
-        var checked = new ArrayList<String>(List.of(target.toString(), binary.toString()));
+        var checked =new ArrayList<String>(List.of(target.toString(), binary.toString()));
         checked.addAll(arguments);
         requireSafe(platform, checked.toArray());
+        var text = binaryLauncherText(binary, arguments, passCallerArguments, platform);
+        return write(target, text, platform);
+    }
+
+    /**
+     * The launcher file content. A launcher without the caller's arguments ends in {@code & exit /b} on its line, so cmd never reads
+     * on past it when the file is rewritten while a session still runs the old one (cmd reads batch files by byte offset).
+     */
+    public static String binaryLauncherText(Path binary, List<String> arguments, boolean passCallerArguments, Platform platform) {
+        var windows = platform == Platform.WINDOWS;
         var line = new StringBuilder(quoted(binary.toString(), windows));
         arguments.forEach(argument -> line.append(' ').append(quoted(argument, windows)));
-        var text = windows
-                ? "@echo off\r\n" + line + " %*\r\n"
-                : "#!/bin/sh\nexec " + line + " \"$@\"\n";
-        return write(target, text, platform);
+        return windows
+                ? "@echo off\r\n" + line + (passCallerArguments ? " %*" : " & exit /b") + "\r\n"
+                : "#!/bin/sh\nexec " + line + (passCallerArguments ? " \"$@\"" : "") + "\n";
     }
 
     /** Our own java/Equinox start, so the Python wrapper of the archive is not needed. The workspace folder is derived from the working directory. */
@@ -109,7 +123,7 @@ public class LauncherWriter {
         if (!command.matches("[A-Za-z0-9._-]+") || command.startsWith(".")) {
             throw new IllegalArgumentException("Invalid launcher name: " + command);
         }
-        return directory.binDirectory().resolve(platform == Platform.WINDOWS ? command + ".cmd" : command);
+        return directory.launcherFile(command, platform == Platform.WINDOWS);
     }
 
     private static void requireSafe(Platform platform, Object... values) throws IOException {
@@ -151,6 +165,9 @@ public class LauncherWriter {
 
     private static Path write(Path target, String text, Platform platform) throws IOException {
         Files.createDirectories(target.getParent());
+        if (Files.isRegularFile(target) && Files.readString(target).equals(text)) {
+            return target;
+        }
         var temp = Files.createTempFile(target.getParent(), ".launcher-", ".tmp");
         try {
             Files.writeString(temp, text);

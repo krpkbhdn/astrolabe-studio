@@ -71,6 +71,18 @@ class LauncherWriterTest {
     }
 
     @Test
+    void binaryLauncherCanDropTheCallersArguments() throws IOException {
+        var binary = Path.of("bin", "lsp-router");
+        var args = java.util.List.of("--system-path", "S");
+
+        var windows = Files.readString(writer.writeBinary("kotlin-lsp", binary, args, false, Platform.WINDOWS));
+        var posix = Files.readString(writer.writeBinary("kotlin-lsp", binary, args, false, Platform.LINUX));
+
+        assertThat(windows).isEqualTo("@echo off\r\n\"" + binary + "\" \"--system-path\" \"S\" & exit /b\r\n");
+        assertThat(posix).isEqualTo("#!/bin/sh\nexec '" + binary + "' '--system-path' 'S'\n");
+    }
+
+    @Test
     void windowsArgumentWithCmdMetacharacterIsRefused() {
         assertThatThrownBy(() -> writer.writeBinary("kotlin-lsp", Path.of("x"), java.util.List.of("a&b"), Platform.WINDOWS))
                 .isInstanceOf(IllegalStateException.class);

@@ -119,6 +119,50 @@ class LspHandshakeTest {
     }
 
     @Test
+    void sendsNoRootUriByDefaultAndTheWorkspaceFolderWhenGiven() {
+        run("");
+        assertThat(sent.toString(StandardCharsets.UTF_8)).contains("\"rootUri\":null");
+
+        sent.reset();
+        var workspace = java.nio.file.Path.of("probe-workspace").toAbsolutePath();
+        handshake.perform(new ByteArrayInputStream(new byte[0]), sent, TIMEOUT, workspace);
+
+        assertThat(sent.toString(StandardCharsets.UTF_8)).contains("\"rootUri\":\"" + workspace.toUri() + "\"");
+    }
+
+    private static Process failingServer(String stderr) {
+        return new Process() {
+            @Override public java.io.OutputStream getOutputStream() { return new ByteArrayOutputStream(); }
+            @Override public InputStream getInputStream() { return new ByteArrayInputStream(new byte[0]); }
+            @Override public InputStream getErrorStream() { return new ByteArrayInputStream(stderr.getBytes(StandardCharsets.UTF_8)); }
+            @Override public int waitFor() { return 1; }
+            @Override public int exitValue() { return 1; }
+            @Override public void destroy() { }
+            @Override public Process destroyForcibly() { return this; }
+            @Override public long pid() { return Long.MAX_VALUE; }
+        };
+    }
+
+    @Test
+    void failureDetailCarriesTheTailOfStderrWithPathsReplaced() {
+        var stderr = "starting\nCannot lock C:\\Users\\me\\state\\lock\n" + "x".repeat(500) + "\nlast line";
+
+        var result = handshake.performAndStop(failingServer(stderr), TIMEOUT);
+
+        assertThat(result.outcome()).isEqualTo(Outcome.FAILED);
+        assertThat(result.detail()).startsWith("unreadable response").contains("; stderr: ...").endsWith("xxxx last line")
+                .doesNotContain("Users");
+        assertThat(result.detail().substring(result.detail().indexOf("; stderr: "))).hasSize("; stderr: ...".length() + LspHandshake.MAX_STDERR_DETAIL);
+    }
+
+    @Test
+    void failureWithoutStderrKeepsTheOriginalDetail() {
+        var result = handshake.performAndStop(failingServer(""), TIMEOUT);
+
+        assertThat(result.detail()).doesNotContain("stderr");
+    }
+
+    @Test
     void failsWhenTheCommandCannotBeStarted() {
         var result = handshake.perform(java.util.List.of("definitely-not-a-real-binary-ccm"), TIMEOUT);
 

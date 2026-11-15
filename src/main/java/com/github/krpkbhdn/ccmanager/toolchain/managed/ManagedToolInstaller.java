@@ -69,7 +69,7 @@ public final class ManagedToolInstaller {
         var target = directory.versionDirectory(tool.id(), version);
         log.line("Latest version: " + version);
         if (!repair && Files.exists(target.resolve(ManagedToolsDirectory.COMPLETE_MARKER))) {
-            if (launcherTargetExists(source.launcher(), target)) {
+            if (launcherTargetExists(usable(source.launcher(), target), target)) {
                 var launcher = writeLauncher(tool, source.launcher(), target);
                 log.line("Already up to date. Launcher: " + launcher);
                 return new Installed(version, true, launcher);
@@ -120,6 +120,20 @@ public final class ManagedToolInstaller {
                 yield binary.startsWith(install) && Files.isRegularFile(binary);
             }
         };
+    }
+
+    /** The spec itself, or its fallback when the unpacked version lacks the spec's file. */
+    private static LauncherSpec usable(LauncherSpec spec, Path install) {
+        return spec.fallback() != null && !launcherTargetExists(spec, install) && launcherTargetExists(spec.fallback(), install)
+                ? spec.fallback() : spec;
+    }
+
+    /** Rewrites the launcher of the newest installed version without any download, so a launcher from an older app version gets the current form. */
+    public void refreshLauncher(ToolDefinition tool, LauncherSpec spec) throws IOException {
+        var version = directory.installedVersion(tool.id());
+        if (version.isPresent()) {
+            writeLauncher(tool, spec, directory.versionDirectory(tool.id(), version.get()));
+        }
     }
 
     private String latestVersion(LatestSource latest) throws IOException, InterruptedException {
@@ -184,8 +198,9 @@ public final class ManagedToolInstaller {
         }
     }
 
-    private Path writeLauncher(ToolDefinition tool, LauncherSpec spec, Path install) throws IOException {
+    private Path writeLauncher(ToolDefinition tool, LauncherSpec declared, Path install) throws IOException {
         Files.createDirectories(directory.binDirectory());
+        var spec = usable(declared, install);
         return switch (spec.kind()) {
             case JDTLS -> launchers.writeJdtls(tool.binary(), install, directory.stateDirectory(tool.id()), platform);
             case BINARY -> {
@@ -195,7 +210,7 @@ public final class ManagedToolInstaller {
                 }
                 var state = directory.stateDirectory(tool.id());
                 Files.createDirectories(state);
-                yield launchers.writeBinary(tool.binary(), binary, spec.argumentsFor(state), platform);
+                yield launchers.writeBinary(tool.binary(), binary, spec.argumentsFor(state, install), !spec.routed(), platform);
             }
         };
     }
