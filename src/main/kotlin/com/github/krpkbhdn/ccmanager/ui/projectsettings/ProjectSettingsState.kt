@@ -33,5 +33,8 @@ class ProjectSettingsState(
     /** A CLI mutation is running; closing would drop its result, so the dialog stays until it ends. */
     val busy: Boolean get() = plugins.job != null || mcp.job != null || skills.job != null || languages.busy
 
-    fun dispose() = scope.cancel()
+    fun dispose() {
+        codeMode.dispose()
+        scope.cancel()
+    }
 }

@@ -118,6 +118,8 @@ private val shots = listOf(
     Shot("context-nodata", prepare = { state, _, _ -> state.openSession("s-idle"); state.contextSessionId = "s-idle"; state.contextShowDetails = true }),
     Shot("context-dialog", prepare = { state, _, _ -> state.openSession("s-idle"); state.contextSessionId = "s-idle"; state.contextBreakdown.load("s-idle", true); waitFor { state.contextBreakdown.loadOf("s-idle") is com.github.krpkbhdn.ccmanager.ui.state.BreakdownLoad.Done } }),
     Shot("usage-none", limits = null, prepare = { state, _, _ -> state.navigate(Route.Overview) }),
+    Shot("codemode-chip", prepare = { state, _, _ -> state.codeModeChip.track(state.projects.all.first { it.id == 1L }); waitFor { state.codeModeChip.codeMode?.loaded == true && state.codeModeChip.mcp?.loaded == true } }),
+    Shot("codemode-popup", prepare = { state, _, _ -> state.codeModeChip.track(state.projects.all.first { it.id == 1L }); waitFor { state.codeModeChip.codeMode?.loaded == true && state.codeModeChip.mcp?.loaded == true }; state.codeModeChip.open = true }),
     Shot("usage-panel", prepare = { state, _, _ -> state.usageOpen = true }),
     Shot("usage-panel-high", limits = limitsAt(72.0, 93.4), prepare = { state, _, _ -> state.usageOpen = true }),
     Shot("usage-panel-none", limits = null, prepare = { state, _, _ -> state.usageOpen = true }),

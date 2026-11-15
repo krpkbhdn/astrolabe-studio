@@ -35,6 +35,13 @@ class ProjectCodeModeState(
     private var latestChange = 0
     private val pendingSaves = AtomicInteger()
 
+    /** Reloads when another state (the status bar chip or the settings dialog) saves the same project. */
+    private val unsubscribe: Runnable? = service?.subscribe { load() }
+
+    fun dispose() {
+        unsubscribe?.run()
+    }
+
     fun load() {
         val version = latestChange
         scope.launch {

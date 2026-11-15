@@ -32,7 +32,10 @@ import com.github.krpkbhdn.ccmanager.ui.prompts.PromptsState
 import com.github.krpkbhdn.ccmanager.claude.proposal.Proposal
 import com.github.krpkbhdn.ccmanager.ui.proposal.ProposalState
 import com.github.krpkbhdn.ccmanager.ui.proposal.proposalHeadline
+import com.github.krpkbhdn.ccmanager.ui.codemode.CodeModeChipState
 import com.github.krpkbhdn.ccmanager.ui.codemode.CodeModeState
+import com.github.krpkbhdn.ccmanager.ui.codemode.ProjectCodeModeState
+import com.github.krpkbhdn.ccmanager.ui.extensions.mcp.McpState
 import com.github.krpkbhdn.ccmanager.ui.queue.QueueState
 import com.github.krpkbhdn.ccmanager.ui.queue.QueuedPrompt
 import com.github.krpkbhdn.ccmanager.ui.run.RunState
@@ -204,6 +207,11 @@ class AppState(
     val settingsDialog = SettingsState()
     val voice: VoiceSettingsState? = voiceSettingsOf(backend.voice, scope, { settings }, prefs::update, notifications::reportError)
     val codeModeSettings = CodeModeSettingsState(backend.codeMode, scope) { notifications.reportError(it) }
+    val codeModeChip = CodeModeChipState(
+        backend.projectCodeMode != null,
+        { ProjectCodeModeState(backend.projectCodeMode, it.id, scope, { backend.pluginMcpServers?.servers(it.path) ?: emptyList() }, notifications::reportError) },
+        { McpState(backend.mcp, it.path, scope, { request -> confirm = request }, notifications::toast) },
+    )
     val tools: ToolsState = ToolsState(backend.toolchain, scope, { lspSetup.running }, notifications::reportError)
     val detectedTech = DetectedTechState(backend.toolchain?.health, scope)
     val lspSetup: LspSetupState = LspSetupState(backend.toolchain?.lspSetup, scope, { tools.install != InstallFlow.Idle || tools.installRunning }, detectedTech::refresh, notifications::reportError)
@@ -327,6 +335,7 @@ class AppState(
         (target as? Route.Project)?.let { presetOffer.offerFor(it.id) }
         notificationsOpen = false
         usageOpen = false
+        codeModeChip.open = false
         contextSessionId = null
         contextShowDetails = false
         modelPickerOpen = false

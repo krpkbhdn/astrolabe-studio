@@ -72,7 +72,7 @@ private fun Intro(codeMode: ProjectCodeModeState) {
 }
 
 @Composable
-private fun ServerRow(row: CodeModeRow, codeModeOn: Boolean, onChange: (Boolean) -> Unit) {
+internal fun ServerRow(row: CodeModeRow, codeModeOn: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().card().padding(Spacing.md), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
         AppCheckbox(row.selected, onChange, enabled = row.canChange)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {

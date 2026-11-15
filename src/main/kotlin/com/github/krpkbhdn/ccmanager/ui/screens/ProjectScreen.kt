@@ -90,7 +90,11 @@ fun ProjectScreen(state: AppState, project: Project, modifier: Modifier = Modifi
     LaunchedEffect(project.id, windowFocused) { if (windowFocused) state.runs.track(project.id) }
     DisposableEffect(project.id) {
         state.detectedTech.track(project)
-        onDispose { state.detectedTech.stop() }
+        state.codeModeChip.track(project)
+        onDispose {
+            state.detectedTech.stop()
+            state.codeModeChip.stop()
+        }
     }
     Column(modifier.fillMaxSize()) {
         ProjectHeader(

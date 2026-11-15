@@ -92,6 +92,30 @@ class ProjectCodeModeStateTest {
     }
 
     @Test
+    fun `a service change callback reloads the stored value and dispose unsubscribes`() {
+        val service = mock(ProjectCodeModeService::class.java)
+        val callback = AtomicReference<Runnable>()
+        val unsubscribed = AtomicInteger()
+        `when`(service.subscribe(org.mockito.ArgumentMatchers.any())).thenAnswer { call ->
+            callback.set(call.getArgument(0))
+            Runnable { unsubscribed.incrementAndGet() }
+        }
+        `when`(service.get(anyLong())).thenReturn(ProjectCodeMode(1, false, emptyList()))
+        val state = ProjectCodeModeState(service, 1, scope) { }
+        state.load()
+        await { state.loaded }
+        assertThat(state.enabled).isFalse()
+
+        `when`(service.get(anyLong())).thenReturn(ProjectCodeMode(1, true, listOf("x")))
+        callback.get().run()
+
+        await { state.enabled }
+        assertThat(state.servers).containsExactly("x")
+        state.dispose()
+        assertThat(unsubscribed).hasValue(1)
+    }
+
+    @Test
     fun `a load that finds no change adopts the stored value`() {
         val service = mock(ProjectCodeModeService::class.java)
         `when`(service.get(anyLong())).thenReturn(ProjectCodeMode(1, true, listOf("a")))

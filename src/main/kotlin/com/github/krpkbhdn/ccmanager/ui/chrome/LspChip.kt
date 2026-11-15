@@ -35,12 +35,18 @@ private val chipHeight = 22.dp
 /** Status bar chip: a dot for the health of the project's language servers and "LSP"; details in the tooltip, click opens the Languages settings. */
 @Composable
 internal fun LspChip(indicator: LspIndicator, onClick: () -> Unit) {
-    val description = indicator.lines.joinToString("\n")
-    WithTooltip(description, hint = LSP_HINT, side = TooltipSide.ABOVE) {
-        Pressable(onClick, Modifier.height(chipHeight).semantics { contentDescription = description }, shape = RoundedCornerShape(Radius.sm + 1.dp), base = Color.Transparent) {
+    StatusDotChip("LSP", indicator.lines, LSP_HINT, dotColor(indicator.level), onClick = onClick)
+}
+
+/** A status bar chip: a coloured dot and a label, [lines] and [hint] in the tooltip. */
+@Composable
+internal fun StatusDotChip(label: String, lines: List<String>, hint: String, dot: Color, active: Boolean = false, onClick: () -> Unit) {
+    val description = lines.joinToString("\n")
+    WithTooltip(description, hint = hint, side = TooltipSide.ABOVE) {
+        Pressable(onClick, Modifier.height(chipHeight).semantics { contentDescription = description }, shape = RoundedCornerShape(Radius.sm + 1.dp), base = if (active) colors.accentSoft else Color.Transparent) {
             Row(Modifier.fillMaxHeight().padding(horizontal = Spacing.md), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                Box(Modifier.size(dotSize).background(dotColor(indicator.level), CircleShape))
-                Label("LSP", color = colors.textSecondary, style = Type.caption)
+                Box(Modifier.size(dotSize).background(dot, CircleShape))
+                Label(label, color = colors.textSecondary, style = Type.caption)
             }
         }
     }
