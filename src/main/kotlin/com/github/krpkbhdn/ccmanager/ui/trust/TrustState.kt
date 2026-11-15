@@ -16,7 +16,7 @@ class TrustState(
     private val scope: CoroutineScope,
     private val reportError: (String) -> Unit = {},
 ) {
-    var defaultLevel by mutableStateOf(service?.defaultLevel() ?: TrustLevel.TRUSTED)
+    var defaultLevel by mutableStateOf(service?.defaultLevel() ?: TrustLevel.ASK)
         private set
     var open by mutableStateOf(false)
 

@@ -18,7 +18,7 @@ class TrustSettingsServiceTest {
     Path temp;
 
     @Test
-    void defaultsToTrustedStoresTheChosenLevelAndResolvesProjects() {
+    void defaultsToAskStoresTheChosenLevelAndResolvesProjects() {
         var dataSource = new DriverManagerDataSource("jdbc:sqlite:" + temp.resolve("test.db"));
         Flyway.configure().dataSource(dataSource).load().migrate();
         var service = new TrustSettingsService(JdbcClient.create(dataSource));
@@ -26,14 +26,14 @@ class TrustSettingsServiceTest {
         service.subscribe(fired::incrementAndGet);
         var plain = new Project(1, "p", temp, Instant.now());
 
-        assertThat(service.defaultLevel()).isEqualTo(TrustLevel.TRUSTED);
-        assertThat(service.effective(plain)).isEqualTo(TrustLevel.TRUSTED);
-
-        service.setDefaultLevel(TrustLevel.ASK);
-        service.setDefaultLevel(TrustLevel.ASK);
-
         assertThat(service.defaultLevel()).isEqualTo(TrustLevel.ASK);
         assertThat(service.effective(plain)).isEqualTo(TrustLevel.ASK);
+
+        service.setDefaultLevel(TrustLevel.TRUSTED);
+        service.setDefaultLevel(TrustLevel.TRUSTED);
+
+        assertThat(service.defaultLevel()).isEqualTo(TrustLevel.TRUSTED);
+        assertThat(service.effective(plain)).isEqualTo(TrustLevel.TRUSTED);
         assertThat(service.effective(new Project(2, "q", temp, Instant.now(), ModelSelection.DEFAULT, false, null, TrustLevel.AUTONOMOUS))).isEqualTo(TrustLevel.AUTONOMOUS);
         assertThat(fired).hasValue(1);
     }

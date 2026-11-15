@@ -5,7 +5,7 @@ import java.util.Optional;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 
-/** The app-wide default trust level of projects that have no override of their own (single row, seeded TRUSTED; ASK or TRUSTED only). */
+/** The app-wide default trust level of projects that have no override of their own (single row, seeded TRUSTED by V31, ASK since V32; ASK or TRUSTED only). */
 @Service
 public class TrustSettingsService {
 
