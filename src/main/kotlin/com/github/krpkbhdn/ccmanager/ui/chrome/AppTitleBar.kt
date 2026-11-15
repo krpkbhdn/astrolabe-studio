@@ -17,10 +17,11 @@ import com.github.krpkbhdn.ccmanager.ui.theme.Type
 import com.github.krpkbhdn.ccmanager.ui.theme.colors
 import org.jetbrains.jewel.window.DecoratedWindowScope
 import org.jetbrains.jewel.window.TitleBar
+import org.jetbrains.jewel.window.utils.clientRegion
 
 private val markSize = 18.dp
 
-/** The window's own title bar (JetBrainsRuntime decorations): app mark and name, command palette pill, theme toggle and notifications. */
+/** The window's own title bar (JetBrainsRuntime decorations); widgets are client regions, otherwise the OS treats a click as a caption press: app mark and name, command palette pill, theme toggle and notifications. */
 @Composable
 fun DecoratedWindowScope.AppTitleBar(state: AppState) {
     TitleBar {
@@ -29,8 +30,8 @@ fun DecoratedWindowScope.AppTitleBar(state: AppState) {
                 icon?.let { Image(it, null, Modifier.size(markSize)) }
                 Label(title, color = colors.textPrimary, style = Type.smallMedium)
             }
-            SearchPill({ state.paletteOpen = true }, Modifier.align(Alignment.CenterHorizontally))
-            Row(Modifier.align(Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+            SearchPill({ state.paletteOpen = true }, Modifier.align(Alignment.CenterHorizontally).clientRegion("search"))
+            Row(Modifier.align(Alignment.End).clientRegion("actions"), verticalAlignment = Alignment.CenterVertically) {
                 ThemeToggle(state)
                 UsageIndicator(state)
                 NotificationBell(state)
