@@ -35,16 +35,20 @@ import com.github.krpkbhdn.ccmanager.ui.extensions.plugins.installedEntries
 import com.github.krpkbhdn.ccmanager.ui.extensions.skills.SkillsPage
 import com.github.krpkbhdn.ccmanager.ui.extensions.skills.skillGroups
 import com.github.krpkbhdn.ccmanager.ui.icons.Icons
+import com.github.krpkbhdn.ccmanager.ui.state.AppState
 import com.github.krpkbhdn.ccmanager.ui.theme.IconSize
 import com.github.krpkbhdn.ccmanager.ui.theme.Radius
 import com.github.krpkbhdn.ccmanager.ui.theme.Spacing
 import com.github.krpkbhdn.ccmanager.ui.theme.Type
 import com.github.krpkbhdn.ccmanager.ui.theme.colors
+import com.github.krpkbhdn.ccmanager.ui.tools.InstallFlow
 
 private const val WINDOW_SHARE = 0.88f
 private val navWidth = 216.dp
 
 private fun ProjectSettingsSection.icon(): ImageVector = when (this) {
+    ProjectSettingsSection.GENERAL -> Icons.Settings
+    ProjectSettingsSection.LANGUAGES -> Icons.Code
     ProjectSettingsSection.PLUGINS -> Icons.Plug
     ProjectSettingsSection.MCP -> Icons.Server
     ProjectSettingsSection.SKILLS -> Icons.Book
@@ -53,16 +57,17 @@ private fun ProjectSettingsSection.icon(): ImageVector = when (this) {
 
 /** IDE-style settings of one project: a panel of sections on the left, the page of the selected one on the right. */
 @Composable
-fun ProjectSettingsDialog(state: ProjectSettingsState, onClose: () -> Unit) {
+fun ProjectSettingsDialog(state: ProjectSettingsState, app: AppState, onClose: () -> Unit) {
+    val innerDialogOpen = state.innerDialogOpen || app.tools.install != InstallFlow.Idle || app.applyPreset.isOpen
     BoxWithConstraints {
-        ModalHost({ if (!state.innerDialogOpen) onClose() }, width = maxWidth * WINDOW_SHARE, escapeDismisses = !state.innerDialogOpen) {
+        ModalHost({ if (!innerDialogOpen) onClose() }, width = maxWidth * WINDOW_SHARE, escapeDismisses = !innerDialogOpen) {
             Column(Modifier.height(maxHeight * WINDOW_SHARE)) {
                 SettingsHeader(state.context.name, onClose)
                 HorizontalRule()
                 Row(Modifier.weight(1f)) {
                     SectionPanel(state)
                     VerticalRule()
-                    Box(Modifier.weight(1f).fillMaxHeight()) { SectionPage(state) }
+                    Box(Modifier.weight(1f).fillMaxHeight()) { SectionPage(state, app) }
                 }
             }
         }
@@ -92,6 +97,8 @@ private fun SectionPanel(state: ProjectSettingsState) {
 private fun sectionCount(state: ProjectSettingsState, section: ProjectSettingsSection): Int {
     val context = state.context
     return when (section) {
+        ProjectSettingsSection.GENERAL -> 0
+        ProjectSettingsSection.LANGUAGES -> remember(state.languages.rows) { state.languages.rows.count { it.detected() } }
         ProjectSettingsSection.PLUGINS -> remember(state.plugins.installed) { installedEntries(state.plugins.installed, context).size }
         ProjectSettingsSection.MCP -> remember(state.mcp.servers, state.mcp.health) { mcpGroups(state.mcp.servers, state.mcp.health, context).size }
         ProjectSettingsSection.SKILLS -> remember(state.skills.skills) { skillGroups(state.skills.skills, context).size }
@@ -112,8 +119,10 @@ private fun SectionRow(section: ProjectSettingsSection, selected: Boolean, count
 }
 
 @Composable
-private fun SectionPage(state: ProjectSettingsState) {
+private fun SectionPage(state: ProjectSettingsState, app: AppState) {
     when (state.section) {
+        ProjectSettingsSection.GENERAL -> GeneralPage(app, state.context.id)
+        ProjectSettingsSection.LANGUAGES -> LanguagesPage(state.languages, app.tools)
         ProjectSettingsSection.PLUGINS -> PluginsPage(state.context, state.plugins)
         ProjectSettingsSection.MCP -> McpPage(state.context, state.mcp)
         ProjectSettingsSection.SKILLS -> SkillsPage(state.context, state.skills)

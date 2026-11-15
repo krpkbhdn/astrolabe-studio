@@ -10,7 +10,7 @@ plugins {
 }
 
 group = "com.github.krpkbhdn"
-version = "2.2.0"
+version = "2.3.0"
 
 java {
     toolchain {
@@ -38,6 +38,7 @@ dependencies {
     implementation("org.jetbrains.jewel:jewel-int-ui-decorated-window:0.41.0-262.10968.63")
     implementation("org.jetbrains.runtime:jbr-api:1.9.0")
     implementation("org.graalvm.polyglot:polyglot:25.5.5.0.3")
+    implementation("org.apache.commons:commons-compress:1.28.0")
     runtimeOnly("org.graalvm.polyglot:js-community:25.5.5.0.3")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")

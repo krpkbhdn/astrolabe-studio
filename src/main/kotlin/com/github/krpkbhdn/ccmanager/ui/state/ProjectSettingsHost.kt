@@ -11,6 +11,7 @@ import com.github.krpkbhdn.ccmanager.ui.extensions.mcp.McpState
 import com.github.krpkbhdn.ccmanager.ui.extensions.plugins.PluginsState
 import com.github.krpkbhdn.ccmanager.ui.extensions.skills.SkillHost
 import com.github.krpkbhdn.ccmanager.ui.extensions.skills.SkillsState
+import com.github.krpkbhdn.ccmanager.ui.projectsettings.LanguagesState
 import com.github.krpkbhdn.ccmanager.ui.projectsettings.ProjectSettingsSection
 import com.github.krpkbhdn.ccmanager.ui.projectsettings.ProjectSettingsState
 import kotlinx.coroutines.CoroutineScope
@@ -40,6 +41,7 @@ internal class ProjectSettingsHost(
             McpState(backend.mcp, project.path, dialogScope, requestConfirm, notifications::toast),
             SkillsState(backend.skills, project.path, dialogScope, requestConfirm, notifications::toast, skillHost),
             ProjectCodeModeState(backend.projectCodeMode, project.id, dialogScope, { backend.pluginMcpServers?.servers(project.path) ?: emptyList() }, notifications::reportError),
+            LanguagesState(backend.toolchain?.projectTools, project.path, dialogScope),
         )
     }
 

@@ -20,6 +20,7 @@ import java.util.stream.Collectors;
 public final class ClaudeCommand {
 
     static final String ENV_TERM = "TERM";
+    private static final String PATH_VARIABLE = "PATH";
     /** Keeps the hook and MCP calls to the app's loopback server (bearer token inside) away from a configured proxy. */
     private static final List<String> LOOPBACK_NO_PROXY_VARIABLES = List.of("NO_PROXY", "no_proxy");
     private static final String LOOPBACK_HOSTS = "127.0.0.1,localhost";
@@ -164,6 +165,19 @@ public final class ClaudeCommand {
         List<String> flags = new ArrayList<>();
         directories.forEach(directory -> flags.addAll(List.of("--add-dir", directory.toAbsolutePath().toString())));
         command.addAll(command.indexOf(SETTINGS_FLAG) + 2, flags);
+    }
+
+    /** A copy of [parent] whose only PATH key (any casing; "Path" on Windows when absent) holds [searchPath]; a blank path leaves it as is. */
+    public static Map<String, String> withSearchPath(Map<String, String> parent, String searchPath) {
+        Map<String, String> env = new HashMap<>(parent);
+        if (searchPath == null || searchPath.isBlank()) {
+            return env;
+        }
+        String key = parent.keySet().stream().filter(PATH_VARIABLE::equalsIgnoreCase).findFirst()
+                .orElse(System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win") ? "Path" : PATH_VARIABLE);
+        env.keySet().removeIf(PATH_VARIABLE::equalsIgnoreCase);
+        env.put(key, searchPath);
+        return env;
     }
 
     /** The parent environment without Claude-specific variables and with a color terminal. */

@@ -1,5 +1,6 @@
 package com.github.krpkbhdn.ccmanager.workspace;
 
+import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
@@ -43,5 +44,18 @@ class CommandRunnerTest {
         return System.getProperty("os.name").toLowerCase().contains("win")
                 ? List.of("cmd", "/c", line)
                 : List.of("sh", "-c", line.replace(" & ", "; ").replace("ping -n 30 127.0.0.1 > nul || ", ""));
+    }
+
+    @Test
+    void extraEnvironmentReachesTheChildAndTheInheritedOneIsKept() throws IOException {
+        var windows = System.getProperty("os.name").toLowerCase().contains("win");
+        var command = windows
+                ? List.of("cmd", "/c", "echo %CCM_TEST_VAR%;%SystemRoot%")
+                : List.of("sh", "-c", "echo $CCM_TEST_VAR\\;$HOME");
+        var inherited = windows ? System.getenv("SystemRoot") : System.getenv("HOME");
+
+        var result = CommandRunner.run(command, null, TIMEOUT, Map.of("CCM_TEST_VAR", "ccm-value"));
+
+        assertThat(result.stdout()).contains("ccm-value;").contains(inherited);
     }
 }

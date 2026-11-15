@@ -21,7 +21,6 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -98,7 +97,7 @@ public class ExtensionInstaller {
         var existing = existingRead.get();
         for (var id : extensions.plugins()) {
             var label = "plugin " + id;
-            if (existing.stream().anyMatch(plugin -> sameInstallation(plugin, id, scope, directory))) {
+            if (existing.stream().anyMatch(plugin -> plugin.isInstallationOf(id, scope, directory))) {
                 present.add(label);
                 continue;
             }
@@ -109,11 +108,6 @@ public class ExtensionInstaller {
                 failed.add(label + ": " + e.getMessage());
             }
         }
-    }
-
-    public static boolean sameInstallation(InstalledPlugin plugin, String id, ExtensionScope scope, Path directory) {
-        return plugin.id().equals(id) && plugin.scope() == scope
-                && (scope == ExtensionScope.USER || Objects.equals(plugin.projectPath(), directory));
     }
 
     private void installSkills(ExtensionSet extensions, ExtensionScope scope, Path directory, List<String> installed, List<String> present,

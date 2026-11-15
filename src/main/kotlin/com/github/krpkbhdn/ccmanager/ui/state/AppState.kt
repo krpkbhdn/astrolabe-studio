@@ -42,6 +42,7 @@ import com.github.krpkbhdn.ccmanager.ui.presets.PresetsState
 import com.github.krpkbhdn.ccmanager.ui.presets.apply.ApplyPresetState
 import com.github.krpkbhdn.ccmanager.ui.presets.apply.PresetOfferState
 import com.github.krpkbhdn.ccmanager.ui.teams.TeamsState
+import com.github.krpkbhdn.ccmanager.ui.tools.ToolsState
 import com.github.krpkbhdn.ccmanager.ui.usage.UsageState
 import com.github.krpkbhdn.ccmanager.ui.voice.VoiceSettingsState
 import com.github.krpkbhdn.ccmanager.ui.voice.voiceSettingsOf
@@ -200,6 +201,7 @@ class AppState(
     val settingsDialog = SettingsState()
     val voice: VoiceSettingsState? = voiceSettingsOf(backend.voice, scope, { settings }, prefs::update, notifications::reportError)
     val codeModeSettings = CodeModeSettingsState(backend.codeMode, scope) { notifications.reportError(it) }
+    val tools = ToolsState(backend.toolchain, scope, notifications::reportError)
     val update = UpdateState(backend.updates, scope, notifications::reportError, ::requestQuit) { exitApp() }
     var exitApp: () -> Unit = {}
     val agents = AgentsState(backend.transcripts, scope, { live }, ::showSessionTerminal)
@@ -418,12 +420,10 @@ class AppState(
         }
 
     fun requestQuit(quit: () -> Unit) {
-        val running = live.sessions.size
-        if (running == 0) return quit()
-        val noun = if (running == 1) "Claude session is" else "Claude sessions are"
+        val warning = quitWarningOf(live.sessions.size, tools.installRunning) ?: return quit()
         confirm = ConfirmRequest(
             title = "Quit Claude Code Manager",
-            message = "$running $noun running and will be terminated.",
+            message = warning,
             confirmLabel = "Quit",
             onConfirm = quit,
         )

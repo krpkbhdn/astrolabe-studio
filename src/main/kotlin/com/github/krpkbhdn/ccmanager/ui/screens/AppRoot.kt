@@ -66,6 +66,7 @@ import com.github.krpkbhdn.ccmanager.ui.assistant.AssistantStartupDialog
 import com.github.krpkbhdn.ccmanager.ui.assistant.QuickRequestDialog
 import com.github.krpkbhdn.ccmanager.ui.components.LocalModalScrim
 import com.github.krpkbhdn.ccmanager.ui.presets.PresetDialogHost
+import com.github.krpkbhdn.ccmanager.ui.tools.InstallToolDialog
 import com.github.krpkbhdn.ccmanager.ui.presets.apply.ApplyPresetDialog
 import com.github.krpkbhdn.ccmanager.ui.presets.apply.PresetOfferDialog
 import com.github.krpkbhdn.ccmanager.ui.prompts.ProjectPickerDialog
@@ -131,12 +132,13 @@ fun AppRoot(state: AppState, osName: String = System.getProperty("os.name"), mod
             state.prompts.dialog?.let { PromptDialog(it, state.prompts, state.projects.all, state.teams.teams) }
             state.runs.dialog?.let { RunConfigurationDialog(it, state.runs, state.dataDir) }
             state.teams.dialog?.let { open -> state.teams.find(open.teamId)?.let { RoleDialog(it, open, state.teams) } }
-            state.extensions.projectSettings?.let { ProjectSettingsDialog(it, state.extensions::closeProjectSettings) }
+            state.extensions.projectSettings?.let { ProjectSettingsDialog(it, state, state.extensions::closeProjectSettings) }
             if (state.settingsDialog.open) SettingsDialog(state)
             CompositionLocalProvider(LocalModalScrim provides !state.settingsDialog.open) {
                 state.presets.dialog?.let { PresetDialogHost(it, state.presets, state.dataDir) }
                 if (state.applyPreset.pickingProject) ProjectPickerDialog(state.projects.all.filter { !it.group }, { state.teams.defaultTeamOf(it.id) }, state.applyPreset::chooseProject, state.applyPreset::close)
                 if (state.applyPreset.project != null) ApplyPresetDialog(state.applyPreset)
+                InstallToolDialog(state.tools)
             }
             state.presetOffer.offer?.let { PresetOfferDialog(it, state.presets.presets, state.presetOffer) }
             state.extensions.plugins.pending?.let { PluginCommandDialog(it, state.extensions.plugins.job == null, state.extensions.plugins::confirmPending, state.extensions.plugins::dismissPending) }

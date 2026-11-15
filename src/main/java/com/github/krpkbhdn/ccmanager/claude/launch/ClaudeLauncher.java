@@ -20,6 +20,7 @@ import com.github.krpkbhdn.ccmanager.project.ModelSelection;
 import com.github.krpkbhdn.ccmanager.project.ProjectGroupService;
 import com.github.krpkbhdn.ccmanager.project.ProjectService;
 import com.github.krpkbhdn.ccmanager.team.Team;
+import com.github.krpkbhdn.ccmanager.toolchain.ExecutableLookup;
 import com.pty4j.PtyProcess;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -57,12 +58,14 @@ public class ClaudeLauncher {
     private final WorkDirectories workDirectories;
     private final ProjectCodeModeService codeModes;
     private final McpConfigReader mcpConfigs;
+    private final ExecutableLookup executableLookup;
 
     public ClaudeLauncher(ProjectService projects, ClaudeInstallationService installation,
             HookSettingsWriter hookSettings, ClaudePluginWriter plugin, SessionRegistry sessions, AppProperties properties,
             ProjectGroupService groups, GroupWorkspace groupWorkspace, ProjectMcpServers projectMcpServers,
             AssistantMcpServer assistantMcp, WorkDirectories workDirectories,
-            ProjectCodeModeService codeModes, McpConfigReader mcpConfigs) {
+            ProjectCodeModeService codeModes, McpConfigReader mcpConfigs, ExecutableLookup executableLookup) {
+        this.executableLookup = executableLookup;
         this.codeModes = codeModes;
         this.mcpConfigs = mcpConfigs;
         this.assistantMcp = assistantMcp;
@@ -190,10 +193,11 @@ public class ClaudeLauncher {
                 ClaudeCommand.addDirectories(command, memberPaths);
             }
             String sessionToken = hookSettings.sessionToken(ccmSessionId);
+            Map<String, String> parent = ClaudeCommand.withSearchPath(System.getenv(), executableLookup.searchPath());
             Map<String, String> environment = projectId == ASSISTANT_PROJECT_ID
-                    ? ClaudeCommand.assistantEnvironment(System.getenv(), ccmSessionId, sessionToken, hookSettings.assistantToken())
-                    : group ? ClaudeCommand.groupEnvironment(System.getenv(), ccmSessionId, sessionToken)
-                    : ClaudeCommand.environment(System.getenv(), ccmSessionId, sessionToken);
+                    ? ClaudeCommand.assistantEnvironment(parent, ccmSessionId, sessionToken, hookSettings.assistantToken())
+                    : group ? ClaudeCommand.groupEnvironment(parent, ccmSessionId, sessionToken)
+                    : ClaudeCommand.environment(parent, ccmSessionId, sessionToken);
             process = PtySpawner.spawn(command, directory, environment);
             watchExit(ccmSessionId, process);
             return new LaunchedSession(ccmSessionId, projectId, label, process, directory);

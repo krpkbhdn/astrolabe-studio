@@ -28,7 +28,7 @@ class ShellLauncherTest {
 
     private final ProjectService projects = mock(ProjectService.class);
     private final GitWorktreeService worktrees = mock(GitWorktreeService.class);
-    private final ShellLauncher launcher = new ShellLauncher(projects, new WorkDirectories(worktrees));
+    private final ShellLauncher launcher = new ShellLauncher(projects, new WorkDirectories(worktrees), org.mockito.Mockito.mock(com.github.krpkbhdn.ccmanager.toolchain.ExecutableLookup.class));
     private final ShellProfile shell = new ShellProfile("fake", Path.of("no-such-shell-binary"), List.of());
 
     @Test

@@ -8,6 +8,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.github.krpkbhdn.ccmanager.toolchain.ExecutableLookup;
 import com.github.krpkbhdn.ccmanager.claude.hook.HookSettingsWriter;
 import com.github.krpkbhdn.ccmanager.claude.hook.SessionFiles;
 import com.github.krpkbhdn.ccmanager.claude.plugin.ClaudePluginWriter;
@@ -55,7 +56,7 @@ class ClaudeLauncherTest {
     private final Path dataDir = Path.of("build", "launcher-test-data").toAbsolutePath();
     private final ClaudeLauncher launcher = new ClaudeLauncher(projects, installation, hooks, mock(ClaudePluginWriter.class), sessions, new AppProperties(dataDir),
             groups, mock(GroupWorkspace.class), mock(ProjectMcpServers.class), assistantEndpoint, new WorkDirectories(worktrees),
-            codeModes, mcpConfigs);
+            codeModes, mcpConfigs, mock(ExecutableLookup.class));
 
     @TempDir
     Path directory;

@@ -26,6 +26,8 @@ public class FakeHostEnvironment implements HostEnvironment {
 
     public FakeHostEnvironment withPath(Path... directories) {
         pathDirectories = List.of(directories);
+        env.put("PATH", java.util.Arrays.stream(directories).map(Path::toString)
+                .collect(java.util.stream.Collectors.joining(os == OperatingSystem.WINDOWS ? ";" : ":")));
         return this;
     }
 

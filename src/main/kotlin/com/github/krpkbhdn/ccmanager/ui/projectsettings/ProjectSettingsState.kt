@@ -12,7 +12,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
 
 /** One entry per page of the dialog panel; adding a project setting means adding one entry and one page. */
-enum class ProjectSettingsSection(val label: String) { PLUGINS("Plugins"), MCP("MCP servers"), SKILLS("Skills"), CODE_MODE("Code Mode") }
+enum class ProjectSettingsSection(val label: String) { GENERAL("General"), LANGUAGES("Languages"), PLUGINS("Plugins"), MCP("MCP servers"), SKILLS("Skills"), CODE_MODE("Code Mode") }
 
 /** Everything one open Project settings dialog owns: the extension states of its project and the background work on [scope]. */
 class ProjectSettingsState(
@@ -23,6 +23,7 @@ class ProjectSettingsState(
     val mcp: McpState,
     val skills: SkillsState,
     val codeMode: ProjectCodeModeState,
+    val languages: LanguagesState,
 ) {
     var section by mutableStateOf(section)
 
@@ -30,7 +31,7 @@ class ProjectSettingsState(
     val innerDialogOpen: Boolean get() = plugins.pending != null || mcp.adding || skills.creating
 
     /** A CLI mutation is running; closing would drop its result, so the dialog stays until it ends. */
-    val busy: Boolean get() = plugins.job != null || mcp.job != null || skills.job != null
+    val busy: Boolean get() = plugins.job != null || mcp.job != null || skills.job != null || languages.busy
 
     fun dispose() = scope.cancel()
 }

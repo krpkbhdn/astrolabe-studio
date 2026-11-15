@@ -50,6 +50,11 @@ import com.github.krpkbhdn.ccmanager.usage.RateLimitService
 import com.github.krpkbhdn.ccmanager.update.UpdateService
 import com.github.krpkbhdn.ccmanager.usage.SessionUsageService
 import com.github.krpkbhdn.ccmanager.usage.context.ContextBreakdownService
+import com.github.krpkbhdn.ccmanager.toolchain.ProjectToolsService
+import com.github.krpkbhdn.ccmanager.toolchain.ToolCatalog
+import com.github.krpkbhdn.ccmanager.toolchain.ToolInstallService
+import com.github.krpkbhdn.ccmanager.toolchain.ToolProbe
+import com.github.krpkbhdn.ccmanager.ui.tools.ToolchainBackend
 import com.github.krpkbhdn.ccmanager.ui.voice.VoiceBackend
 import com.github.krpkbhdn.ccmanager.voice.VoiceInputService
 import com.github.krpkbhdn.ccmanager.voice.asset.VoiceAssetService
@@ -115,6 +120,7 @@ class Backend(
     val projectCodeMode: ProjectCodeModeService? = null,
     val pluginMcpServers: PluginMcpServers? = null,
     val codeModeExecutions: ExecutionRegistry? = null,
+    val toolchain: ToolchainBackend? = null,
 ) {
     companion object {
         fun from(context: ConfigurableApplicationContext) = Backend(
@@ -169,6 +175,12 @@ class Backend(
                 context.getBean(Microphone::class.java),
             ),
             hookHelper = context.getBean(HookHelperCommand::class.java),
+            toolchain = ToolchainBackend(
+                context.getBean(ToolCatalog::class.java),
+                context.getBean(ToolProbe::class.java),
+                context.getBean(ToolInstallService::class.java),
+                context.getBean(ProjectToolsService::class.java),
+            ),
             projectCodeMode = context.getBean(ProjectCodeModeService::class.java),
             pluginMcpServers = context.getBean(PluginMcpServers::class.java),
             codeModeExecutions = context.getBean(ExecutionRegistry::class.java),

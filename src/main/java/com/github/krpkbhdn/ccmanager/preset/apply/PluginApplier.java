@@ -1,6 +1,5 @@
 package com.github.krpkbhdn.ccmanager.preset.apply;
 
-import com.github.krpkbhdn.ccmanager.author.install.ExtensionInstaller;
 import com.github.krpkbhdn.ccmanager.extension.ExtensionScope;
 import com.github.krpkbhdn.ccmanager.extension.plugin.PluginService;
 import com.github.krpkbhdn.ccmanager.preset.PresetComponent;
@@ -25,7 +24,7 @@ class PluginApplier implements PresetComponentApplier {
     @Override
     public PlannedChange plan(PresetComponent component, Path projectDir) {
         var present = plugins.installed().stream()
-                .anyMatch(plugin -> ExtensionInstaller.sameInstallation(plugin, component.name(), ExtensionScope.PROJECT, projectDir));
+                .anyMatch(plugin -> plugin.isInstallationOf(component.name(), ExtensionScope.PROJECT, projectDir));
         return present ? PlannedChange.of(component, ChangeAction.PRESENT, "Plugin already installed for this project")
                 : PlannedChange.of(component, ChangeAction.INSTALL, "Install the plugin for this project");
     }

@@ -5,6 +5,7 @@ import com.github.krpkbhdn.ccmanager.claude.launch.PtySpawner;
 import com.github.krpkbhdn.ccmanager.claude.launch.WorkDirectories;
 import com.github.krpkbhdn.ccmanager.project.Project;
 import com.github.krpkbhdn.ccmanager.project.ProjectService;
+import com.github.krpkbhdn.ccmanager.toolchain.ExecutableLookup;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -24,7 +25,10 @@ public class ShellLauncher {
 
     private final WorkDirectories workDirectories;
 
-    public ShellLauncher(ProjectService projects, WorkDirectories workDirectories) {
+    private final ExecutableLookup executableLookup;
+
+    public ShellLauncher(ProjectService projects, WorkDirectories workDirectories, ExecutableLookup executableLookup) {
+        this.executableLookup = executableLookup;
         this.projects = projects;
         this.workDirectories = workDirectories;
     }
@@ -50,7 +54,8 @@ public class ShellLauncher {
 
     private LaunchedShell spawn(long projectId, ShellProfile shell, Path directory) {
         try {
-            var process = PtySpawner.spawn(shell.command(), directory, ClaudeCommand.terminalEnvironment(System.getenv()));
+            var process = PtySpawner.spawn(shell.command(), directory, ClaudeCommand.terminalEnvironment(
+                    ClaudeCommand.withSearchPath(System.getenv(), executableLookup.searchPath())));
             return new LaunchedShell(TERMINAL_ID_PREFIX + UUID.randomUUID(), projectId, shell, process);
         } catch (IOException | RuntimeException e) {
             log.warn("{} failed to start in {}", shell.name(), directory, e);

@@ -171,6 +171,40 @@ class ClaudeCommandTest {
     }
 
     @Test
+    void searchPathReplacesTheExistingKeyKeepingItsCasingWithoutDuplicates() {
+        Map<String, String> parent = Map.of("Path", "old", "OTHER", "x");
+
+        assertThat(ClaudeCommand.withSearchPath(parent, "new")).containsOnly(Map.entry("Path", "new"), Map.entry("OTHER", "x"));
+        assertThat(ClaudeCommand.withSearchPath(Map.of("PATH", "old"), "new")).containsOnly(Map.entry("PATH", "new"));
+    }
+
+    @Test
+    void searchPathRemovesEveryPathKeyIgnoringCase() {
+        var env = ClaudeCommand.withSearchPath(new java.util.TreeMap<>(Map.of("PATH", "a", "path", "b")), "new");
+
+        assertThat(env.keySet().stream().filter("path"::equalsIgnoreCase)).hasSize(1);
+        assertThat(env.values()).containsExactly("new");
+    }
+
+    @Test
+    void searchPathAddsAKeyWhenMissingAndKeepsParentForABlankPath() {
+        var added = ClaudeCommand.withSearchPath(Map.of(), "new");
+
+        assertThat(added).hasSize(1).containsValue("new");
+        assertThat(added.keySet().iterator().next()).isIn("PATH", "Path");
+        assertThat(ClaudeCommand.withSearchPath(Map.of("PATH", "old"), " ")).containsOnly(Map.entry("PATH", "old"));
+    }
+
+    @Test
+    void searchPathKeepsTokenHandlingOfTheLaunchEnvironments() {
+        Map<String, String> parent = ClaudeCommand.withSearchPath(Map.of("CCM_ASSISTANT_TOKEN", "inherited", "CCM_HOOK_TOKEN", "other"), "p");
+
+        assertThat(ClaudeCommand.environment(parent, "ccm-1", "t")).doesNotContainKey("CCM_ASSISTANT_TOKEN").containsEntry("CCM_HOOK_TOKEN", "t");
+        assertThat(ClaudeCommand.assistantEnvironment(parent, "ccm-1", "t", "tok")).containsEntry("CCM_ASSISTANT_TOKEN", "tok");
+        assertThat(ClaudeCommand.terminalEnvironment(parent)).doesNotContainKeys("CCM_ASSISTANT_TOKEN", "CCM_HOOK_TOKEN");
+    }
+
+    @Test
     void everyLaunchEnvironmentCarriesTheSessionTokenAndShellsNeverInheritIt() {
         Map<String, String> parent = Map.of("CCM_HOOK_TOKEN", "other-session");
 

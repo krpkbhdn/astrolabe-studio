@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -38,9 +39,20 @@ public final class CommandRunner {
         return run(command, workingDirectory, timeout, MAX_OUTPUT_BYTES);
     }
 
+    /** @param extraEnvironment set on top of the inherited environment (names are case-insensitive on Windows) */
+    public static Result run(List<String> command, Path workingDirectory, Duration timeout, Map<String, String> extraEnvironment) throws IOException {
+        return run(command, workingDirectory, timeout, extraEnvironment, MAX_OUTPUT_BYTES);
+    }
+
     /** @param maxOutputBytes per stream; the rest is read and dropped so the process never blocks on a full pipe */
     static Result run(List<String> command, Path workingDirectory, Duration timeout, int maxOutputBytes) throws IOException {
+        return run(command, workingDirectory, timeout, Map.of(), maxOutputBytes);
+    }
+
+    private static Result run(List<String> command, Path workingDirectory, Duration timeout, Map<String, String> extraEnvironment,
+                              int maxOutputBytes) throws IOException {
         var builder = new ProcessBuilder(command);
+        builder.environment().putAll(extraEnvironment);
         if (workingDirectory != null) {
             builder.directory(workingDirectory.toFile());
         }

@@ -5,6 +5,7 @@ import com.github.krpkbhdn.ccmanager.extension.ExtensionException;
 import com.github.krpkbhdn.ccmanager.extension.ExtensionProperties;
 import com.github.krpkbhdn.ccmanager.workspace.CommandRunner;
 import com.github.krpkbhdn.ccmanager.workspace.HostEnvironment;
+import com.github.krpkbhdn.ccmanager.workspace.PtyCommandRunner;
 import com.github.krpkbhdn.ccmanager.workspace.WindowsArgument;
 import java.io.IOException;
 import java.nio.file.Path;

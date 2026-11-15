@@ -13,6 +13,7 @@ import com.github.krpkbhdn.ccmanager.notification.AppNotification
 import com.github.krpkbhdn.ccmanager.notification.NotificationKind
 import com.github.krpkbhdn.ccmanager.ui.chrome.MainWindow
 import com.github.krpkbhdn.ccmanager.ui.assistant.AssistantStartup
+import com.github.krpkbhdn.ccmanager.ui.projectsettings.ProjectSettingsSection
 import com.github.krpkbhdn.ccmanager.ui.settings.SettingsCategory
 import com.github.krpkbhdn.ccmanager.ui.state.AppState
 import com.github.krpkbhdn.ccmanager.ui.state.GroupDialogRequest
@@ -143,6 +144,7 @@ private suspend fun captureTour(capture: Capture, state: AppState, world: Previe
     state.settingsDialog.show()
     capture.take("1a-settings")
     captureVoicePage(capture, state, world.voice)
+    captureToolchain(capture, state)
     state.settingsDialog.close()
     state.navigate(Route.Sessions)
     capture.take("1b-all-sessions")
@@ -205,4 +207,52 @@ private suspend fun captureTour(capture: Capture, state: AppState, world: Previe
     world.claudeInstalled = false
     state.environment.recheckInstallation()
     capture.take("10-install-missing")
+}
+
+private const val LONG_LOG_SHOT_MILLIS = 3_500L
+private const val INSTALL_DONE_WAIT_MILLIS = 2_500L
+private const val HUGE_LOG_SHOT_MILLIS = 1_500L
+private const val HUGE_LOG_DONE_MILLIS = 5_000L
+
+private suspend fun captureToolchain(capture: Capture, state: AppState) {
+    state.settingsDialog.select(SettingsCategory.TOOLS)
+    state.tools.loadPlans()
+    capture.take("1d-tools-page")
+    state.tools.requestInstall(STILL_MISSING_TOOL)
+    capture.take("1e-install-confirm")
+    state.tools.confirmInstall()
+    delay(INSTALL_DONE_WAIT_MILLIS)
+    capture.take("1f-install-done-still-missing")
+    state.tools.closeInstall()
+    state.tools.requestInstall(LONG_LOG_TOOL)
+    state.tools.confirmInstall()
+    capture.take("1g-install-running-long-log", LONG_LOG_SHOT_MILLIS)
+    delay(LONG_LOG_SHOT_MILLIS)
+    state.tools.closeInstall()
+    state.tools.requestInstall(MANUAL_TOOL)
+    capture.take("1j-install-manual")
+    state.tools.closeInstall()
+    state.tools.requestInstall(HUGE_LOG_TOOL)
+    state.tools.confirmInstall()
+    capture.take("1k-install-long-log", HUGE_LOG_SHOT_MILLIS)
+    delay(HUGE_LOG_DONE_MILLIS)
+    state.tools.closeInstall()
+    state.tools.requestInstall(MANAGED_TOOL)
+    capture.take("1l-update-confirm-download")
+    state.tools.confirmInstall()
+    delay(INSTALL_DONE_WAIT_MILLIS * 3)
+    capture.take("1m-update-done-path-hint")
+    state.tools.closeInstall()
+    state.tools.requestUninstall(MANAGED_TOOL)
+    capture.take("1n-uninstall-confirm")
+    state.tools.closeInstall()
+    state.settingsDialog.select(SettingsCategory.APPEARANCE)
+    state.settingsDialog.close()
+    val project = state.projects.find(1) ?: return
+    state.extensions.openProjectSettings(project, ProjectSettingsSection.GENERAL)
+    capture.take("1h-project-general")
+    state.extensions.projectSettings?.section = ProjectSettingsSection.LANGUAGES
+    capture.take("1i-project-languages")
+    state.extensions.closeProjectSettings()
+    state.settingsDialog.show()
 }
