@@ -39,13 +39,15 @@ fun SplitActionButton(
     tooltip: String? = null,
     onChevron: (() -> Unit)? = null,
     leading: (@Composable () -> Unit)? = null,
+    variant: ButtonVariant = ButtonVariant.SECONDARY,
 ) {
+    val accent = variant == ButtonVariant.PRIMARY
     var expanded by remember { mutableStateOf(false) }
     val left = RoundedCornerShape(topStart = Radius.md, bottomStart = Radius.md)
     val right = RoundedCornerShape(topEnd = Radius.md, bottomEnd = Radius.md)
     Row(modifier.alpha(if (enabled) 1f else Alpha.DISABLED), verticalAlignment = Alignment.CenterVertically) {
         if (label != null) {
-            AppButton(label, onClick, icon = icon, enabled = enabled, loading = loading, compact = true, tooltip = tooltip, shape = left, leading = leading)
+            AppButton(label, onClick, icon = icon, enabled = enabled, loading = loading, compact = true, tooltip = tooltip, shape = left, leading = leading, variant = variant)
         } else {
             WithTooltip(tooltip) {
                 Pressable(onClick, Modifier.height(segmentHeight).width(segmentHeight + 2.dp).border(1.dp, colors.borderStrong, left), left, base = colors.surfaceRaised, hover = colors.surfaceHover, enabled = enabled && !loading) {
@@ -53,16 +55,16 @@ fun SplitActionButton(
                 }
             }
         }
-        Box(Modifier.width(1.dp).height(segmentHeight).background(colors.borderStrong))
+        Box(Modifier.width(1.dp).height(segmentHeight).background(if (accent) colors.accentPressed else colors.borderStrong))
         Box {
             Pressable(
                 { onChevron?.invoke() ?: run { expanded = true } },
-                Modifier.height(segmentHeight).width(chevronWidth).border(1.dp, colors.borderStrong, right),
+                Modifier.height(segmentHeight).width(chevronWidth).border(1.dp, if (accent) colors.accentPressed.copy(alpha = Alpha.BORDER_TINT) else colors.borderStrong, right),
                 right,
-                base = colors.surfaceRaised,
-                hover = colors.surfaceHover,
+                base = if (accent) colors.accent else colors.surfaceRaised,
+                hover = if (accent) colors.accentHover else colors.surfaceHover,
                 enabled = enabled && !loading,
-            ) { Glyph(Icons.ChevronDown, colors.textSecondary, Modifier.align(Alignment.Center), size = IconSize.medium) }
+            ) { Glyph(Icons.ChevronDown, if (accent) colors.onAccent else colors.textSecondary, Modifier.align(Alignment.Center), size = IconSize.medium) }
             if (expanded) PopupMenu(menu, onDismiss = { expanded = false }, alignEnd = true)
         }
     }

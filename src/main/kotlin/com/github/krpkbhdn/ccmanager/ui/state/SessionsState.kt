@@ -74,8 +74,14 @@ class SessionsState(
 
     fun launch(projectId: Long, mode: LaunchMode) {
         val remembered = mode != LaunchMode.NEW && lastTeams.containsKey(projectId)
-        val team = if (remembered) lastTeams[projectId] else defaultTeam(projectId)
-        launchSession(projectId, team) {
+        launchWith(projectId, mode, if (remembered) lastTeams[projectId] else defaultTeam(projectId), rememberTeam = null)
+    }
+
+    /** Launches with exactly [team], null meaning no team, also for Continue and Resume; the choice is remembered for the next Continue. */
+    fun launch(projectId: Long, mode: LaunchMode, team: Team?) = launchWith(projectId, mode, team, rememberTeam = true)
+
+    private fun launchWith(projectId: Long, mode: LaunchMode, team: Team?, rememberTeam: Boolean?) {
+        launchSession(projectId, team, rememberTeam = rememberTeam ?: (team != null)) {
             if (team == null) backend.launcher.launch(projectId, mode) else backend.launcher.launch(projectId, mode, team)
         }
     }

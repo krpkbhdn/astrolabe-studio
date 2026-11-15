@@ -47,6 +47,7 @@ import com.github.krpkbhdn.ccmanager.ui.ide.IdeGlyph
 import com.github.krpkbhdn.ccmanager.ui.state.AppState
 import com.github.krpkbhdn.ccmanager.ui.state.ClaudeEnvironment
 import com.github.krpkbhdn.ccmanager.ui.state.IdeMenuActions
+import com.github.krpkbhdn.ccmanager.ui.state.TeamChoice
 import com.github.krpkbhdn.ccmanager.ui.state.ideMenuEntries
 import com.github.krpkbhdn.ccmanager.ui.git.GitSystemActions
 import com.github.krpkbhdn.ccmanager.ui.git.GitTab
@@ -94,10 +95,11 @@ fun ProjectScreen(state: AppState, project: Project, modifier: Modifier = Modifi
             defaultIde = state.environment.defaultIde,
             defaultIdeIcon = state.environment.defaultIde?.let { state.environment.ideIcons[it.id] },
             ideMenu = ideMenuEntries(state.environment.ides, state.environment.defaultIde, ideMenuActions(project, state.environment)) { ide -> { IdeGlyph(state.environment.ideIcons[ide.id]) } },
+            teams = teamChoiceOf(state, project),
             launching = state.sessions.launching,
             gitSummary = gitState?.summary,
             actions = ProjectHeaderActions(
-                onLaunch = { state.sessions.launch(project.id, it) },
+                onLaunch = { mode, team -> state.sessions.launch(project.id, mode, team) },
                 onStartTask = { state.tasks.open(project.id) },
                 onStartTaskFromTemplate = { state.tasks.quickStartProjectId = project.id },
                 onOpenFolder = { state.environment.openFolder(project) },
@@ -303,6 +305,9 @@ private fun GitTabHost(state: AppState, project: Project) {
     GitTab(git, system, review, now = { state.now }, work = workContextActions(state, project))
 }
 
+private fun teamChoiceOf(state: AppState, project: Project) =
+    TeamChoice(state.teams.teams, state.teams.explicitDefaultOf(project.id)) { team -> state.teams.setProjectDefault(project.id, team?.id) }
+
 @Composable
 private fun ActivityTabHost(state: AppState, view: ProjectView, project: Project) {
     val target = view.focusedSession?.takeIf { state.live.find(it) != null } ?: byUrgency(state.live.of(project.id)).firstOrNull()?.ccmSessionId
@@ -310,5 +315,5 @@ private fun ActivityTabHost(state: AppState, view: ProjectView, project: Project
     val entries by produceState(emptyList<ActivityEntry>(), target, lastEventAt) {
         value = target?.let { state.activityOf(it) }.orEmpty()
     }
-    ActivityTab(entries, hasSession = target != null, onLaunch = { state.sessions.launch(project.id, it) }, launching = state.sessions.launching)
+    ActivityTab(entries, hasSession = target != null, teams = teamChoiceOf(state, project), onLaunch = { mode, team -> state.sessions.launch(project.id, mode, team) }, launching = state.sessions.launching)
 }

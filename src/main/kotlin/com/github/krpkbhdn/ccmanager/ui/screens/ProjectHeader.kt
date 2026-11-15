@@ -22,7 +22,10 @@ import com.github.krpkbhdn.ccmanager.ui.git.GitSummaryChip
 import com.github.krpkbhdn.ccmanager.ui.git.model.GitSummary
 import com.github.krpkbhdn.ccmanager.ui.components.MenuEntry
 import com.github.krpkbhdn.ccmanager.ui.components.ProjectAvatar
-import com.github.krpkbhdn.ccmanager.ui.components.SplitButton
+import com.github.krpkbhdn.ccmanager.team.Team
+import com.github.krpkbhdn.ccmanager.ui.state.TeamChoice
+import com.github.krpkbhdn.ccmanager.ui.state.teamMenuEntries
+import com.github.krpkbhdn.ccmanager.ui.components.ButtonVariant
 import com.github.krpkbhdn.ccmanager.ui.components.SplitActionButton
 import com.github.krpkbhdn.ccmanager.ui.components.StatusChip
 import com.github.krpkbhdn.ccmanager.ui.ide.IdeGlyph
@@ -39,7 +42,7 @@ import com.github.krpkbhdn.ccmanager.workspace.InstalledIde
 private const val IDE_UNAVAILABLE_HINT = "No IDE found: add one"
 
 class ProjectHeaderActions(
-    val onLaunch: (LaunchMode) -> Unit,
+    val onLaunch: (LaunchMode, Team?) -> Unit,
     val onStartTask: () -> Unit,
     val onStartTaskFromTemplate: () -> Unit,
     val onOpenFolder: () -> Unit,
@@ -52,7 +55,7 @@ class ProjectHeaderActions(
 
 /** Compact project header: identity and copyable path on the left, icon actions and the launch split button on the right. */
 @Composable
-fun ProjectHeader(project: Project, status: AgentStatus, defaultIde: InstalledIde?, defaultIdeIcon: ImageBitmap?, ideMenu: List<MenuEntry>, launching: Boolean, gitSummary: GitSummary?, actions: ProjectHeaderActions, runEntries: List<RunEntry>, runSelected: RunEntry?, runActions: RunControlActions, modifier: Modifier = Modifier) {
+fun ProjectHeader(project: Project, status: AgentStatus, defaultIde: InstalledIde?, defaultIdeIcon: ImageBitmap?, ideMenu: List<MenuEntry>, teams: TeamChoice, launching: Boolean, gitSummary: GitSummary?, actions: ProjectHeaderActions, runEntries: List<RunEntry>, runSelected: RunEntry?, runActions: RunControlActions, modifier: Modifier = Modifier) {
     Column(modifier) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = Spacing.xl, vertical = Spacing.md),
@@ -78,16 +81,15 @@ fun ProjectHeader(project: Project, status: AgentStatus, defaultIde: InstalledId
                 RunControl(runEntries, runSelected, runActions)
             }
             SplitActionButton("Start task", Icons.Users, actions.onStartTask, tooltip = "Run a lead session with one of your agent teams", onChevron = actions.onStartTaskFromTemplate)
-            SplitButton(
-                text = "Launch Claude",
-                icon = Icons.Play,
-                onClick = { actions.onLaunch(LaunchMode.NEW) },
-                menu = listOf(
-                    MenuEntry("New session", Icons.Plus) { actions.onLaunch(LaunchMode.NEW) },
-                    MenuEntry("Continue last", Icons.ArrowRight) { actions.onLaunch(LaunchMode.CONTINUE) },
-                    MenuEntry("Resume...", Icons.Rewind) { actions.onLaunch(LaunchMode.RESUME_PICKER) },
+            SplitActionButton(
+                "Launch Claude", Icons.Play, { actions.onLaunch(LaunchMode.NEW, teams.default) },
+                menu = teamMenuEntries(teams, "Launch") { actions.onLaunch(LaunchMode.NEW, it) } + listOf(
+                    MenuEntry("Continue last", Icons.ArrowRight, dividerAbove = true) { actions.onLaunch(LaunchMode.CONTINUE, teams.default) },
+                    MenuEntry("Resume...", Icons.Rewind) { actions.onLaunch(LaunchMode.RESUME_PICKER, teams.default) },
                 ),
                 loading = launching,
+                variant = ButtonVariant.PRIMARY,
+                tooltip = "Launch Claude with ${teams.default?.name ?: "no team"}",
             )
         }
         HorizontalRule()

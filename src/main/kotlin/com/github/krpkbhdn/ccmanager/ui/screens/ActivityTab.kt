@@ -25,12 +25,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.ui.unit.dp
 import com.github.krpkbhdn.ccmanager.claude.hook.ActivityEntry
 import com.github.krpkbhdn.ccmanager.claude.event.HookEventType
 import com.github.krpkbhdn.ccmanager.claude.launch.LaunchMode
-import com.github.krpkbhdn.ccmanager.ui.components.AppButton
+import com.github.krpkbhdn.ccmanager.team.Team
 import com.github.krpkbhdn.ccmanager.ui.components.ButtonVariant
+import com.github.krpkbhdn.ccmanager.ui.components.SplitActionButton
+import com.github.krpkbhdn.ccmanager.ui.state.TeamChoice
+import com.github.krpkbhdn.ccmanager.ui.state.teamMenuEntries
 import com.github.krpkbhdn.ccmanager.ui.components.Chip
 import com.github.krpkbhdn.ccmanager.ui.components.EmptyState
 import com.github.krpkbhdn.ccmanager.ui.components.Glyph
@@ -72,9 +76,9 @@ private fun eventIcon(type: HookEventType): ImageVector = when (type) {
 
 /** Timeline of one session's hook events with coloured badges, scrolled to the newest entry. */
 @Composable
-fun ActivityTab(entries: List<ActivityEntry>, hasSession: Boolean, onLaunch: (LaunchMode) -> Unit, launching: Boolean, modifier: Modifier = Modifier) {
+fun ActivityTab(entries: List<ActivityEntry>, hasSession: Boolean, teams: TeamChoice, onLaunch: (LaunchMode, Team?) -> Unit, launching: Boolean, modifier: Modifier = Modifier) {
     if (!hasSession) {
-        LaunchPad(onLaunch, launching, modifier)
+        LaunchPad(teams, onLaunch, launching, modifier)
         return
     }
     if (entries.isEmpty()) {
@@ -115,12 +119,17 @@ private fun TimelineRow(entry: ActivityEntry, isFirst: Boolean, isLast: Boolean)
 
 /** Shown when a project has no session yet: start one right here. */
 @Composable
-private fun LaunchPad(onLaunch: (LaunchMode) -> Unit, launching: Boolean, modifier: Modifier) {
+private fun LaunchPad(teams: TeamChoice, onLaunch: (LaunchMode, Team?) -> Unit, launching: Boolean, modifier: Modifier) {
     EmptyState(Icons.Terminal, "No session in this project", "Launch Claude to work in this folder. Its terminal opens here and its activity is tracked on this screen.", modifier) {
-        Row(Modifier.padding(top = Spacing.sm), horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
-            AppButton("Launch Claude", { onLaunch(LaunchMode.NEW) }, variant = ButtonVariant.PRIMARY, icon = Icons.Play, loading = launching)
-            AppButton("Continue last", { onLaunch(LaunchMode.CONTINUE) }, icon = Icons.ArrowRight, enabled = !launching)
-            AppButton("Resume", { onLaunch(LaunchMode.RESUME_PICKER) }, icon = Icons.Rewind, enabled = !launching)
+        Row(Modifier.padding(top = Spacing.sm).wrapContentWidth(unbounded = true), horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
+            LaunchSplit("Launch Claude", "Launch", Icons.Play, LaunchMode.NEW, teams, onLaunch, launching, loading = launching, variant = ButtonVariant.PRIMARY)
+            LaunchSplit("Continue last", "Continue", Icons.ArrowRight, LaunchMode.CONTINUE, teams, onLaunch, launching)
+            LaunchSplit("Resume", "Resume", Icons.Rewind, LaunchMode.RESUME_PICKER, teams, onLaunch, launching)
         }
     }
+}
+
+@Composable
+internal fun LaunchSplit(label: String, verb: String, icon: ImageVector, mode: LaunchMode, teams: TeamChoice, onLaunch: (LaunchMode, Team?) -> Unit, launching: Boolean, loading: Boolean = false, variant: ButtonVariant = ButtonVariant.SECONDARY) {
+    SplitActionButton(label, icon, { onLaunch(mode, teams.default) }, teamMenuEntries(teams, verb) { onLaunch(mode, it) }, enabled = !launching, loading = loading, variant = variant, tooltip = "$label with ${teams.default?.name ?: "no team"}")
 }

@@ -102,6 +102,34 @@ class SessionsStateTest {
     }
 
     @Test
+    fun `explicit no team launches Continue without a team even when the project last used one`() {
+        val chosen = Team(8, "Chosen", emptyList())
+        doReturn(session("ccm-first")).`when`(backend.launcher).launchTeam(1, chosen, "task")
+        doReturn(session("ccm-bare")).`when`(backend.launcher).launch(1, LaunchMode.CONTINUE)
+        val state = sessionsState(team)
+
+        state.launchTask(1, chosen, "task") {}
+        await { "ccm-first" in opened }
+        await { !state.launching }
+        state.launch(1, LaunchMode.CONTINUE, null)
+        await { "ccm-bare" in opened }
+
+        assertThat(state.sessionTeams).doesNotContainKey("ccm-bare")
+    }
+
+    @Test
+    fun `explicit team launch ignores the default team`() {
+        val chosen = Team(8, "Chosen", emptyList())
+        doReturn(session("ccm-explicit")).`when`(backend.launcher).launch(1, LaunchMode.RESUME_PICKER, chosen)
+        val state = sessionsState(team)
+
+        state.launch(1, LaunchMode.RESUME_PICKER, chosen)
+        await { "ccm-explicit" in opened }
+
+        assertThat(state.sessionTeams["ccm-explicit"]).isSameAs(chosen)
+    }
+
+    @Test
     fun `launchIn starts the session in the directory and records it for the session`() {
         val dir = java.nio.file.Path.of("repo-task-x")
         doReturn(session("ccm-in")).`when`(backend.launcher).launchIn(1, dir, LaunchMode.NEW, null)

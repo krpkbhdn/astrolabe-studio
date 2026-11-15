@@ -62,6 +62,9 @@ class TeamsState(
 
     fun defaultTeamOf(projectId: Long): Team? = projectDefaults[projectId]?.let(::find) ?: teams.firstOrNull()
 
+    /** The team the user set as default, null when none is set (unlike [defaultTeamOf], no fallback to the first team). */
+    fun explicitDefaultOf(projectId: Long): Team? = projectDefaults[projectId]?.let(::find)
+
     fun select(team: Team) {
         selectedId = team.id
     }

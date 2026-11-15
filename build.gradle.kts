@@ -10,7 +10,7 @@ plugins {
 }
 
 group = "com.github.krpkbhdn"
-version = "2.3.1"
+version = "2.3.2"
 
 java {
     toolchain {
@@ -108,7 +108,7 @@ tasks.withType<JavaExec>().matching { it.name == "run" }.configureEach {
 val sandboxHome = layout.buildDirectory.dir("sandbox-home").get().asFile.absolutePath
 val sandboxOptOuts = listOf("CCM_UNSANDBOXED", "CCM_REAL_CLAUDE", "CCM_SMOKE")
 val sandboxed = provider { sandboxOptOuts.none { providers.environmentVariable(it).isPresent } }
-val sandboxedTasks = setOf("runPreview", "gitShots", "reviewShots", "webShots", "ideShots")
+val sandboxedTasks = setOf("runPreview", "gitShots", "reviewShots", "webShots", "ideShots", "activityShots")
 
 tasks.withType<Test>().configureEach {
     if (sandboxed.get()) {
@@ -150,6 +150,15 @@ tasks.register<JavaExec>("ideShots") {
     group = "application"
     description = "Renders the IDE split button and its menu offscreen to PNGs (flags: --out=<dir> --dark|--light)"
     mainClass = "com.github.krpkbhdn.ccmanager.ui.ide.IdeShotsKt"
+    classpath = sourceSets["test"].runtimeClasspath
+    javaLauncher = javaToolchains.launcherFor(java.toolchain)
+    jvmArgs("--enable-native-access=ALL-UNNAMED", *awtOpens.toTypedArray())
+}
+
+tasks.register<JavaExec>("activityShots") {
+    group = "application"
+    description = "Renders the Activity empty state offscreen to PNGs (flags: --out=<dir> --dark|--light)"
+    mainClass = "com.github.krpkbhdn.ccmanager.ui.screens.ActivityShotsKt"
     classpath = sourceSets["test"].runtimeClasspath
     javaLauncher = javaToolchains.launcherFor(java.toolchain)
     jvmArgs("--enable-native-access=ALL-UNNAMED", *awtOpens.toTypedArray())

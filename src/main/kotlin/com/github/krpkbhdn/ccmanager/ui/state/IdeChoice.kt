@@ -87,7 +87,7 @@ fun ideMenuEntries(ides: List<InstalledIde>, default: InstalledIde?, actions: Id
         MenuEntry(
             ide.name,
             leading = glyph(ide),
-            trailing = if (isDefault) ({ DefaultBadge() }) else ({ IconButton(Icons.Star, { actions.makeDefault(ide.id) }, tooltip = "Make default", size = STAR_SIZE) }),
+            trailing = defaultMarker(isDefault) { actions.makeDefault(ide.id) },
             onSelect = { actions.open(ide.id) },
         )
     }
@@ -96,6 +96,10 @@ fun ideMenuEntries(ides: List<InstalledIde>, default: InstalledIde?, actions: Id
         MenuEntry("Check again", Icons.Refresh, onSelect = actions.recheck),
     )
 }
+
+/** The end of a menu row: a "default" badge on the default one, otherwise a star making it the default. */
+fun defaultMarker(isDefault: Boolean, makeDefault: () -> Unit): @Composable () -> Unit =
+    if (isDefault) ({ DefaultBadge() }) else ({ IconButton(Icons.Star, makeDefault, tooltip = "Make default", size = STAR_SIZE) })
 
 @Composable
 private fun DefaultBadge() {
