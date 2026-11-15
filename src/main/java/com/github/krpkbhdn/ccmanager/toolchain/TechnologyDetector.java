@@ -67,11 +67,6 @@ public class TechnologyDetector {
                 }
             }
         }
-        for (var tool : candidates) {
-            if (found.contains(tool.id()) && tool.kind() == ToolKind.ADD_ON && !tool.baseTool().isEmpty()) {
-                found.add(tool.baseTool());
-            }
-        }
         return found;
     }
 

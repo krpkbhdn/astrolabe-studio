@@ -1,0 +1,17 @@
+{
+  "name": "css-lsp",
+  "version": "1.0.1",
+  "description": "CSS, SCSS and Less language server (vscode-css-language-server) for code intelligence",
+  "lspServers": {
+    "css": {
+      "command": "vscode-css-language-server",
+      "args": ["--stdio"],
+      "extensionToLanguage": { ".css": "css", ".scss": "scss", ".less": "less" },
+      "settings": {
+        "css": { "lint": { "unknownAtRules": "ignore" } },
+        "scss": { "lint": { "unknownAtRules": "ignore" } },
+        "less": { "lint": { "unknownAtRules": "ignore" } }
+      }
+    }
+  }
+}

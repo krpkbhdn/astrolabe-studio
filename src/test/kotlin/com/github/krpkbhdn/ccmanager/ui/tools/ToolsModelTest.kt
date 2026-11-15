@@ -15,8 +15,8 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 
 class ToolsModelTest {
-    private fun tool(id: String, kind: ToolKind, group: String, base: String = "", prerequisite: String = "") =
-        ToolDefinition(id, id.uppercase(), group, kind, id, listOf("--version"), "", prerequisite, base, listOf(), mapOf(), "https://docs/$id", mapOf(), mapOf())
+    private fun tool(id: String, kind: ToolKind, group: String, prerequisite: String = "") =
+        ToolDefinition(id, id.uppercase(), group, kind, id, listOf("--version"), "", prerequisite, listOf(), mapOf(), "https://docs/$id", mapOf(), mapOf())
 
     private fun status(id: String, state: ToolState, version: String = "", detail: String = "") = ToolStatus(id, state, version, detail)
 
@@ -26,30 +26,23 @@ class ToolsModelTest {
     @Test
     fun `includes note lists the covered technologies and is absent without any`() {
         val plain = tool("ts", ToolKind.LANGUAGE_SERVER, "TypeScript")
-        val withReact = ToolDefinition("ts", "TS", "TypeScript", ToolKind.LANGUAGE_SERVER, "ts", listOf(), "", "", "", listOf(), mapOf(), "", mapOf(), mapOf(), listOf("React"))
+        val withReact = ToolDefinition("ts", "TS", "TypeScript", ToolKind.LANGUAGE_SERVER, "ts", listOf(), "", "", listOf(), mapOf(), "", mapOf(), mapOf(), listOf("React"))
 
         assertThat(includesNoteOf(plain)).isNull()
         assertThat(includesNoteOf(withReact)).isEqualTo("Includes React")
     }
 
     @Test
-    fun `groups put prerequisites first and nest add-ons under their base`() {
+    fun `groups put prerequisites first and keep catalog order`() {
         val node = tool("node", ToolKind.PREREQUISITE, "Runtimes")
         val ts = tool("ts", ToolKind.LANGUAGE_SERVER, "TypeScript")
-        val angular = tool("angular", ToolKind.ADD_ON, "TypeScript", base = "ts")
+        val eslint = tool("eslint", ToolKind.LANGUAGE_SERVER, "TypeScript")
         val go = tool("gopls", ToolKind.LANGUAGE_SERVER, "Go")
 
-        val groups = groupTools(listOf(ts, angular, go, node), emptyMap())
+        val groups = groupTools(listOf(ts, eslint, go, node), emptyMap())
 
         assertThat(groups.map { it.title }).containsExactly(PREREQUISITES_GROUP, "TypeScript", "Go")
-        assertThat(groups[1].rows.map { it.tool.id }).containsExactly("ts")
-        assertThat(groups[1].rows[0].extras.map { it.tool.id }).containsExactly("angular")
-    }
-
-    @Test
-    fun `an add-on whose base is not in the catalog stays on top level`() {
-        val orphan = tool("vue", ToolKind.ADD_ON, "Web", base = "missing")
-        assertThat(groupTools(listOf(orphan), emptyMap())[0].rows.map { it.tool.id }).containsExactly("vue")
+        assertThat(groups[1].rows.map { it.tool.id }).containsExactly("ts", "eslint")
     }
 
     @Test

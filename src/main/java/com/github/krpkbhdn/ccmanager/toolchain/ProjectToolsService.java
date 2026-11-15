@@ -1,11 +1,13 @@
 package com.github.krpkbhdn.ccmanager.toolchain;
 
+import com.github.krpkbhdn.ccmanager.claude.plugin.ClaudePluginWriter;
 import com.github.krpkbhdn.ccmanager.extension.ExtensionException;
 import com.github.krpkbhdn.ccmanager.extension.ExtensionScope;
 import com.github.krpkbhdn.ccmanager.extension.plugin.InstalledPlugin;
 import com.github.krpkbhdn.ccmanager.extension.plugin.Marketplace;
 import com.github.krpkbhdn.ccmanager.extension.plugin.PluginService;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
@@ -26,13 +28,16 @@ public class ProjectToolsService {
     private final ToolProbe probe;
     private final TechnologyDetector detector;
     private final PluginService plugins;
+    private final ClaudePluginWriter pluginWriter;
     private final ReentrantLock pluginWrites = new ReentrantLock();
 
-    public ProjectToolsService(ToolCatalog catalog, ToolProbe probe, TechnologyDetector detector, PluginService plugins) {
+    public ProjectToolsService(ToolCatalog catalog, ToolProbe probe, TechnologyDetector detector, PluginService plugins,
+            ClaudePluginWriter pluginWriter) {
         this.catalog = catalog;
         this.probe = probe;
         this.detector = detector;
         this.plugins = plugins;
+        this.pluginWriter = pluginWriter;
     }
 
     /** Rows with the cached tool statuses. */
@@ -67,16 +72,13 @@ public class ProjectToolsService {
                 .map(InstalledPlugin::id).collect(Collectors.toSet());
         return tools.stream()
                 .map(tool -> new ProjectToolRow(tool, statuses.getOrDefault(tool.id(), new ToolStatus(tool.id(), ToolState.MISSING, "", "")),
-                        detected.contains(tool.id()), enabledPlugins.contains(pluginOf(tool)), userPlugins.contains(pluginOf(tool))))
+                        detected.contains(tool.id()), enabledPlugins.contains(tool.lspPlugin()), userPlugins.contains(tool.lspPlugin())))
                 .sorted(Comparator.comparing((ProjectToolRow row) -> row.tool().group())
                         .thenComparing(row -> !row.detected()))
                 .toList();
     }
 
-    /**
-     * Installs the tool's LSP plugin for the project, or turns it on when it is installed but disabled; an add-on without its own
-     * plugin does nothing, its base plugin is enabled on the base language server's row.
-     */
+    /** Installs the tool's LSP plugin for the project, or turns it on when it is installed but disabled; a tool without a plugin does nothing. */
     public void enableLsp(Path projectDir, String toolId) {
         requireProjectDir(projectDir);
         var pluginId = requireTool(toolId).lspPlugin();
@@ -92,8 +94,8 @@ public class ProjectToolsService {
             ensureMarketplace(pluginId);
             var installed = findInstallation(installedPlugins, pluginId, projectDir);
             if (installed.isPresent()) {
-                plugins.setEnabled(pluginId, ExtensionScope.PROJECT, projectDir, true);
-            } else if (plugins.install(pluginId, ExtensionScope.PROJECT, projectDir).needsConfirmation()) {
+                plugins.setEnabled(pluginId, installScope(pluginId), projectDir, true);
+            } else if (plugins.install(pluginId, installScope(pluginId), projectDir).needsConfirmation()) {
                 throw new ExtensionException("The plugin " + pluginId + " runs a command that needs your confirmation, install it on the Plugins page");
             }
         } finally {
@@ -101,7 +103,7 @@ public class ProjectToolsService {
         }
     }
 
-    /** Disables the plugin at the scope of each of the project's enabled entries (project and local), so it ends up off; an add-on without its own plugin does nothing, because the base plugin is shared with its language server. */
+    /** Disables the plugin at the scope of each of the project's enabled entries (project and local), so it ends up off; a tool without a plugin does nothing. */
     public void disableLsp(Path projectDir, String toolId) {
         requireProjectDir(projectDir);
         var tool = requireTool(toolId);
@@ -132,16 +134,12 @@ public class ProjectToolsService {
 
     private Optional<InstalledPlugin> findInstallation(List<InstalledPlugin> installedPlugins, String pluginId, Path projectDir) {
         return installedPlugins.stream()
-                .filter(plugin -> plugin.id().equals(pluginId) && isProjectInstallation(plugin, projectDir)).findFirst();
+                .filter(plugin -> plugin.isInstallationOf(pluginId, installScope(pluginId), projectDir)).findFirst();
     }
 
-    private static boolean isProjectInstallation(InstalledPlugin plugin, Path projectDir) {
-        return plugin.isInstallationOf(plugin.id(), ExtensionScope.PROJECT, projectDir);
-    }
-
-    /** A local install of the same project is on for it too; it is only read, every write uses project scope. */
+    /** A local install of the same project is on for it too; it is only read, writes use `installScope`. */
     private static boolean isProjectOrLocalInstallation(InstalledPlugin plugin, Path projectDir) {
-        return isProjectInstallation(plugin, projectDir) || plugin.isInstallationOf(plugin.id(), ExtensionScope.LOCAL, projectDir);
+        return plugin.isInstallationOf(plugin.id(), ExtensionScope.PROJECT, projectDir) || plugin.isInstallationOf(plugin.id(), ExtensionScope.LOCAL, projectDir);
     }
 
     private static boolean isEnabledForProject(List<InstalledPlugin> installedPlugins, String pluginId, Path projectDir) {
@@ -149,25 +147,47 @@ public class ProjectToolsService {
                 .anyMatch(plugin -> plugin.enabled() && plugin.id().equals(pluginId) && isProjectOrLocalInstallation(plugin, projectDir));
     }
 
+    /** Plugins of our own marketplace go to local scope so the shared settings never name a marketplace teammates lack. */
+    private static ExtensionScope installScope(String pluginId) {
+        return isOwnMarketplace(pluginId) ? ExtensionScope.LOCAL : ExtensionScope.PROJECT;
+    }
+
+    private static boolean isOwnMarketplace(String pluginId) {
+        return pluginId.endsWith("@" + ClaudePluginWriter.LSP_MARKETPLACE);
+    }
+
     private void ensureMarketplace(String pluginId) {
-        if (!pluginId.endsWith("@" + OFFICIAL_MARKETPLACE)) {
-            return;
+        if (pluginId.endsWith("@" + OFFICIAL_MARKETPLACE)) {
+            addMarketplaceIfMissing(OFFICIAL_MARKETPLACE, OFFICIAL_MARKETPLACE_SOURCE);
+        } else if (isOwnMarketplace(pluginId)) {
+            addMarketplaceIfNotAt(ClaudePluginWriter.LSP_MARKETPLACE, pluginWriter.marketplaceDirectory());
         }
-        var known = plugins.marketplaces().stream().map(Marketplace::name).anyMatch(OFFICIAL_MARKETPLACE::equals);
+    }
+
+    private void addMarketplaceIfMissing(String name, String source) {
+        if (plugins.marketplaces().stream().noneMatch(m -> m.name().equals(name))) {
+            plugins.addMarketplace(source, ExtensionScope.USER, null);
+        }
+    }
+
+    /** A local marketplace is added again when it points at another folder (the CLI then repoints it). */
+    private void addMarketplaceIfNotAt(String name, Path directory) {
+        var known = plugins.marketplaces().stream()
+                .anyMatch(m -> m.name().equals(name) && InstalledPlugin.sameDirectory(directory, pathOrNull(m.installLocation())));
         if (!known) {
-            plugins.addMarketplace(OFFICIAL_MARKETPLACE_SOURCE, ExtensionScope.USER, null);
+            plugins.addMarketplace(directory.toAbsolutePath().toString(), ExtensionScope.USER, null);
+        }
+    }
+
+    private static Path pathOrNull(String location) {
+        try {
+            return location == null || location.isBlank() ? null : Path.of(location);
+        } catch (InvalidPathException e) {
+            return null;
         }
     }
 
     private ToolDefinition requireTool(String toolId) {
         return catalog.find(toolId).orElseThrow(() -> new ExtensionException("Unknown tool: " + toolId));
-    }
-
-    /** The plugin that serves the tool: its own, or its base language server's for an add-on without one. */
-    private String pluginOf(ToolDefinition tool) {
-        if (tool.lspPlugin().isEmpty() && !tool.baseTool().isEmpty()) {
-            return catalog.find(tool.baseTool()).map(ToolDefinition::lspPlugin).orElse("");
-        }
-        return tool.lspPlugin();
     }
 }

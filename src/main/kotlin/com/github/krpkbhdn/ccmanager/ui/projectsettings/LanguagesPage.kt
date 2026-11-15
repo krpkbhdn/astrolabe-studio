@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.github.krpkbhdn.ccmanager.project.Project
+import com.github.krpkbhdn.ccmanager.toolchain.ProjectToolRow
 import com.github.krpkbhdn.ccmanager.ui.components.AppButton
 import com.github.krpkbhdn.ccmanager.ui.components.AppSwitch
 import com.github.krpkbhdn.ccmanager.ui.components.ButtonVariant
@@ -41,8 +42,7 @@ import com.github.krpkbhdn.ccmanager.ui.tools.installButtonOf
 import com.github.krpkbhdn.ccmanager.ui.tools.statusChipOf
 
 private val pagePadding = Spacing.xl
-private val extrasIndent = Spacing.xl
-private const val MARKETPLACE_NOTE = "Enabling adds the official Claude plugin marketplace to your user settings if it is missing."
+private const val MARKETPLACE_NOTE = "Enabling adds the plugin marketplace it needs to your user settings if it is missing: the official Claude one, or this app's own local one for CSS / SCSS / Less."
 private const val ENABLE_NOTE = "Enable LSP in this project"
 
 /** Language servers for the project: the Claude Code LSP plugin toggle, server status and install; the install dialog is the shared one of [tools]. */
@@ -91,56 +91,38 @@ private fun GroupSection(group: LanguageGroupView, languages: LanguagesState, to
             if (group.detected) Chip("Detected", colors.accent)
         }
         HorizontalRule()
-        group.rows.forEach { view ->
-            LanguageRow(view, languages, tools)
-            if (view.extras.isNotEmpty()) ExtrasBlock(view, languages, tools)
-        }
+        group.rows.forEach { LanguageRow(it, languages, tools) }
     }
 }
 
 @Composable
-private fun ExtrasBlock(base: LanguageRowView, languages: LanguagesState, tools: ToolsState) {
-    var open by remember(base.row.tool.id()) { mutableStateOf(base.extras.any { it.row.detected() }) }
-    Column(Modifier.fillMaxWidth().padding(start = extrasIndent), verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-            Label(frameworkExtrasTitle(base), color = colors.textTertiary, style = Type.overline)
-            TextLink(if (open) "Hide" else "Show") { open = !open }
-        }
-        if (open) base.extras.forEach { LanguageRow(it, languages, tools) }
-    }
-}
-
-@Composable
-private fun LanguageRow(view: LanguageRowView, languages: LanguagesState, tools: ToolsState) {
-    val tool = view.row.tool
+private fun LanguageRow(row: ProjectToolRow, languages: LanguagesState, tools: ToolsState) {
+    val tool = row.tool
     val id = tool.id()
     val working = languages.isWorking(id)
-    val toggle = toggleOf(view, working)
-    val shared = sharesBaseServer(view)
-    val install = installButtonOf(view.row.status, tools.plans[id], tool.docsUrl(), tools.isManaged(id))
+    val toggle = toggleOf(row, working)
+    val install = installButtonOf(row.status, tools.plans[id], tool.docsUrl(), tools.isManaged(id))
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
         SettingRow(tool.name(), toggle.note ?: ENABLE_NOTE) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 if (working) Spinner(size = 16.dp)
-                pluginChipOf(view)?.let { Chip(it.text, it.tone.tint()) }
-                ServerControls(view, install, tools, showStatus = !shared)
-                if (!shared) AppSwitch(toggle.checked, { languages.setEnabled(id, it) }, enabled = toggle.enabled)
+                pluginChipOf(row)?.let { Chip(it.text, it.tone.tint()) }
+                ServerControls(row, install, tools)
+                AppSwitch(toggle.checked, { languages.setEnabled(id, it) }, enabled = toggle.enabled)
             }
         }
         includesNoteOf(tool)?.let { Label(it, color = colors.textTertiary, style = Type.caption) }
         val blockedReason = (install as? InstallButton.Install)?.reason?.takeIf { !install.enabled }
         blockedReason?.let { Label(it, color = colors.warning, style = Type.caption, maxLines = 2) }
-        installHintOf(view, blockedReason != null)?.let { Label(it, color = colors.warning, style = Type.caption, maxLines = 2) }
+        installHintOf(row, blockedReason != null)?.let { Label(it, color = colors.warning, style = Type.caption, maxLines = 2) }
         languages.errors[id]?.let { Label(it, color = colors.danger, style = Type.caption, maxLines = 4) }
     }
 }
 
 @Composable
-private fun ServerControls(view: LanguageRowView, install: InstallButton, tools: ToolsState, showStatus: Boolean) {
-    val tool = view.row.tool
-    if (showStatus) {
-        val chip = statusChipOf(view.row.status, false)
-        WithTooltip(chip.tooltip) { Chip(chip.text, chip.tone.tint()) }
-    }
+private fun ServerControls(row: ProjectToolRow, install: InstallButton, tools: ToolsState) {
+    val tool = row.tool
+    val chip = statusChipOf(row.status, false)
+    WithTooltip(chip.tooltip) { Chip(chip.text, chip.tone.tint()) }
     InstallButtonView(install, "Install server", { tools.requestInstall(tool.id()) }, tools::openDocs, { tools.requestUninstall(tool.id()) }, reasonShownElsewhere = true)
 }

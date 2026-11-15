@@ -43,7 +43,7 @@ class ManagedToolInstallerTest {
             Duration.ofMinutes(10), Duration.ofSeconds(30), Duration.ofMinutes(30), Duration.ofSeconds(10), DataSize.ofGigabytes(1),
             DataSize.ofGigabytes(4), 200_000, Duration.ofSeconds(30), 5, 2000, 500);
     private static final ToolDefinition TOOL = new ToolDefinition("demo", "Demo", "g", ToolKind.LANGUAGE_SERVER, "demo", List.of(),
-            "", "", "", List.of(), Map.of(), "", Map.of(), Map.of());
+            "", "", List.of(), Map.of(), "", Map.of(), Map.of());
 
     @TempDir
     Path dataDir;

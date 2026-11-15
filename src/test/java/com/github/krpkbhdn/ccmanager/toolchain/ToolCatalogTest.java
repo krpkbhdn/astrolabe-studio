@@ -11,7 +11,7 @@ class ToolCatalogTest {
 
     @Test
     void loadsCatalogInFileOrder() {
-        assertThat(catalog.all()).extracting(ToolDefinition::id).startsWith("node", "rustup").contains("typescript", "angular");
+        assertThat(catalog.all()).extracting(ToolDefinition::id).startsWith("node", "rustup").contains("typescript", "pyright");
     }
 
     @Test

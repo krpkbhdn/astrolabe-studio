@@ -91,10 +91,10 @@ fun previewToolchain(): ToolchainBackend {
     return ToolchainBackend(catalog, probe, installer, previewProjectTools(catalog, ::statusOf), mock(LspSetupService::class.java), mock(LspHealthMonitor::class.java))
 }
 
-private val previewDetected = setOf("typescript", "angular", "pyright")
+private val previewDetected = setOf("typescript", "pyright")
 private val previewUserLevel = setOf("pyright")
 
-/** A TypeScript, Angular and Python project (the Python plugin is on for the user already): the TypeScript plugin is on, the others are off; toggling flips the fake state. */
+/** A TypeScript and Python project (the Python plugin is on for the user already): the TypeScript plugin is on, the others are off; toggling flips the fake state. */
 private fun previewProjectTools(catalog: ToolCatalog, statusOf: (Int, String) -> ToolStatus): ProjectToolsService {
     val enabled = mutableSetOf("typescript")
     val tools = catalog.all().filter { it.kind() != ToolKind.PREREQUISITE }

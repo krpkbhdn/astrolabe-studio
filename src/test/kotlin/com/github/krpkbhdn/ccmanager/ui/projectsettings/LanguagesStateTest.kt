@@ -36,7 +36,7 @@ class LanguagesStateTest {
     fun stop() = scope.cancel()
 
     private fun row(id: String, enabled: Boolean = false, userLevel: Boolean = false) = ProjectToolRow(
-        ToolDefinition(id, id.uppercase(), "G", ToolKind.LANGUAGE_SERVER, id, listOf(), "$id-lsp@m", "", "", listOf(), mapOf(), "", mapOf(), mapOf()),
+        ToolDefinition(id, id.uppercase(), "G", ToolKind.LANGUAGE_SERVER, id, listOf(), "$id-lsp@m", "", listOf(), mapOf(), "", mapOf(), mapOf()),
         ToolStatus(id, ToolState.INSTALLED, "", ""), false, enabled, userLevel,
     )
 

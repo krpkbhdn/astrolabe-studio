@@ -13,10 +13,10 @@ import org.junit.jupiter.params.provider.ValueSource;
 class ToolCatalogValidatorTest {
 
     private static final ToolDefinition NODE =
-            new ToolDefinition("node", "Node", "Runtimes", ToolKind.PREREQUISITE, "node", List.of(), null, null, null, null, null, null, null, null);
+            new ToolDefinition("node", "Node", "Runtimes", ToolKind.PREREQUISITE, "node", List.of(), null, null, null, null, null, null, null);
 
     private static ToolDefinition server(String id, String prerequisite, List<String> install) {
-        return new ToolDefinition(id, id, "g", ToolKind.LANGUAGE_SERVER, id, List.of(), null, prerequisite, null, null,
+        return new ToolDefinition(id, id, "g", ToolKind.LANGUAGE_SERVER, id, List.of(), null, prerequisite, null,
                 Map.of("linux", install), null, null, null);
     }
 
@@ -43,15 +43,6 @@ class ToolCatalogValidatorTest {
                 .hasMessageContaining("unknown prerequisite ghost");
         assertThatThrownBy(() -> ToolCatalogValidator.validate(withNode(server("a", "node", List.of()), server("b", "a", List.of()))))
                 .hasMessageContaining("b: unknown prerequisite a");
-    }
-
-    @Test
-    void rejectsAddOnWithoutLanguageServerBase() {
-        var noBase = new ToolDefinition("x", "x", "g", ToolKind.ADD_ON, "x", List.of(), null, null, null, null, null, null, null, null);
-        var nodeBase = new ToolDefinition("y", "y", "g", ToolKind.ADD_ON, "y", List.of(), null, null, "node", null, null, null, null, null);
-
-        assertThatThrownBy(() -> ToolCatalogValidator.validate(withNode(noBase))).hasMessageContaining("add-on");
-        assertThatThrownBy(() -> ToolCatalogValidator.validate(withNode(nodeBase))).hasMessageContaining("add-on");
     }
 
     @ParameterizedTest
@@ -90,7 +81,7 @@ class ToolCatalogValidatorTest {
 
     @Test
     void rejectsUnknownInstallKey() {
-        var typo = new ToolDefinition("a", "a", "g", ToolKind.LANGUAGE_SERVER, "a", List.of(), null, null, null, null,
+        var typo = new ToolDefinition("a", "a", "g", ToolKind.LANGUAGE_SERVER, "a", List.of(), null, null, null,
                 Map.of("windwos", List.of("npm", "i")), null, null, null);
 
         assertThatThrownBy(() -> ToolCatalogValidator.validate(List.of(typo))).hasMessageContaining("unknown install key 'windwos'");
@@ -99,7 +90,7 @@ class ToolCatalogValidatorTest {
     @ParameterizedTest
     @ValueSource(strings = {"bin/a", "a\\b", "..", "../a"})
     void rejectsBinaryThatIsNotPlainFileName(String binary) {
-        var tool = new ToolDefinition("a", "a", "g", ToolKind.PREREQUISITE, binary, List.of(), null, null, null, null, null, null, null, null);
+        var tool = new ToolDefinition("a", "a", "g", ToolKind.PREREQUISITE, binary, List.of(), null, null, null, null, null, null, null);
 
         assertThatThrownBy(() -> ToolCatalogValidator.validate(List.of(tool))).hasMessageContaining("binary must be a plain file name");
     }
@@ -107,7 +98,7 @@ class ToolCatalogValidatorTest {
     @ParameterizedTest
     @ValueSource(strings = {"nomarketplace", "A@b", "a@b@c", "a@b c", "a@"})
     void rejectsMalformedLspPlugin(String plugin) {
-        var tool = new ToolDefinition("a", "a", "g", ToolKind.PREREQUISITE, "a", List.of(), plugin, null, null, null, null, null, null, null);
+        var tool = new ToolDefinition("a", "a", "g", ToolKind.PREREQUISITE, "a", List.of(), plugin, null, null, null, null, null, null);
 
         assertThatThrownBy(() -> ToolCatalogValidator.validate(List.of(tool))).hasMessageContaining("lspPlugin");
     }
@@ -144,8 +135,8 @@ class ToolCatalogValidatorTest {
 
     @Test
     void rejectsDangerousVersionArgs() {
-        var tool = new ToolDefinition("a", "a", "g", ToolKind.PREREQUISITE, "a", List.of("--config"), null, null, null, null, null, null, null, null);
-        var spaced = new ToolDefinition("b", "b", "g", ToolKind.PREREQUISITE, "b", List.of("a b"), null, null, null, null, null, null, null, null);
+        var tool = new ToolDefinition("a", "a", "g", ToolKind.PREREQUISITE, "a", List.of("--config"), null, null, null, null, null, null, null);
+        var spaced = new ToolDefinition("b", "b", "g", ToolKind.PREREQUISITE, "b", List.of("a b"), null, null, null, null, null, null, null);
 
         assertThatThrownBy(() -> ToolCatalogValidator.validate(List.of(tool))).hasMessageContaining("forbidden option");
         assertThatThrownBy(() -> ToolCatalogValidator.validate(List.of(spaced))).hasMessageContaining("whitespace");
@@ -154,20 +145,20 @@ class ToolCatalogValidatorTest {
     @ParameterizedTest
     @ValueSource(strings = {"a b", "a$b", "а", "a:b", ""})
     void rejectsBinaryOutsideAllowedCharacters(String binary) {
-        var tool = new ToolDefinition("a", "a", "g", ToolKind.PREREQUISITE, binary, List.of(), null, null, null, null, null, null, null, null);
+        var tool = new ToolDefinition("a", "a", "g", ToolKind.PREREQUISITE, binary, List.of(), null, null, null, null, null, null, null);
 
         assertThatThrownBy(() -> ToolCatalogValidator.validate(List.of(tool))).hasMessageContaining("binary must match");
     }
 
     @Test
     void rejectsMetacharactersInVersionArgs() {
-        var tool = new ToolDefinition("a", "a", "g", ToolKind.PREREQUISITE, "a", List.of("--v&calc"), null, null, null, null, null, null, null, null);
+        var tool = new ToolDefinition("a", "a", "g", ToolKind.PREREQUISITE, "a", List.of("--v&calc"), null, null, null, null, null, null, null);
 
         assertThatThrownBy(() -> ToolCatalogValidator.validate(List.of(tool))).hasMessageContaining("versionArgs");
     }
 
     private static ToolDefinition manual(Map<String, String> manualInstall) {
-        return new ToolDefinition("a", "a", "g", ToolKind.PREREQUISITE, "a", List.of(), null, null, null, null, null, null, manualInstall, null);
+        return new ToolDefinition("a", "a", "g", ToolKind.PREREQUISITE, "a", List.of(), null, null, null, null, null, manualInstall, null);
     }
 
     @Test
@@ -199,7 +190,7 @@ class ToolCatalogValidatorTest {
     private static ToolDefinition downloadable(ToolKind kind, List<String> install, String latestUrl, String pattern,
                                                String archiveUrl, ArchiveKind archive, LauncherSpec launcher) {
         var source = new DownloadSource(new LatestSource(LatestSource.Kind.TEXT_FILE, latestUrl, pattern), archiveUrl, archive, launcher);
-        return new ToolDefinition("a", "a", "g", kind, "a", List.of(), null, null, null, null, Map.of("linux", install), null, null,
+        return new ToolDefinition("a", "a", "g", kind, "a", List.of(), null, null, null, Map.of("linux", install), null, null,
                 Map.of("linux", source));
     }
 

@@ -1,0 +1,12 @@
+{
+  "name": "cc-manager-lsp",
+  "owner": { "name": "Claude Code Manager" },
+  "plugins": [
+    {
+      "name": "css-lsp",
+      "source": "./css-lsp",
+      "version": "1.0.1",
+      "description": "CSS, SCSS and Less language server (vscode-css-language-server) for code intelligence"
+    }
+  ]
+}

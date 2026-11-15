@@ -63,7 +63,7 @@ class LspHealthMonitorTest {
     }
 
     private static ToolDefinition tool(String id) {
-        return new ToolDefinition(id, id, "G", ToolKind.LANGUAGE_SERVER, id, List.of(), "", "", "", List.of(), Map.of(), "", Map.of(), null);
+        return new ToolDefinition(id, id, "G", ToolKind.LANGUAGE_SERVER, id, List.of(), "", "", List.of(), Map.of(), "", Map.of(), null);
     }
 
     private void detect(DetectedTechnology... found) {

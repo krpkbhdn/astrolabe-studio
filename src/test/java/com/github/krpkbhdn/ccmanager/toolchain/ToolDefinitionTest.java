@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
 class ToolDefinitionTest {
 
     private static ToolDefinition tool(List<String> versionArgs, Map<String, List<String>> install) {
-        return new ToolDefinition("t", "Tool", "G", ToolKind.ADD_ON, "t", versionArgs, null, null, null, null, install, null, null, null);
+        return new ToolDefinition("t", "Tool", "G", ToolKind.LANGUAGE_SERVER, "t", versionArgs, null, null, null, install, null, null, null);
     }
 
     @Test
@@ -24,13 +24,12 @@ class ToolDefinitionTest {
         assertThat(tool.install()).isEmpty();
         assertThat(tool.lspPlugin()).isEmpty();
         assertThat(tool.prerequisite()).isEmpty();
-        assertThat(tool.baseTool()).isEmpty();
         assertThat(tool.docsUrl()).isEmpty();
     }
 
     @Test
     void requiredFieldsMustNotBeNull() {
-        assertThatThrownBy(() -> new ToolDefinition(null, "n", "g", ToolKind.ADD_ON, "b", null, null, null, null, null, null, null, null, null))
+        assertThatThrownBy(() -> new ToolDefinition(null, "n", "g", ToolKind.LANGUAGE_SERVER, "b", null, null, null, null, null, null, null, null))
                 .isInstanceOf(NullPointerException.class);
     }
 
@@ -65,7 +64,7 @@ class ToolDefinitionTest {
 
     @Test
     void manualInstallDropsBlankValuesAndAnswersEmptyWhenAbsent() {
-        var tool = new ToolDefinition("t", "Tool", "G", ToolKind.ADD_ON, "t", null, null, null, null, null, null, null,
+        var tool = new ToolDefinition("t", "Tool", "G", ToolKind.LANGUAGE_SERVER, "t", null, null, null, null, null, null,
                 Map.of("linux", "apt install t", "macos", "  "), null);
 
         assertThat(tool.manualInstall()).containsOnlyKeys("linux");

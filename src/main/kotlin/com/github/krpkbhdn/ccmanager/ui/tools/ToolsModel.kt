@@ -19,8 +19,8 @@ enum class ChipTone { MUTED, NEUTRAL, SUCCESS, WARNING, DANGER }
 
 data class StatusChipView(val text: String, val tone: ChipTone, val tooltip: String?)
 
-/** One tool with its last probe result and, for a language server, its add-ons nested below. */
-data class ToolRow(val tool: ToolDefinition, val status: ToolStatus?, val extras: List<ToolRow> = emptyList())
+/** One tool with its last probe result. */
+data class ToolRow(val tool: ToolDefinition, val status: ToolStatus?)
 
 data class ToolGroup(val title: String, val rows: List<ToolRow>)
 
@@ -67,22 +67,10 @@ fun statusChipOf(status: ToolStatus?, checking: Boolean): StatusChipView {
     }
 }
 
-/** Items split into top-level ones and add-ons nested under a base that is in the same list; shared by the Tools page and the project languages. */
-class AddOnNesting<T>(val topLevel: List<T>, private val extrasByBase: Map<String, List<T>>, private val definitionOf: (T) -> ToolDefinition) {
-    fun extrasOf(item: T): List<T> = extrasByBase[definitionOf(item).id].orEmpty()
-}
-
-fun <T> nestAddOns(items: List<T>, definitionOf: (T) -> ToolDefinition): AddOnNesting<T> {
-    val ids = items.map { definitionOf(it).id }.toSet()
-    val (addOns, topLevel) = items.partition { definitionOf(it).let { tool -> tool.kind == ToolKind.ADD_ON && tool.baseTool in ids } }
-    return AddOnNesting(topLevel, addOns.groupBy { definitionOf(it).baseTool }, definitionOf)
-}
-
-/** Prerequisites first, then the other groups in catalog order; add-ons sit under their base tool. */
+/** Prerequisites first, then the other groups in catalog order. */
 fun groupTools(tools: List<ToolDefinition>, statuses: Map<String, ToolStatus>): List<ToolGroup> {
-    val nesting = nestAddOns(tools) { it }
-    fun row(tool: ToolDefinition): ToolRow = ToolRow(tool, statuses[tool.id], nesting.extrasOf(tool).map(::row))
-    val (prerequisites, others) = nesting.topLevel.partition { it.kind == ToolKind.PREREQUISITE }
+    fun row(tool: ToolDefinition): ToolRow = ToolRow(tool, statuses[tool.id])
+    val (prerequisites, others) = tools.partition { it.kind == ToolKind.PREREQUISITE }
     val groups = others.groupBy { it.group }.map { (title, members) -> ToolGroup(title, members.map(::row)) }
     return listOfNotNull(prerequisites.takeIf { it.isNotEmpty() }?.let { ToolGroup(PREREQUISITES_GROUP, it.map(::row)) }) + groups
 }

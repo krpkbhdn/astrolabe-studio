@@ -248,7 +248,7 @@ class ToolInstallServiceTest {
             "https://download.eclipse.org/x/{version}/x.tar.gz", ArchiveKind.TAR_GZ, new LauncherSpec(LauncherSpec.Kind.BINARY, "bin/x"));
 
     private void registerDownloadTool() {
-        register(new ToolDefinition("dl", "Downloaded", "g", ToolKind.LANGUAGE_SERVER, "dl", List.of(), "", "", "", List.of(),
+        register(new ToolDefinition("dl", "Downloaded", "g", ToolKind.LANGUAGE_SERVER, "dl", List.of(), "", "", List.of(),
                 Map.of(), "https://docs", Map.of(), Map.of("linux", DOWNLOAD)));
         status("dl", ToolState.INSTALLED);
     }
@@ -474,7 +474,7 @@ class ToolInstallServiceTest {
     }
 
     private static ToolDefinition tool(String id, String name, String prerequisite, Map<String, List<String>> install) {
-        return new ToolDefinition(id, name, "g", ToolKind.LANGUAGE_SERVER, id, List.of(), "", prerequisite, "", List.of(), install, "https://docs", Map.of(), null);
+        return new ToolDefinition(id, name, "g", ToolKind.LANGUAGE_SERVER, id, List.of(), "", prerequisite, List.of(), install, "https://docs", Map.of(), null);
     }
 
     @Test
@@ -504,7 +504,7 @@ class ToolInstallServiceTest {
 
     @Test
     void manualInstallIsShownInThePlanButNeverRun() {
-        register(new ToolDefinition("manual", "Manual", "g", ToolKind.LANGUAGE_SERVER, "manual", List.of(), "", "", "", List.of(),
+        register(new ToolDefinition("manual", "Manual", "g", ToolKind.LANGUAGE_SERVER, "manual", List.of(), "", "", List.of(),
                 Map.of(), "https://docs", Map.of("linux", "curl https://x | sudo sh"), null));
         status("manual", ToolState.MISSING);
 

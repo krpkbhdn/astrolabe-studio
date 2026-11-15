@@ -138,6 +138,7 @@ class ApplyPresetState(
                     val outcome = io { service.apply(shown.id, id, shown.path, chosen) }
                     if (mine != generation) return@runGuarded
                     result = outcome
+                    running = false
                     step = ApplyStep.RESULT
                     applied = io { applications.applications(shown.id) }
                 }

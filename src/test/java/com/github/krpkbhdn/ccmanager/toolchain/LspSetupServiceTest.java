@@ -32,10 +32,10 @@ class LspSetupServiceTest {
     private final ToolProbe probe = mock(ToolProbe.class);
     private final LspSetupService service = new LspSetupService(projectTools, installer, probe);
 
-    private final ToolDefinition node = tool("node", ToolKind.PREREQUISITE, "", "", "");
-    private final ToolDefinition typescript = tool("typescript", ToolKind.LANGUAGE_SERVER, "ts-plugin", "node", "");
-    private final ToolDefinition vue = tool("vue", ToolKind.ADD_ON, "", "node", "typescript");
-    private final ToolDefinition go = tool("go", ToolKind.LANGUAGE_SERVER, "go-plugin", "", "");
+    private final ToolDefinition node = tool("node", ToolKind.PREREQUISITE, "", "");
+    private final ToolDefinition typescript = tool("typescript", ToolKind.LANGUAGE_SERVER, "ts-plugin", "node");
+    private final ToolDefinition pyright = tool("pyright", ToolKind.LANGUAGE_SERVER, "", "node");
+    private final ToolDefinition go = tool("go", ToolKind.LANGUAGE_SERVER, "go-plugin", "");
 
     @BeforeEach
     void everyToolIsMissingUnlessStubbed() {
@@ -44,16 +44,16 @@ class LspSetupServiceTest {
 
     @Test
     void planOrdersPrerequisiteThenServersThenPluginsAndSharesOnePrerequisite() {
-        rows(row(typescript, ToolState.MISSING, false), row(vue, ToolState.MISSING, false));
+        rows(row(typescript, ToolState.MISSING, false), row(pyright, ToolState.MISSING, false));
         missing("node");
-        installable(node, typescript, vue);
+        installable(node, typescript, pyright);
 
         var plan = service.plan(DIR);
 
         assertThat(plan).extracting(LspSetupStep::kind, LspSetupStep::toolId)
                 .containsExactly(tuple(Kind.PREREQUISITE, "node"),
                         tuple(Kind.SERVER, "typescript"),
-                        tuple(Kind.SERVER, "vue"),
+                        tuple(Kind.SERVER, "pyright"),
                         tuple(Kind.PLUGIN, "typescript"));
         assertThat(plan).extracting(LspSetupStep::outcome).containsOnly(Outcome.PENDING);
     }
@@ -265,15 +265,6 @@ class LspSetupServiceTest {
         assertThat(service.plan(DIR)).isEmpty();
     }
 
-    @Test
-    void addOnDetectedWithoutBaseIsPlannedWithoutAPluginStep() {
-        rows(row(typescript, ToolState.INSTALLED, false, false), row(vue, ToolState.MISSING, false, true));
-        installable(vue);
-        when(probe.probe("node")).thenReturn(status(node, ToolState.INSTALLED));
-
-        assertThat(service.plan(DIR)).extracting(LspSetupStep::kind, LspSetupStep::toolId).containsExactly(tuple(Kind.SERVER, "vue"));
-    }
-
     private void rows(ProjectToolRow... rows) {
         when(projectTools.rows(DIR)).thenReturn(List.of(rows));
     }
@@ -316,7 +307,7 @@ class LspSetupServiceTest {
         return new ProjectToolRow(tool, status(tool, state), detected, pluginEnabled, false);
     }
 
-    private static ToolDefinition tool(String id, ToolKind kind, String plugin, String prerequisite, String base) {
-        return new ToolDefinition(id, id, "group", kind, id, List.of(), plugin, prerequisite, base, List.of(), Map.of(), "", Map.of(), null);
+    private static ToolDefinition tool(String id, ToolKind kind, String plugin, String prerequisite) {
+        return new ToolDefinition(id, id, "group", kind, id, List.of(), plugin, prerequisite, List.of(), Map.of(), "", Map.of(), null);
     }
 }

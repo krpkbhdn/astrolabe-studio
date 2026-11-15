@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test
 
 class DetectedTechModelTest {
     private fun tech(name: String, state: ToolState = ToolState.RESPONDING) = DetectedTechnology(
-        ToolDefinition(name.lowercase(), name, "G", ToolKind.LANGUAGE_SERVER, name, listOf(), "", "", "", listOf(), mapOf(), "", mapOf(), mapOf()),
+        ToolDefinition(name.lowercase(), name, "G", ToolKind.LANGUAGE_SERVER, name, listOf(), "", "", listOf(), mapOf(), "", mapOf(), mapOf()),
         state,
     )
 
@@ -36,14 +36,14 @@ class DetectedTechModelTest {
     }
 
     @Test
-    fun `the tooltip has a title and one line per technology including add-ons`() {
+    fun `the tooltip has a title and one line per technology`() {
         val indicator = lspIndicatorOf(
-            listOf(tech("TypeScript"), tech("Angular", ToolState.INSTALLED), tech("Go", ToolState.MISSING), tech("Java", ToolState.FAILED)),
+            listOf(tech("TypeScript"), tech("Python", ToolState.INSTALLED), tech("Go", ToolState.MISSING), tech("Java", ToolState.FAILED)),
         )!!
         assertThat(indicator.lines).containsExactly(
             "Language servers (LSP)",
             "TypeScript: running",
-            "Angular: installed",
+            "Python: installed",
             "Go: not installed",
             "Java: not responding",
         )

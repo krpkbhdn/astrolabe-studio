@@ -16,15 +16,15 @@ import org.springframework.util.unit.DataSize;
 class TechnologyDetectorTest {
 
     private static final List<ToolDefinition> TOOLS = List.of(
-            tool("typescript", ToolKind.LANGUAGE_SERVER, "", "tsconfig.json", "package.json#react"),
-            tool("angular", ToolKind.ADD_ON, "typescript", "angular.json"),
-            tool("vue", ToolKind.ADD_ON, "typescript", "package.json#vue"),
-            tool("go", ToolKind.LANGUAGE_SERVER, "", "go.mod"),
-            tool("rust", ToolKind.LANGUAGE_SERVER, "", "Cargo.toml", "*.rs"),
-            tool("kotlin", ToolKind.LANGUAGE_SERVER, "", "build.gradle.kts", "*.kt"),
-            tool("csharp", ToolKind.LANGUAGE_SERVER, "", "*.csproj", "*.sln"),
-            tool("jdtls", ToolKind.LANGUAGE_SERVER, "", "pom.xml", "build.gradle", "build.gradle.kts", "*.java"),
-            tool("node", ToolKind.PREREQUISITE, "", "package.json"));
+            tool("typescript", ToolKind.LANGUAGE_SERVER, "tsconfig.json", "package.json#react"),
+            tool("svelte", ToolKind.LANGUAGE_SERVER, "package.json#svelte"),
+            tool("css", ToolKind.LANGUAGE_SERVER, "*.css", "*.scss", "*.less"),
+            tool("go", ToolKind.LANGUAGE_SERVER, "go.mod"),
+            tool("rust", ToolKind.LANGUAGE_SERVER, "Cargo.toml", "*.rs"),
+            tool("kotlin", ToolKind.LANGUAGE_SERVER, "build.gradle.kts", "*.kt"),
+            tool("csharp", ToolKind.LANGUAGE_SERVER, "*.csproj", "*.sln"),
+            tool("jdtls", ToolKind.LANGUAGE_SERVER, "pom.xml", "build.gradle", "build.gradle.kts", "*.java"),
+            tool("node", ToolKind.PREREQUISITE, "package.json"));
 
     private final TechnologyDetector detector = new TechnologyDetector(properties(5, 2000, 500));
 
@@ -38,21 +38,15 @@ class TechnologyDetectorTest {
     }
 
     @Test
-    void angularAddOnImpliesTypescript() throws IOException {
-        write("angular.json", "{}");
-        assertThat(detect()).containsExactlyInAnyOrder("angular", "typescript");
-    }
-
-    @Test
     void reactProjectIsDetectedAsTypescript() throws IOException {
         write("package.json", "{\"dependencies\":{\"react\":\"19\"}}");
         assertThat(detect()).containsExactly("typescript");
     }
 
     @Test
-    void vueByDevDependency() throws IOException {
-        write("package.json", "{\"devDependencies\":{\"vue\":\"3\"}}");
-        assertThat(detect()).contains("vue");
+    void svelteByDevDependency() throws IOException {
+        write("package.json", "{\"devDependencies\":{\"svelte\":\"5\"}}");
+        assertThat(detect()).contains("svelte");
     }
 
     @Test
@@ -87,9 +81,8 @@ class TechnologyDetectorTest {
     void moduleInAnArbitraryFolderAtDepthThreeIsFound() throws IOException {
         write("build.gradle", "");
         write("services/portal/ui/package.json", "{}");
-        write("services/portal/ui/angular.json", "{}");
         write("services/portal/ui/tsconfig.json", "{}");
-        assertThat(detect()).containsExactlyInAnyOrder("jdtls", "typescript", "angular");
+        assertThat(detect()).containsExactlyInAnyOrder("jdtls", "typescript");
     }
 
     @Test
@@ -106,6 +99,14 @@ class TechnologyDetectorTest {
             write(name + "/go.mod", "");
         }
         assertThat(detect()).isEmpty();
+    }
+
+    @Test
+    void styleSheetsAreDetectedByExtensionButNotInsideNodeModules() throws IOException {
+        write("node_modules/lib/a.scss", "");
+        assertThat(detect()).isEmpty();
+        write("src/styles/app.scss", "");
+        assertThat(detect()).containsExactly("css");
     }
 
     @Test
@@ -173,8 +174,8 @@ class TechnologyDetectorTest {
 
     @Test
     void severalPackageJsonMarkersAreAnsweredFromOneFile() throws IOException {
-        write("package.json", "{\"dependencies\":{\"react\":\"19\",\"vue\":\"3\"}}");
-        assertThat(detect()).containsExactlyInAnyOrder("typescript", "vue");
+        write("package.json", "{\"dependencies\":{\"react\":\"19\",\"svelte\":\"5\"}}");
+        assertThat(detect()).containsExactlyInAnyOrder("typescript", "svelte");
     }
 
     @Test
@@ -184,11 +185,11 @@ class TechnologyDetectorTest {
     }
 
     @Test
-    void gradleRootWithAngularAtDepthThreeFindsAllAndAtMaxPlusOneDoesNot() throws IOException {
+    void gradleRootWithTypescriptAtDepthThreeFindsAllAndAtMaxPlusOneDoesNot() throws IOException {
         write("build.gradle", "");
         write("x/y/z/package.json", "{}");
-        write("x/y/z/angular.json", "{}");
-        assertThat(detect()).containsExactlyInAnyOrder("jdtls", "angular", "typescript");
+        write("x/y/z/tsconfig.json", "{}");
+        assertThat(detect()).containsExactlyInAnyOrder("jdtls", "typescript");
         var shallow = new TechnologyDetector(properties(2, 2000, 500));
         assertThat(shallow.detect(dir, TOOLS)).containsExactly("jdtls");
     }
@@ -196,15 +197,9 @@ class TechnologyDetectorTest {
     @Test
     void folderCapKeepsAShallowModuleWhenDeepSiblingsAreMany() throws IOException {
         write("a/b/c/d/go.mod", "");
-        write("z/angular.json", "{}");
+        write("z/tsconfig.json", "{}");
         var capped = new TechnologyDetector(properties(5, 3, 500));
-        assertThat(capped.detect(dir, TOOLS)).containsExactlyInAnyOrder("angular", "typescript");
-    }
-
-    @Test
-    void addOnWithoutItsBaseMarkerStillImpliesTheBase() throws IOException {
-        write("m/n/angular.json", "{}");
-        assertThat(detect()).containsExactlyInAnyOrder("angular", "typescript");
+        assertThat(capped.detect(dir, TOOLS)).containsExactly("typescript");
     }
 
     @Test
@@ -233,7 +228,7 @@ class TechnologyDetectorTest {
         Files.writeString(file, content);
     }
 
-    private static ToolDefinition tool(String id, ToolKind kind, String base, String... markers) {
-        return new ToolDefinition(id, id, "g", kind, id, List.of(), "", "", base, List.of(markers), Map.of(), "", Map.of(), null);
+    private static ToolDefinition tool(String id, ToolKind kind, String... markers) {
+        return new ToolDefinition(id, id, "g", kind, id, List.of(), "", "", List.of(markers), Map.of(), "", Map.of(), null);
     }
 }

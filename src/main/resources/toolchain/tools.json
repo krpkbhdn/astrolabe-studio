@@ -26,6 +26,12 @@
               "linux":["npm","install","-g","typescript-language-server","typescript@6"],
               "macos":["npm","install","-g","typescript-language-server","typescript@6"]},
    "docsUrl":"https://github.com/typescript-language-server/typescript-language-server"},
+  {"id":"css","name":"CSS / SCSS / Less","group":"CSS / SCSS / Less","kind":"LANGUAGE_SERVER","binary":"vscode-css-language-server","versionArgs":[],
+   "lspPlugin":"css-lsp@cc-manager-lsp","prerequisite":"node","markers":["*.css","*.scss","*.less"],
+   "install":{"windows":["npm","install","-g","vscode-langservers-extracted"],
+              "linux":["npm","install","-g","vscode-langservers-extracted"],
+              "macos":["npm","install","-g","vscode-langservers-extracted"]},
+   "docsUrl":"https://github.com/hrsh7th/vscode-langservers-extracted"},
   {"id":"clangd","name":"C / C++","group":"C / C++","kind":"LANGUAGE_SERVER","binary":"clangd","versionArgs":["--version"],
    "lspPlugin":"clangd-lsp@claude-plugins-official","markers":["compile_commands.json","CMakeLists.txt","*.cpp","*.cc","*.c","*.hpp","*.h"],
    "install":{"windows":["winget","install","--id","LLVM.LLVM","-e","--accept-source-agreements","--accept-package-agreements"],
@@ -65,16 +71,5 @@
     "windows":{"latest":{"kind":"REDIRECT","url":"https://github.com/Kotlin/kotlin-lsp/releases/latest","pattern":"/tag/kotlin-lsp/v([0-9]+(?:\\.[0-9]+)+)$"},
      "archiveUrl":"https://download.jetbrains.com/language-server/kotlin-server/{version}/kotlin-server-{version}.win.zip","archive":"ZIP","launcher":{"kind":"BINARY","path":"bin/intellij-server.exe","args":["--system-path","{state}"]}},
     "linux":{"latest":{"kind":"REDIRECT","url":"https://github.com/Kotlin/kotlin-lsp/releases/latest","pattern":"/tag/kotlin-lsp/v([0-9]+(?:\\.[0-9]+)+)$"},
-     "archiveUrl":"https://download.jetbrains.com/language-server/kotlin-server/{version}/kotlin-server-{version}.tar.gz","archive":"TAR_GZ","launcher":{"kind":"BINARY","path":"bin/intellij-server","args":["--system-path","{state}"]}}}},
-
-  {"id":"angular","name":"Angular","group":"TypeScript / JavaScript","kind":"ADD_ON","binary":"ngserver","versionArgs":[],
-   "baseTool":"typescript","prerequisite":"node","markers":["angular.json"],
-   "install":{"windows":["npm","install","-g","@angular/language-server","@angular/language-service","typescript@6"],
-              "linux":["npm","install","-g","@angular/language-server","@angular/language-service","typescript@6"],
-              "macos":["npm","install","-g","@angular/language-server","@angular/language-service","typescript@6"]},
-   "docsUrl":"https://angular.dev/tools/language-service"},
-  {"id":"vue","name":"Vue","group":"TypeScript / JavaScript","kind":"ADD_ON","binary":"vue-language-server","versionArgs":[],
-   "baseTool":"typescript","prerequisite":"node","markers":["package.json#vue","package.json#nuxt","*.vue"],
-   "install":{"windows":["npm","install","-g","@vue/language-server"],"linux":["npm","install","-g","@vue/language-server"],"macos":["npm","install","-g","@vue/language-server"]},
-   "docsUrl":"https://github.com/vuejs/language-tools"}
+     "archiveUrl":"https://download.jetbrains.com/language-server/kotlin-server/{version}/kotlin-server-{version}.tar.gz","archive":"TAR_GZ","launcher":{"kind":"BINARY","path":"bin/intellij-server","args":["--system-path","{state}"]}}}}
 ]}

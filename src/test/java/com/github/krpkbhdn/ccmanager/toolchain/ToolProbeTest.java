@@ -57,15 +57,15 @@ class ToolProbeTest {
     @Test
     void launcherInTheManagedBinFolderReportsTheDownloadedVersion(@TempDir Path dataDir) throws IOException {
         var tools = new ManagedToolsDirectory(new AppProperties(dataDir));
-        var version = tools.versionDirectory("angular", "1.2.3");
+        var version = tools.versionDirectory("kotlin-lsp", "1.2.3");
         Files.createDirectories(version);
         tools.markComplete(version);
-        host = host.withFile(tools.binDirectory().resolve("ngserver"));
+        host = host.withFile(tools.binDirectory().resolve("kotlin-lsp"));
         when(handshake.perform(anyList(), any(), anyMap())).thenReturn(new LspHandshake.Result(LspHandshake.Outcome.RESPONDED, ""));
         var probe = new ToolProbe(new ToolCatalog(), new ExecutableLookup(host, tools), host, handshake, PROPERTIES, tools,
                 (c, t, env) -> { throw new AssertionError("version command must not run"); }, clock);
 
-        assertThat(probe.probe("angular").version()).isEqualTo("1.2.3");
+        assertThat(probe.probe("kotlin-lsp").version()).isEqualTo("1.2.3");
     }
 
     private static CommandRunner.Result output(int exit, String stdout) {
@@ -73,15 +73,13 @@ class ToolProbeTest {
     }
 
     @Test
-    void toolWithoutVersionArgsHasNoVersionCommandButLanguageServerIsStillHandshaked() {
-        host = host.withFile(BIN.resolve("ngserver")).withFile(BIN.resolve("pyright-langserver"));
+    void languageServerWithoutVersionArgsHasNoVersionCommandButIsStillHandshaked() {
+        host = host.withFile(BIN.resolve("pyright-langserver"));
         when(handshake.perform(anyList(), any(), anyMap())).thenReturn(new LspHandshake.Result(LspHandshake.Outcome.RESPONDED, ""));
         var probe = probe((c, t, env) -> { throw new AssertionError("version command must not run"); });
 
-        var addOn = probe.probe("angular");
         var server = probe.probe("pyright");
 
-        assertThat(addOn.state()).isEqualTo(ToolState.INSTALLED);
         assertThat(server.state()).isEqualTo(ToolState.RESPONDING);
         assertThat(server.version()).isEmpty();
         verify(handshake, times(1)).perform(anyList(), any(), anyMap());
@@ -234,9 +232,10 @@ class ToolProbeTest {
 
     @Test
     void installedWithoutVersionWhenNoVersionArgsAndCommandFails() {
-        host = host.withFile(BIN.resolve("ngserver"));
+        host = host.withFile(BIN.resolve("pyright-langserver"));
+        when(handshake.perform(anyList(), any(), anyMap())).thenReturn(new LspHandshake.Result(LspHandshake.Outcome.NO_RESPONSE_IN_TIME, ""));
 
-        var status = probe((c, t, env) -> { throw new IOException("boom"); }).probe("angular");
+        var status = probe((c, t, env) -> { throw new IOException("boom"); }).probe("pyright");
 
         assertThat(status.state()).isEqualTo(ToolState.INSTALLED);
         assertThat(status.version()).isEmpty();
@@ -269,12 +268,11 @@ class ToolProbeTest {
     }
 
     @Test
-    void addOnsAndPrerequisitesAreNeverHandshaked() {
-        host = host.withFile(BIN.resolve("node")).withFile(BIN.resolve("ngserver"));
+    void prerequisitesAreNeverHandshaked() {
+        host = host.withFile(BIN.resolve("node"));
         var probe = probe((c, t, env) -> output(0, "1"));
 
         probe.probe("node");
-        probe.probe("angular");
 
         verify(handshake, never()).perform(anyList(), any(), anyMap());
     }
@@ -296,6 +294,16 @@ class ToolProbeTest {
 
         verify(handshake).perform(eq(List.of(BIN.resolve("pyright-langserver").toString(), "--stdio")), eq(Duration.ofSeconds(10)), anyMap());
         verify(handshake).perform(eq(List.of(BIN.resolve("gopls").toString())), eq(Duration.ofSeconds(10)), anyMap());
+    }
+
+    @Test
+    void cssServerGetsTheStdioHandshake() {
+        host = host.withFile(BIN.resolve("vscode-css-language-server"));
+        when(handshake.perform(anyList(), any(), anyMap())).thenReturn(new LspHandshake.Result(LspHandshake.Outcome.RESPONDED, ""));
+
+        probe((c, t, env) -> output(0, "")).probe("css");
+
+        verify(handshake).perform(eq(List.of(BIN.resolve("vscode-css-language-server").toString(), "--stdio")), eq(Duration.ofSeconds(10)), anyMap());
     }
 
     @Test

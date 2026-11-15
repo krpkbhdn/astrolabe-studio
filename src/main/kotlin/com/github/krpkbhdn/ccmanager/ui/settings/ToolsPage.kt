@@ -1,14 +1,10 @@
 package com.github.krpkbhdn.ccmanager.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.github.krpkbhdn.ccmanager.ui.components.AppButton
@@ -27,8 +23,6 @@ import com.github.krpkbhdn.ccmanager.ui.tools.installButtonOf
 import com.github.krpkbhdn.ccmanager.ui.tools.prerequisiteNote
 import com.github.krpkbhdn.ccmanager.ui.tools.statusChipOf
 
-private val extrasIndent = Spacing.xl
-
 @Composable
 fun ToolsPage(tools: ToolsState) {
     LaunchedEffect(Unit) { tools.open() }
@@ -39,21 +33,10 @@ fun ToolsPage(tools: ToolsState) {
     }
     tools.groups.forEach { group ->
         SettingGroup(group.title) {
-            group.rows.forEach { row ->
-                ToolRowView(row, tools)
-                if (row.extras.isNotEmpty()) ExtrasOf(row, tools)
-            }
+            group.rows.forEach { ToolRowView(it, tools) }
         }
     }
     Label("Installed tools are used by Claude Code LSP plugins; after installing, restart running sessions.", color = colors.textSecondary, style = Type.small)
-}
-
-@Composable
-private fun ExtrasOf(base: ToolRow, tools: ToolsState) {
-    Column(Modifier.fillMaxWidth().padding(start = extrasIndent), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-        Label("Extras for ${base.tool.name}", color = colors.textTertiary, style = Type.overline)
-        base.extras.forEach { ToolRowView(it, tools) }
-    }
 }
 
 @Composable

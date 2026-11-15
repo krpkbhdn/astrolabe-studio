@@ -8,16 +8,16 @@ import java.util.Optional;
 
 /** One catalog entry; includes names technologies the tool covers without an entry of their own (shown as a note);install keys are windows, linux, macos, each an argv list; manualInstall is one display-only command line per OS, never run. */
 public record ToolDefinition(String id, String name, String group, ToolKind kind, String binary,
-                             List<String> versionArgs, String lspPlugin, String prerequisite, String baseTool,
+                             List<String> versionArgs, String lspPlugin, String prerequisite,
                              List<String> markers, Map<String, List<String>> install, String docsUrl,
                              Map<String, String> manualInstall, Map<String, DownloadSource> download,
                              List<String> includes) {
 
     public ToolDefinition(String id, String name, String group, ToolKind kind, String binary,
-                          List<String> versionArgs, String lspPlugin, String prerequisite, String baseTool,
+                          List<String> versionArgs, String lspPlugin, String prerequisite,
                           List<String> markers, Map<String, List<String>> install, String docsUrl,
                           Map<String, String> manualInstall, Map<String, DownloadSource> download) {
-        this(id, name, group, kind, binary, versionArgs, lspPlugin, prerequisite, baseTool, markers, install, docsUrl,
+        this(id, name, group, kind, binary, versionArgs, lspPlugin, prerequisite, markers, install, docsUrl,
                 manualInstall, download, null);
     }
 
@@ -30,7 +30,6 @@ public record ToolDefinition(String id, String name, String group, ToolKind kind
         versionArgs = versionArgs == null ? List.of() : List.copyOf(versionArgs);
         lspPlugin = lspPlugin == null ? "" : lspPlugin;
         prerequisite = prerequisite == null ? "" : prerequisite;
-        baseTool = baseTool == null ? "" : baseTool;
         markers = markers == null ? List.of() : List.copyOf(markers);
         docsUrl = docsUrl == null ? "" : docsUrl;
         Map<String, List<String>> copy = new HashMap<>();

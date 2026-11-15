@@ -34,7 +34,7 @@ import org.mockito.Mockito.`when`
 class ToolsStateTest {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val errors = CopyOnWriteArrayList<String>()
-    private val tool = ToolDefinition("a", "A", "G", ToolKind.LANGUAGE_SERVER, "a", listOf(), "", "", "", listOf(), mapOf(), "", mapOf(), mapOf())
+    private val tool = ToolDefinition("a", "A", "G", ToolKind.LANGUAGE_SERVER, "a", listOf(), "", "", listOf(), mapOf(), "", mapOf(), mapOf())
     private val catalog = mock(ToolCatalog::class.java).also { `when`(it.all()).thenReturn(listOf(tool)) }
     private val probe = mock(ToolProbe::class.java)
     private val installer = mock(ToolInstallService::class.java)

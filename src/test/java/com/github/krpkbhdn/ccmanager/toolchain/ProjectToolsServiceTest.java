@@ -10,6 +10,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.github.krpkbhdn.ccmanager.claude.plugin.ClaudePluginWriter;
 import com.github.krpkbhdn.ccmanager.extension.ExtensionScope;
 import com.github.krpkbhdn.ccmanager.extension.plugin.InstalledPlugin;
 import com.github.krpkbhdn.ccmanager.extension.plugin.Marketplace;
@@ -33,34 +34,39 @@ class ProjectToolsServiceTest {
     @TempDir
     static Path DIR;
 
+    private static final String CSS_PLUGIN = "css-lsp@cc-manager-lsp";
     private static final String TS_PLUGIN = "typescript-lsp@claude-plugins-official";
 
-    private final ToolDefinition typescript = tool("typescript", "TS", ToolKind.LANGUAGE_SERVER, TS_PLUGIN, "");
-    private final ToolDefinition vue = tool("vue", "TS", ToolKind.ADD_ON, "", "typescript");
-    private final ToolDefinition go = tool("go", "Go", ToolKind.LANGUAGE_SERVER, "gopls-lsp@claude-plugins-official", "");
-    private final ToolDefinition node = tool("node", "Node", ToolKind.PREREQUISITE, "", "");
+    private final ToolDefinition typescript = tool("typescript", "TS", ToolKind.LANGUAGE_SERVER, TS_PLUGIN);
+    private final ToolDefinition pyright = tool("pyright", "TS", ToolKind.LANGUAGE_SERVER, "");
+    private final ToolDefinition go = tool("go", "Go", ToolKind.LANGUAGE_SERVER, "gopls-lsp@claude-plugins-official");
+    private final ToolDefinition css = tool("css", "CSS", ToolKind.LANGUAGE_SERVER, CSS_PLUGIN);
+    private final ToolDefinition node = tool("node", "Node", ToolKind.PREREQUISITE, "");
 
     private final ToolCatalog catalog = mock(ToolCatalog.class);
     private final ToolProbe probe = mock(ToolProbe.class);
     private final TechnologyDetector detector = mock(TechnologyDetector.class);
     private final PluginService plugins = mock(PluginService.class);
-    private final ProjectToolsService service = new ProjectToolsService(catalog, probe, detector, plugins);
+    private final ClaudePluginWriter pluginWriter = mock(ClaudePluginWriter.class);
+    private final ProjectToolsService service = new ProjectToolsService(catalog, probe, detector, plugins, pluginWriter);
 
     @BeforeEach
     void setUp() {
-        when(catalog.all()).thenReturn(List.of(node, go, vue, typescript));
-        when(catalog.find(any())).thenAnswer(call -> List.of(node, go, vue, typescript).stream()
+        when(catalog.all()).thenReturn(List.of(node, go, pyright, typescript));
+        when(catalog.find(any())).thenAnswer(call -> List.of(node, go, pyright, typescript, css).stream()
                 .filter(tool -> tool.id().equals(call.getArgument(0))).findFirst());
-        when(probe.probeAll()).thenReturn(List.of(status("go"), status("vue"), status("typescript")));
+        when(probe.probeAll()).thenReturn(List.of(status("go"), status("pyright"), status("typescript")));
         when(plugins.marketplaces()).thenReturn(List.of(new Marketplace("claude-plugins-official", "github", "x", "y")));
         when(plugins.installed(DIR)).thenReturn(List.of());
+        when(pluginWriter.marketplaceDirectory()).thenReturn(DIR.resolve("lsp-marketplace"));
+        when(plugins.install(any(), any(), any())).thenReturn(mock(PluginInstallResult.class));
     }
 
     @Test
     void rowsAreGroupedAndDetectedFirst() {
-        when(detector.detect(any(), any())).thenReturn(Set.of("vue", "typescript"));
+        when(detector.detect(any(), any())).thenReturn(Set.of("pyright", "typescript"));
         var rows = service.rows(DIR);
-        assertThat(rows).extracting(row -> row.tool().id()).containsExactly("go", "vue", "typescript");
+        assertThat(rows).extracting(row -> row.tool().id()).containsExactly("go", "pyright", "typescript");
         assertThat(rows).extracting(ProjectToolRow::detected).containsExactly(false, true, true);
     }
 
@@ -72,13 +78,12 @@ class ProjectToolsServiceTest {
                 installed("gopls-lsp@claude-plugins-official", false, DIR)));
         var rows = service.rows(DIR);
         assertThat(rows).filteredOn(row -> row.tool().id().equals("typescript")).allMatch(ProjectToolRow::pluginEnabled);
-        assertThat(rows).filteredOn(row -> row.tool().id().equals("vue")).allMatch(ProjectToolRow::pluginEnabled);
         assertThat(rows).filteredOn(row -> row.tool().id().equals("go")).noneMatch(ProjectToolRow::pluginEnabled);
     }
 
     @Test
-    void enablingAnAddOnWithoutOwnPluginDoesNothing() {
-        service.enableLsp(DIR, "vue");
+    void enablingAToolWithoutPluginDoesNothing() {
+        service.enableLsp(DIR, "pyright");
         verify(plugins, never()).install(any(), any(), any());
         verify(plugins, never()).setEnabled(any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
         verify(plugins, never()).addMarketplace(any(), any(), any());
@@ -135,9 +140,9 @@ class ProjectToolsServiceTest {
     }
 
     @Test
-    void disablingAnAddOnWithoutOwnPluginLeavesTheBasePluginOn() {
+    void disablingAToolWithoutPluginDoesNothing() {
         when(plugins.installed(DIR)).thenReturn(List.of(installed(TS_PLUGIN, true, DIR)));
-        service.disableLsp(DIR, "vue");
+        service.disableLsp(DIR, "pyright");
         verify(plugins, never()).setEnabled(any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
     }
 
@@ -157,13 +162,68 @@ class ProjectToolsServiceTest {
     }
 
     @Test
+    void ownMarketplaceIsAddedAsDirectoryAtUserScopeThenPluginInstalledLocally() {
+        service.enableLsp(DIR, "css");
+        var inOrder = org.mockito.Mockito.inOrder(plugins);
+        inOrder.verify(plugins).addMarketplace(DIR.resolve("lsp-marketplace").toAbsolutePath().toString(), ExtensionScope.USER, null);
+        inOrder.verify(plugins).install(CSS_PLUGIN, ExtensionScope.LOCAL, DIR);
+        verify(plugins, never()).addMarketplace(org.mockito.ArgumentMatchers.eq("anthropics/claude-plugins-official"), any(), any());
+    }
+
+    @Test
+    void knownOwnMarketplaceAtTheSameFolderIsNotAddedAgain() {
+        var location = DIR.resolve("lsp-marketplace").toAbsolutePath().toString();
+        when(plugins.marketplaces()).thenReturn(List.of(new Marketplace("cc-manager-lsp", "path", location, location)));
+        service.enableLsp(DIR, "css");
+        verify(plugins, never()).addMarketplace(any(), any(), any());
+        verify(plugins).install(CSS_PLUGIN, ExtensionScope.LOCAL, DIR);
+    }
+
+    @Test
+    void sameFolderSpelledDifferentlyIsNotAddedAgain() {
+        var folder = DIR.resolve("lsp-marketplace").toAbsolutePath().toString();
+        var spelled = folder.toUpperCase(java.util.Locale.ROOT).replace('\\', '/') + "/";
+        var other = org.junit.jupiter.api.condition.OS.WINDOWS.isCurrentOs() ? spelled : folder + java.io.File.separator;
+        when(plugins.marketplaces()).thenReturn(List.of(new Marketplace("cc-manager-lsp", "path", other, other)));
+        service.enableLsp(DIR, "css");
+        verify(plugins, never()).addMarketplace(any(), any(), any());
+    }
+
+    @Test
+    void blankOrInvalidInstallLocationIsAddedAgainWithoutThrowing() {
+        when(plugins.marketplaces()).thenReturn(List.of(new Marketplace("cc-manager-lsp", "path", " ", " ")));
+        service.enableLsp(DIR, "css");
+        verify(plugins).addMarketplace(DIR.resolve("lsp-marketplace").toAbsolutePath().toString(), ExtensionScope.USER, null);
+    }
+
+    @Test
+    void ownMarketplaceAtAnotherFolderIsAddedAgain() {
+        when(plugins.marketplaces()).thenReturn(List.of(new Marketplace("cc-manager-lsp", "path", "old", "old")));
+        service.enableLsp(DIR, "css");
+        verify(plugins).addMarketplace(DIR.resolve("lsp-marketplace").toAbsolutePath().toString(), ExtensionScope.USER, null);
+    }
+
+    @Test
+    void disabledLocalInstallOfOwnPluginIsTurnedOnAtLocalScope() {
+        when(plugins.installed(DIR)).thenReturn(List.of(new InstalledPlugin(CSS_PLUGIN, "1", ExtensionScope.LOCAL, false, null, DIR)));
+        service.enableLsp(DIR, "css");
+        verify(plugins).setEnabled(CSS_PLUGIN, ExtensionScope.LOCAL, DIR, true);
+        verify(plugins, never()).install(any(), any(), any());
+    }
+
+    @Test
+    void officialPluginsAreInstalledAtProjectScope() {
+        service.enableLsp(DIR, "go");
+        verify(plugins).install("gopls-lsp@claude-plugins-official", ExtensionScope.PROJECT, DIR);
+    }
+
+    @Test
     void userLevelOnlyShowsFlagAndEnableDoesNothing() {
         when(detector.detect(any(), any())).thenReturn(Set.of());
         when(plugins.installed(DIR)).thenReturn(List.of(userInstalled(TS_PLUGIN, true)));
         var rows = service.rows(DIR);
         assertThat(rows).filteredOn(row -> row.tool().id().equals("typescript"))
                 .allMatch(row -> row.userLevelEnabled() && !row.pluginEnabled());
-        assertThat(rows).filteredOn(row -> row.tool().id().equals("vue")).allMatch(ProjectToolRow::userLevelEnabled);
         assertThat(rows).filteredOn(row -> row.tool().id().equals("go")).noneMatch(ProjectToolRow::userLevelEnabled);
         service.enableLsp(DIR, "typescript");
         verify(plugins, never()).install(any(), any(), any());
@@ -234,8 +294,8 @@ class ProjectToolsServiceTest {
         return new ToolStatus(id, ToolState.INSTALLED, "1", "");
     }
 
-    private static ToolDefinition tool(String id, String group, ToolKind kind, String plugin, String base) {
-        return new ToolDefinition(id, id, group, kind, id, List.of(), plugin, "", base, List.of(), Map.of(), "", Map.of(), null);
+    private static ToolDefinition tool(String id, String group, ToolKind kind, String plugin) {
+        return new ToolDefinition(id, id, group, kind, id, List.of(), plugin, "", List.of(), Map.of(), "", Map.of(), null);
     }
 
     @Test
@@ -285,13 +345,6 @@ class ProjectToolsServiceTest {
     }
 
     @Test
-    void detectedAddOnAlsoYieldsItsBaseTool() {
-        when(detector.detect(any(), any())).thenReturn(Set.of("vue", "typescript"));
-        when(probe.probe(any())).thenReturn(new ToolStatus("x", ToolState.FAILED, "", ""));
-        assertThat(service.detected(DIR)).extracting(found -> found.tool().id()).containsExactly("vue", "typescript");
-    }
-
-    @Test
     void detectedNeverListsPrerequisitesNorTouchesPlugins() {
         when(detector.detect(any(), any())).thenReturn(Set.of("node", "go"));
         when(probe.probe(any())).thenReturn(status("go"));
@@ -311,6 +364,22 @@ class ProjectToolsServiceTest {
         org.mockito.Mockito.clearInvocations(plugins);
         service.disableLsp(DIR, "typescript");
         verify(plugins, org.mockito.Mockito.times(1)).installed(DIR);
+    }
+
+    @Test
+    void disableTurnsOffTheLocalCssPluginAtLocalScopeOnly() {
+        when(plugins.installed(DIR)).thenReturn(List.of(new InstalledPlugin(CSS_PLUGIN, "1", ExtensionScope.LOCAL, true, null, DIR)));
+        service.disableLsp(DIR, "css");
+        verify(plugins).setEnabled(CSS_PLUGIN, ExtensionScope.LOCAL, DIR, false);
+        verify(plugins, never()).setEnabled(CSS_PLUGIN, ExtensionScope.PROJECT, DIR, false);
+    }
+
+    @Test
+    void enabledLocalCssPluginMakesEnableLspANoOp() {
+        when(plugins.installed(DIR)).thenReturn(List.of(new InstalledPlugin(CSS_PLUGIN, "1", ExtensionScope.LOCAL, true, null, DIR)));
+        service.enableLsp(DIR, "css");
+        verify(plugins, never()).install(any(), any(), any());
+        verify(plugins, never()).addMarketplace(any(), any(), any());
     }
 
     @Test

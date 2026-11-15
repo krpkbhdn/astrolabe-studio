@@ -27,4 +27,16 @@ class ClaudePluginWriterTest {
         assertThat(Files.readString(skill)).startsWith("---").contains("name: run-configurations");
         assertThat(Files.readString(writer.directory().resolve("skills/visual-review/SKILL.md"))).startsWith("---").contains("name: visual-review");
     }
+
+    @Test
+    void writesTheLspMarketplaceWithItsCssPlugin() throws Exception {
+        var writer = new ClaudePluginWriter(new AppProperties(dataDir));
+
+        writer.write();
+
+        assertThat(writer.marketplaceDirectory()).isEqualTo(dataDir.resolve("lsp-marketplace"));
+        assertThat(Files.readString(writer.marketplaceDirectory().resolve(".claude-plugin/marketplace.json")))
+                .contains("\"name\": \"" + ClaudePluginWriter.LSP_MARKETPLACE + "\"").contains("\"name\": \"css-lsp\"");
+        assertThat(Files.readString(writer.marketplaceDirectory().resolve("css-lsp/.claude-plugin/plugin.json"))).contains("vscode-css-language-server");
+    }
 }

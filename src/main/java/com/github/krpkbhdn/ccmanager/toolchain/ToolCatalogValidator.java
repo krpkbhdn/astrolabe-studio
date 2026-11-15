@@ -65,12 +65,6 @@ final class ToolCatalogValidator {
                 problems.add(tool.id() + ": unknown prerequisite " + tool.prerequisite());
             }
         }
-        if (tool.kind() == ToolKind.ADD_ON) {
-            var base = byId.get(tool.baseTool());
-            if (base == null || base.kind() != ToolKind.LANGUAGE_SERVER) {
-                problems.add(tool.id() + ": add-on needs a language server baseTool, got '" + tool.baseTool() + "'");
-            }
-        }
     }
 
     private static void checkIdentity(ToolDefinition tool, List<String> problems) {

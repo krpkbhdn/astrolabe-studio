@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 
-/** The bundled catalog of language servers, add-ons and their prerequisites. */
+/** The bundled catalog of language servers and their prerequisites. */
 @Component
 public class ToolCatalog {
 

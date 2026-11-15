@@ -37,7 +37,7 @@ class DetectedTechStateTest {
     fun stop() = scope.cancel()
 
     private fun tech(id: String) = DetectedTechnology(
-        ToolDefinition(id, id, "G", ToolKind.LANGUAGE_SERVER, id, listOf(), "", "", "", listOf(), mapOf(), "", mapOf(), mapOf()), ToolState.INSTALLED,
+        ToolDefinition(id, id, "G", ToolKind.LANGUAGE_SERVER, id, listOf(), "", "", listOf(), mapOf(), "", mapOf(), mapOf()), ToolState.INSTALLED,
     )
 
     private fun capturingWatch() {

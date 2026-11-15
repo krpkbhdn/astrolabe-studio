@@ -44,7 +44,7 @@ public class LspSetupService {
         prerequisites.forEach(id -> steps.add(installStep(Kind.PREREQUISITE, id)));
         missing.forEach(row -> steps.add(installStep(Kind.SERVER, row.tool().id())));
         detected.stream()
-                .filter(row -> row.tool().kind() != ToolKind.ADD_ON && !row.tool().lspPlugin().isEmpty()
+                .filter(row -> !row.tool().lspPlugin().isEmpty()
                         && !row.pluginEnabled() && !row.userLevelEnabled())
                 .forEach(row -> steps.add(new LspSetupStep(Kind.PLUGIN, row.tool().id(), Outcome.PENDING,
                         "Enable the " + row.tool().name() + " plugin")));

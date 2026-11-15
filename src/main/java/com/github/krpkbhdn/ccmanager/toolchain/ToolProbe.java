@@ -34,7 +34,7 @@ public class ToolProbe {
     // shortcut: handshake args live here, move them into tools.json when more servers need args
     private static final Map<String, List<String>> HANDSHAKE_ARGS =
             Map.of("typescript", List.of("--stdio"),
-                    "pyright", List.of("--stdio"), "kotlin-lsp", List.of("--stdio"));
+                    "pyright", List.of("--stdio"), "kotlin-lsp", List.of("--stdio"), "css", List.of("--stdio"));
 
     /** Runs a command to completion; the seam that lets tests avoid real processes. */
     @FunctionalInterface

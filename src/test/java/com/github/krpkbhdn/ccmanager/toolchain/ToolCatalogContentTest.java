@@ -12,26 +12,48 @@ class ToolCatalogContentTest {
     @Test
     void containsEveryRequiredTechnology() {
         assertThat(catalog.all()).extracting(ToolDefinition::id).contains(
-                "typescript", "clangd", "jdtls", "pyright", "rust-analyzer", "gopls", "csharp-ls", "kotlin-lsp",
-                "angular", "vue");
+                "typescript", "css", "clangd", "jdtls", "pyright", "rust-analyzer", "gopls", "csharp-ls", "kotlin-lsp");
     }
 
     @Test
-    void typescriptAddOnsAreAngularAndVueAndReactIsOnlyANote() {
-        assertThat(catalog.all().stream().filter(tool -> tool.baseTool().equals("typescript")).toList()).extracting(ToolDefinition::id)
-                .containsExactlyInAnyOrder("angular", "vue");
+    void reactIsOnlyANoteOfTypescript() {
         assertThat(catalog.find("typescript").orElseThrow().includes()).containsExactly("React");
     }
 
     @Test
-    void languageServersHaveOfficialPluginAndKnownPrerequisite() {
+    void languageServersHaveKnownMarketplacePluginAndKnownPrerequisite() {
         var servers = catalog.all().stream().filter(tool -> tool.kind() == ToolKind.LANGUAGE_SERVER).toList();
 
         assertThat(servers).isNotEmpty().allSatisfy(server -> {
-            assertThat(server.lspPlugin()).endsWith("@claude-plugins-official");
+            assertThat(server.lspPlugin()).matches(".+@(claude-plugins-official|cc-manager-lsp)");
             assertThat(server.prerequisite().isEmpty()
                     || catalog.find(server.prerequisite()).filter(p -> p.kind() == ToolKind.PREREQUISITE).isPresent()).isTrue();
         });
+    }
+
+    @Test
+    void bundledCssPluginLaunchesTheCatalogBinary() throws Exception {
+        try (var in = getClass().getResourceAsStream("/lsp-marketplace/css-lsp/.claude-plugin/plugin.json")) {
+            var plugin = tools.jackson.databind.json.JsonMapper.builder().build().readTree(in);
+
+            assertThat(plugin.at("/lspServers/css/command").asText()).isEqualTo(catalog.find("css").orElseThrow().binary());
+        }
+    }
+
+    @Test
+    void bundledCssPluginIgnoresUnknownAtRulesAndMatchesMarketplaceVersion() throws Exception {
+        var mapper = tools.jackson.databind.json.JsonMapper.builder().build();
+        try (var plugin = getClass().getResourceAsStream("/lsp-marketplace/css-lsp/.claude-plugin/plugin.json");
+                var market = getClass().getResourceAsStream("/lsp-marketplace/.claude-plugin/marketplace.json")) {
+            var pluginJson = mapper.readTree(plugin);
+            var marketJson = mapper.readTree(market);
+
+            for (var language : List.of("css", "scss", "less")) {
+                assertThat(pluginJson.at("/lspServers/css/settings/" + language + "/lint/unknownAtRules").asText())
+                        .as(language).isEqualTo("ignore");
+            }
+            assertThat(pluginJson.at("/version").asText()).isEqualTo(marketJson.at("/plugins/0/version").asText());
+        }
     }
 
     @Test
