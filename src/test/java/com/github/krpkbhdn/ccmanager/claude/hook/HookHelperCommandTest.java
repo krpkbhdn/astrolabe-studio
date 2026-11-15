@@ -25,6 +25,18 @@ class HookHelperCommandTest {
     }
 
     @Test
+    void theTokenFileFollowsTheUrlInBothFormsAndTheTokenItselfIsNeverPassed() {
+        var file = java.nio.file.Path.of("/data/hooks/1/abc-1.token");
+        var helper = helper("/opt/ccm/ccm-app", "/classes", false, NO_SHORT_NAME, false);
+
+        assertThat(helper.execForm(URL, file).orElseThrow().args()).containsExactly("--post-hook", URL, "--token-file", file.toString());
+        assertThat(helper.shellCommand(URL, file)).hasValue("/opt/ccm/ccm-app --post-hook " + URL + " --token-file " + file);
+        var windows = helper("C:\\jdk\\bin\\java.exe", "C:\\cls", true, path -> path.replace("Users", "USERS~1"), false);
+        assertThat(windows.shellCommand(URL, java.nio.file.Path.of("C:\\Users\\x\\abc-1.token")).orElseThrow()).endsWith(URL + " --token-file C:/USERS~1/x/abc-1.token");
+        assertThat(windows.shellCommand(URL, java.nio.file.Path.of("C:\\a$b\\abc-1.token"))).isEmpty();
+    }
+
+    @Test
     void aJavaLauncherRunsTheHelperClassFromItsCodeSourceWithFastStartupOptions() {
         var helper = helper("/jdk/bin/java", "/build/classes/java/main", false, NO_SHORT_NAME, false);
 

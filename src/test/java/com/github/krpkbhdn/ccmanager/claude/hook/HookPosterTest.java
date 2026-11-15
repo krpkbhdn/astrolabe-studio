@@ -11,6 +11,8 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -19,6 +21,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -91,6 +94,36 @@ class HookPosterTest {
 
         assertThat(requests).isEmpty();
         assertThat(err.toString(StandardCharsets.UTF_8).lines()).hasSize(2).allMatch(line -> line.contains("CCM_HOOK_TOKEN"));
+    }
+
+    @Test
+    void theTokenFileIsUsedAloneTrimmedAndWinsOverTheEnvironment(@TempDir Path dir) throws Exception {
+        var file = dir.resolve("token");
+        Files.writeString(file, "  file-token\r\n");
+
+        assertThat(run(null, HookPoster.FLAG, base + "/a", HookPoster.TOKEN_FILE_FLAG, file.toString())).isZero();
+        assertThat(run("env-token", HookPoster.FLAG, base + "/b", HookPoster.TOKEN_FILE_FLAG, file.toString())).isZero();
+
+        assertThat(authorization).containsExactly("Bearer file-token", "Bearer file-token");
+    }
+
+    @Test
+    void theEnvironmentTokenAloneIsStillUsed() {
+        assertThat(run("env-token", HookPoster.FLAG, base + "/a")).isZero();
+
+        assertThat(authorization).containsExactly("Bearer env-token");
+    }
+
+    @Test
+    void anUnreadableTokenFileFallsBackToTheEnvironmentAndNoTokenExitsOne(@TempDir Path dir) {
+        var missing = dir.resolve("missing").toString();
+
+        assertThat(run("env-token", HookPoster.FLAG, base + "/a", HookPoster.TOKEN_FILE_FLAG, missing)).isZero();
+        assertThat(authorization).containsExactly("Bearer env-token");
+
+        assertThat(run(null, HookPoster.FLAG, base + "/a", HookPoster.TOKEN_FILE_FLAG, missing)).isEqualTo(1);
+        assertThat(requests).hasSize(1);
+        assertThat(err.toString(StandardCharsets.UTF_8).lines()).hasSize(1);
     }
 
     @Test

@@ -42,9 +42,7 @@ public class HookServer implements SmartLifecycle {
     private static final String MCP_CONTEXT_PATH = "/mcp/";
     private static final String CODE_MODE_CONTEXT_PATH = "/code-mode/";
     private static final String ASSISTANT_MCP_PATH = "/assistant-mcp";
-    /** Env variable of the Assistant process that carries the bearer token its mcp file refers to. */
-    public static final String ASSISTANT_TOKEN_ENV = "CCM_ASSISTANT_TOKEN";
-    /** Env variable of a session's claude process that carries its bearer token; the settings and mcp files refer to it. */
+    /** Env variable with a session's bearer token: the fallback of the helper command when its token file is unreadable. */
     public static final String SESSION_TOKEN_ENV = "CCM_HOOK_TOKEN";
     private static final int OK = 200;
     private static final int ACCEPTED = 202;
@@ -98,7 +96,7 @@ public class HookServer implements SmartLifecycle {
         return "http://127.0.0.1:" + port() + CONTEXT_PATH + ccmSessionId;
     }
 
-    /** The session's credential; handed to its claude process through {@link #SESSION_TOKEN_ENV} only, never written to disk. */
+    /** The session's credential; written into the session's owner-only files, which survive a restart of claude (agent view), unlike its environment. */
     public String sessionToken(String ccmSessionId) {
         return credentials.sessionToken(ccmSessionId);
     }
@@ -118,7 +116,7 @@ public class HookServer implements SmartLifecycle {
         return "http://127.0.0.1:" + port() + ASSISTANT_MCP_PATH;
     }
 
-    /** The Assistant's own secret; handed to the Assistant process through its environment only, never written to disk. */
+    /** The Assistant's own per-run secret; written only into the Assistant's owner-only mcp file. */
     public String assistantMcpToken() {
         return credentials.assistantToken();
     }

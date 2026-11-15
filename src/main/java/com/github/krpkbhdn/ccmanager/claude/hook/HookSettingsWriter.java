@@ -15,10 +15,15 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.AclEntry;
+import java.nio.file.attribute.AclEntryPermission;
+import java.nio.file.attribute.AclEntryType;
+import java.nio.file.attribute.AclFileAttributeView;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -41,7 +46,8 @@ public class HookSettingsWriter {
     private static final String FILE_SUFFIX = ".json";
     private static final String MCP_SUFFIX = ".mcp.json";
     private static final String LIST_RUN_CONFIGURATIONS_TOOL = "list_run_configurations";
-    private static final String BEARER_FROM_ENV = "Bearer $" + HookServer.SESSION_TOKEN_ENV;
+    private static final String TOKEN_SUFFIX = ".token";
+    private static final String BEARER_PREFIX = "Bearer ";
     private static final Pattern SAFE_ID = Pattern.compile("[A-Za-z0-9-]+");
     private static final int HOOK_TIMEOUT_SECONDS = 5;
     /** These calls are held until the user answers; the hook timeout is HookProperties.decisionHold plus this margin. */
@@ -116,10 +122,11 @@ public class HookSettingsWriter {
 
     /** With [codeMode] other than OFF the session also gets the Code Mode server and the listed servers are hidden from the model. */
     public SessionFiles write(String ccmSessionId, Map<String, JsonNode> extraServers, CodeModeAccess codeMode) {
-        var config = mcpConfig(McpEndpoint.SERVER_NAME, server.mcpUrl(ccmSessionId), HookServer.SESSION_TOKEN_ENV, extraServers);
+        var bearer = BEARER_PREFIX + server.sessionToken(ccmSessionId);
+        var config = mcpConfig(McpEndpoint.SERVER_NAME, server.mcpUrl(ccmSessionId), bearer, extraServers);
         if (codeMode != CodeModeAccess.OFF) {
             config.withObject("/mcpServers").putObject(CodeModeEndpoint.SERVER_NAME).put("type", "http").put("url", server.codeModeUrl(ccmSessionId))
-                    .put("timeout", codeModeTimeoutMillis).putObject("headers").put("Authorization", "Bearer ${" + HookServer.SESSION_TOKEN_ENV + "}");
+                    .put("timeout", codeModeTimeoutMillis).putObject("headers").put("Authorization", bearer);
         }
         return write(ccmSessionId, config, codeMode);
     }
@@ -130,17 +137,13 @@ public class HookSettingsWriter {
      * The token alone reaches only auto-approved tools, every other tool needs the user's Allow in the app.
      */
     public SessionFiles writeAssistant(String ccmSessionId) {
-        return write(ccmSessionId, mcpConfig(AssistantMcpServer.SERVER_NAME, server.assistantMcpUrl(), HookServer.ASSISTANT_TOKEN_ENV, Map.of()), CodeModeAccess.OFF);
+        return write(ccmSessionId, mcpConfig(AssistantMcpServer.SERVER_NAME, server.assistantMcpUrl(), BEARER_PREFIX + server.assistantMcpToken(), Map.of()),
+                CodeModeAccess.OFF);
     }
 
-    /** Value of {@link HookServer#SESSION_TOKEN_ENV} for the process of every session whose files this writer wrote. */
+    /** Value of {@link HookServer#SESSION_TOKEN_ENV}: the fallback for the helper, the files hold the token themselves because a restarted claude keeps their paths but not the environment. */
     public String sessionToken(String ccmSessionId) {
         return server.sessionToken(ccmSessionId);
-    }
-
-    /** Value of {@link HookServer#ASSISTANT_TOKEN_ENV} for the Assistant process. */
-    public String assistantToken() {
-        return server.assistantMcpToken();
     }
 
     private SessionFiles write(String ccmSessionId, ObjectNode mcpConfig, CodeModeAccess codeMode) {
@@ -148,6 +151,7 @@ public class HookSettingsWriter {
         var mcpFile = mcpFileOf(ccmSessionId);
         try {
             restrictToOwner(Files.createDirectories(hooksDir), "rwx------");
+            writeOwnerOnly(tokenFileOf(ccmSessionId), server.sessionToken(ccmSessionId));
             writeOwnerOnly(file, mapper.writeValueAsString(settings(ccmSessionId, codeMode)));
             writeOwnerOnly(mcpFile, mapper.writeValueAsString(mcpConfig));
         } catch (IOException e) {
@@ -156,7 +160,7 @@ public class HookSettingsWriter {
         return new SessionFiles(file, mcpFile);
     }
 
-    /** The files name the session and its MCP endpoint; the group and others must not read them. Created with the permissions where POSIX exists. */
+    /** The files hold the session's token; the group and others must not read them. Created with the permissions where POSIX exists, else the ACL is cut to the owner before any content is written. */
     private static void writeOwnerOnly(Path file, String content) throws IOException {
         var posix = file.getFileSystem().supportedFileAttributeViews().contains("posix");
         var temp = posix
@@ -164,6 +168,9 @@ public class HookSettingsWriter {
                         PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")))
                 : Files.createTempFile(file.getParent(), file.getFileName().toString(), ".tmp");
         try {
+            if (!posix) {
+                restrictAclToOwner(temp);
+            }
             Files.writeString(temp, content);
             Files.move(temp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         } finally {
@@ -177,10 +184,20 @@ public class HookSettingsWriter {
         }
     }
 
+    /** Replaces the inherited ACL (and every other entry) with one full-control entry for the file's owner. */
+    private static void restrictAclToOwner(Path file) throws IOException {
+        var view = Files.getFileAttributeView(file, AclFileAttributeView.class);
+        if (view != null) {
+            view.setAcl(List.of(AclEntry.newBuilder().setType(AclEntryType.ALLOW).setPrincipal(view.getOwner())
+                    .setPermissions(EnumSet.allOf(AclEntryPermission.class)).build()));
+        }
+    }
+
     public void delete(String ccmSessionId) {
         try {
             Files.deleteIfExists(fileOf(ccmSessionId));
             Files.deleteIfExists(mcpFileOf(ccmSessionId));
+            Files.deleteIfExists(tokenFileOf(ccmSessionId));
         } catch (IOException e) {
             throw new UncheckedIOException("Cannot delete hook settings of " + ccmSessionId, e);
         }
@@ -198,7 +215,7 @@ public class HookSettingsWriter {
                 .forEach(type -> hooks.putArray(type.wireName()).addObject().putArray("hooks").add(handler(type, ccmSessionId)));
         var settings = mapper.createObjectNode();
         settings.set("hooks", hooks);
-        helper.shellCommand(server.statusLineUrl(ccmSessionId)).ifPresent(command -> settings.set("statusLine", statusLine(command)));
+        helper.shellCommand(server.statusLineUrl(ccmSessionId), tokenFileOf(ccmSessionId)).ifPresent(command -> settings.set("statusLine", statusLine(command)));
         var permissions = settings.putObject("permissions");
         permissions.putArray("allow")
                 .add("mcp__" + McpEndpoint.SERVER_NAME + "__" + LIST_RUN_CONFIGURATIONS_TOOL);
@@ -222,7 +239,7 @@ public class HookSettingsWriter {
     }
 
     private boolean execFormSupported(String ccmSessionId) {
-        if (helper.execForm(server.hookUrl(ccmSessionId)).isEmpty()) {
+        if (helper.execForm(server.hookUrl(ccmSessionId), tokenFileOf(ccmSessionId)).isEmpty()) {
             return false;
         }
         var version = installation.current().version();
@@ -246,11 +263,11 @@ public class HookSettingsWriter {
     }
 
     /** Only the read-only list tool is pre-approved; set and delete change a command the user later runs, so Claude asks first. */
-    private ObjectNode mcpConfig(String serverName, String url, String tokenEnv, Map<String, JsonNode> extraServers) {
+    private ObjectNode mcpConfig(String serverName, String url, String authorization, Map<String, JsonNode> extraServers) {
         var config = mapper.createObjectNode();
         var servers = config.putObject("mcpServers");
         var own = servers.putObject(serverName).put("type", "http").put("url", url);
-        own.putObject("headers").put("Authorization", "Bearer ${" + tokenEnv + "}");
+        own.putObject("headers").put("Authorization", authorization);
         extraServers.forEach((name, definition) -> servers.putIfAbsent(name, definition.deepCopy()));
         return config;
     }
@@ -259,20 +276,19 @@ public class HookSettingsWriter {
         if (type == HookEventType.SESSION_START) {
             return commandHandler(ccmSessionId);
         }
-        return httpHandler(server.hookUrl(ccmSessionId), type.awaitsDecision() ? decisionTimeoutSeconds : HOOK_TIMEOUT_SECONDS);
+        return httpHandler(ccmSessionId, type.awaitsDecision() ? decisionTimeoutSeconds : HOOK_TIMEOUT_SECONDS);
     }
 
-    /** The bearer token comes from the claude process environment; an unlisted variable would resolve to empty. */
-    private ObjectNode httpHandler(String url, int timeoutSeconds) {
-        var handler = mapper.createObjectNode().put("type", "http").put("url", url).put("timeout", timeoutSeconds);
-        handler.putObject("headers").put("Authorization", BEARER_FROM_ENV);
-        handler.putArray("allowedEnvVars").add(HookServer.SESSION_TOKEN_ENV);
+    /** The token is written literally: after claude restarts its session (agent view) the environment is foreign but the settings file stays. */
+    private ObjectNode httpHandler(String ccmSessionId, int timeoutSeconds) {
+        var handler = mapper.createObjectNode().put("type", "http").put("url", server.hookUrl(ccmSessionId)).put("timeout", timeoutSeconds);
+        handler.putObject("headers").put("Authorization", BEARER_PREFIX + server.sessionToken(ccmSessionId));
         return handler;
     }
 
     /** SessionStart does not accept http handlers; exec form (no shell, nothing to quote) and async so a stalled helper can never delay startup. */
     private ObjectNode commandHandler(String ccmSessionId) {
-        var exec = helper.execForm(server.hookUrl(ccmSessionId)).orElseThrow();
+        var exec = helper.execForm(server.hookUrl(ccmSessionId), tokenFileOf(ccmSessionId)).orElseThrow();
         var handler = mapper.createObjectNode().put("type", "command").put("command", exec.command());
         exec.args().forEach(handler.putArray("args")::add);
         return handler.put("async", true).put("timeout", HOOK_TIMEOUT_SECONDS);
@@ -284,6 +300,10 @@ public class HookSettingsWriter {
      */
     private ObjectNode statusLine(String command) {
         return mapper.createObjectNode().put("type", "command").put("command", command);
+    }
+
+    private Path tokenFileOf(String ccmSessionId) {
+        return hooksDir.resolve(ccmSessionId + TOKEN_SUFFIX).toAbsolutePath();
     }
 
     private Path mcpFileOf(String ccmSessionId) {

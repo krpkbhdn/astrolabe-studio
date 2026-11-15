@@ -404,6 +404,34 @@ class StatusReducerTest {
     }
 
     @Test
+    void forkAndAgentViewStartupKeepSubagentsAndTheForkSessionId() {
+        apply("SessionStart", "{\"session_id\":\"orig\",\"source\":\"startup\"}");
+        apply("SubagentStart", "{\"session_id\":\"orig\",\"agent_id\":\"a1\",\"agent_type\":\"Explore\"}");
+
+        var forked = apply("SessionStart", "{\"session_id\":\"fork1\",\"source\":\"fork\"}");
+        assertThat(forked.subagents()).hasSize(1);
+        assertThat(forked.claudeSessionId()).isEqualTo("fork1");
+
+        var view = apply("SessionStart", "{\"session_id\":\"transient\",\"source\":\"startup\",\"agent_type\":\"claude\"}");
+        assertThat(view.subagents()).hasSize(1);
+        assertThat(view.claudeSessionId()).isEqualTo("fork1");
+    }
+
+    @Test
+    void plainStartupResetsSubagents() {
+        apply("SubagentStart", "{\"agent_id\":\"a1\",\"agent_type\":\"Explore\"}");
+
+        assertThat(apply("SessionStart", "{\"session_id\":\"s2\",\"source\":\"startup\"}").subagents()).isEmpty();
+    }
+
+    @Test
+    void compactKeepsSubagents() {
+        apply("SubagentStart", "{\"agent_id\":\"a1\",\"agent_type\":\"Explore\"}");
+
+        assertThat(apply("SessionStart", "{\"source\":\"compact\"}").subagents()).hasSize(1);
+    }
+
+    @Test
     void compactionKeepsWorkingUntilPostCompactAndManualCompactEndsIdle() {
         apply("UserPromptSubmit", "{}");
         assertThat(apply("PreCompact", "{\"trigger\":\"auto\"}").activity()).isEqualTo("Compacting context");

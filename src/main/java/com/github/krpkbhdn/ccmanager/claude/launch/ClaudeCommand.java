@@ -41,7 +41,7 @@ public final class ClaudeCommand {
             "NO_COLOR", "FORCE_COLOR", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_CHILD_SESSION",
             "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_EXECPATH", "CLAUDE_PID",
             "AI_AGENT", "TERMINAL_EMULATOR", "TERM_SESSION_ID",
-            "TERM_PROGRAM", "TERM_PROGRAM_VERSION", "ITERM_SESSION_ID", "ITERM_PROFILE", "LC_TERMINAL", "LC_TERMINAL_VERSION", "VTE_VERSION", "WT_SESSION", HookServer.ASSISTANT_TOKEN_ENV, HookServer.SESSION_TOKEN_ENV);
+            "TERM_PROGRAM", "TERM_PROGRAM_VERSION", "ITERM_SESSION_ID", "ITERM_PROFILE", "LC_TERMINAL", "LC_TERMINAL_VERSION", "VTE_VERSION", "WT_SESSION", HookServer.SESSION_TOKEN_ENV);
 
     private ClaudeCommand() {}
 
@@ -143,13 +143,6 @@ public final class ClaudeCommand {
         env.put(ENV_SESSION, ccmSessionId);
         env.put(HookServer.SESSION_TOKEN_ENV, sessionToken);
         LOOPBACK_NO_PROXY_VARIABLES.forEach(name -> env.merge(name, LOOPBACK_HOSTS, (existing, loopback) -> existing + "," + loopback));
-        return env;
-    }
-
-    /** Only the Assistant gets the token its mcp file refers to. */
-    static Map<String, String> assistantEnvironment(Map<String, String> parent, String ccmSessionId, String sessionToken, String token) {
-        Map<String, String> env = environment(parent, ccmSessionId, sessionToken);
-        env.put(HookServer.ASSISTANT_TOKEN_ENV, token);
         return env;
     }
 

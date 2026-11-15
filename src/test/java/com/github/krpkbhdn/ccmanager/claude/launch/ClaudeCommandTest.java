@@ -160,17 +160,6 @@ class ClaudeCommandTest {
     }
 
     @Test
-    void assistantTokenIsOnlyInTheAssistantEnvironmentAndNeverInherited() {
-        Map<String, String> parent = Map.of("CCM_ASSISTANT_TOKEN", "inherited");
-
-        assertThat(ClaudeCommand.environment(parent, "ccm-1", "t")).doesNotContainKey("CCM_ASSISTANT_TOKEN");
-        assertThat(ClaudeCommand.groupEnvironment(parent, "ccm-1", "t")).doesNotContainKey("CCM_ASSISTANT_TOKEN");
-        assertThat(ClaudeCommand.terminalEnvironment(parent)).doesNotContainKey("CCM_ASSISTANT_TOKEN");
-        assertThat(ClaudeCommand.assistantEnvironment(parent, "ccm-1", "t", "tok")).containsEntry("CCM_ASSISTANT_TOKEN", "tok")
-                .containsEntry("CCM_HOOK_TOKEN", "t");
-    }
-
-    @Test
     void searchPathReplacesTheExistingKeyKeepingItsCasingWithoutDuplicates() {
         Map<String, String> parent = Map.of("Path", "old", "OTHER", "x");
 
@@ -197,11 +186,10 @@ class ClaudeCommandTest {
 
     @Test
     void searchPathKeepsTokenHandlingOfTheLaunchEnvironments() {
-        Map<String, String> parent = ClaudeCommand.withSearchPath(Map.of("CCM_ASSISTANT_TOKEN", "inherited", "CCM_HOOK_TOKEN", "other"), "p");
+        Map<String, String> parent = ClaudeCommand.withSearchPath(Map.of("CCM_HOOK_TOKEN", "other"), "p");
 
-        assertThat(ClaudeCommand.environment(parent, "ccm-1", "t")).doesNotContainKey("CCM_ASSISTANT_TOKEN").containsEntry("CCM_HOOK_TOKEN", "t");
-        assertThat(ClaudeCommand.assistantEnvironment(parent, "ccm-1", "t", "tok")).containsEntry("CCM_ASSISTANT_TOKEN", "tok");
-        assertThat(ClaudeCommand.terminalEnvironment(parent)).doesNotContainKeys("CCM_ASSISTANT_TOKEN", "CCM_HOOK_TOKEN");
+        assertThat(ClaudeCommand.environment(parent, "ccm-1", "t")).containsEntry("CCM_HOOK_TOKEN", "t");
+        assertThat(ClaudeCommand.terminalEnvironment(parent)).doesNotContainKey("CCM_HOOK_TOKEN");
     }
 
     @Test
@@ -210,7 +198,6 @@ class ClaudeCommandTest {
 
         assertThat(ClaudeCommand.environment(Map.of(), "ccm-1", "t")).containsEntry("CCM_HOOK_TOKEN", "t");
         assertThat(ClaudeCommand.groupEnvironment(Map.of(), "ccm-1", "t")).containsEntry("CCM_HOOK_TOKEN", "t");
-        assertThat(ClaudeCommand.assistantEnvironment(Map.of(), "ccm-1", "t", "a")).containsEntry("CCM_HOOK_TOKEN", "t");
         assertThat(ClaudeCommand.environment(parent, "ccm-1", "t")).containsEntry("CCM_HOOK_TOKEN", "t");
         assertThat(ClaudeCommand.terminalEnvironment(parent)).doesNotContainKey("CCM_HOOK_TOKEN");
     }

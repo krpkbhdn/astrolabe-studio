@@ -6,6 +6,8 @@ import java.io.PrintStream;
 import java.net.HttpURLConnection;
 import java.net.Proxy;
 import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Set;
 
 /**
@@ -16,6 +18,7 @@ import java.util.Set;
 public final class HookPoster {
 
     public static final String FLAG = "--post-hook";
+    public static final String TOKEN_FILE_FLAG = "--token-file";
     static final int FAILURE_EXIT = 1;
     private static final String IPV4_LOOPBACK = "127.0.0.1";
     private static final String LOCALHOST = "localhost";
@@ -32,14 +35,18 @@ public final class HookPoster {
         System.exit(run(args));
     }
 
-    /** {@code args} is {@code --post-hook <url>}; reads stdin and the token env variable. Returns the process exit code. */
+    /** {@code args} is {@code --post-hook <url> [--token-file <path>]}; reads stdin, the token file, else the token env variable. Returns the process exit code. */
     public static int run(String[] args) {
         return run(args, System.getenv(HookServer.SESSION_TOKEN_ENV), System.in, System.err);
     }
 
-    static int run(String[] args, String token, InputStream stdin, PrintStream err) {
-        if (token == null || token.isEmpty()) {
-            return fail(err, HookServer.SESSION_TOKEN_ENV + " is not set");
+    static int run(String[] args, String envToken, InputStream stdin, PrintStream err) {
+        var token = tokenFromFile(args);
+        if (token.isEmpty()) {
+            token = envToken == null ? "" : envToken;
+        }
+        if (token.isEmpty()) {
+            return fail(err, "no token (" + TOKEN_FILE_FLAG + " unreadable or empty, " + HookServer.SESSION_TOKEN_ENV + " is not set)");
         }
         var url = args.length > 1 ? args[1] : "";
         if (!isLoopbackHttp(url)) {
@@ -54,6 +61,18 @@ public final class HookPoster {
             err.println("cc-manager hook: the server could not be reached (" + e.getClass().getSimpleName() + ")");
         }
         return 0;
+    }
+
+    /** Empty when the argument is absent or the file cannot be read, so the caller falls back to the environment. */
+    private static String tokenFromFile(String[] args) {
+        if (args.length < 4 || !TOKEN_FILE_FLAG.equals(args[2])) {
+            return "";
+        }
+        try {
+            return Files.readString(Path.of(args[3])).strip();
+        } catch (IOException | RuntimeException e) {
+            return "";
+        }
     }
 
     private static int fail(PrintStream err, String message) {

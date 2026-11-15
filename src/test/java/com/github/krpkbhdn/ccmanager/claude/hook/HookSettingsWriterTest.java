@@ -28,14 +28,16 @@ class HookSettingsWriterTest {
     private static final String URL = "http://127.0.0.1:5555/hook/abc-1";
     private static final String STATUS_LINE_URL = "http://127.0.0.1:5555/statusline/abc-1";
     private static final String MCP_URL = "http://127.0.0.1:5555/mcp/abc-1";
-    private static final String PROJECT_MCP_ENTRY = "{\"type\":\"http\",\"url\":\"" + MCP_URL + "\",\"headers\":{\"Authorization\":\"Bearer ${CCM_HOOK_TOKEN}\"}}";
+    private static final String TOKEN = "session-token-abc";
+    private static final String PROJECT_MCP_ENTRY = "{\"type\":\"http\",\"url\":\"" + MCP_URL + "\",\"headers\":{\"Authorization\":\"Bearer " + TOKEN + "\"}}";
     private static final String APP_MCP_URL = "http://127.0.0.1:5555/assistant-mcp";
     private static final String APP_TOKEN = "apptokenvalue";
     private static final String DEAD_PID = String.valueOf(Integer.MAX_VALUE);
 
     private static final String APP = "/opt/ccm/ccm-app";
     private static final HookHelperCommand HELPER = new HookHelperCommand(Optional.of(APP), "/unused", false, path -> path, false);
-    private static final HookHelperCommand WINDOWS_HELPER = new HookHelperCommand(Optional.of("C:\\Program Files\\Claude Code Manager\\ccm.exe"), "/unused", true, path -> "C:/PROGRA~1/CLAUDE~1/ccm.exe", false);
+    private static final HookHelperCommand WINDOWS_HELPER = new HookHelperCommand(Optional.of("C:\\Program Files\\Claude Code Manager\\ccm.exe"), "/unused", true,
+            path -> path.startsWith("C:\\Program") ? "C:/PROGRA~1/CLAUDE~1/ccm.exe" : path, false);
     private static final HookProperties HOOK_PROPERTIES = new HookProperties(10, 1024, 500, Duration.ofSeconds(590), 10, 1000, 1000);
 
     private final JsonMapper mapper =JsonMapper.builder().build();
@@ -54,6 +56,7 @@ class HookSettingsWriterTest {
         when(server.hookUrl("abc-1")).thenReturn(URL);
         when(server.statusLineUrl("abc-1")).thenReturn(STATUS_LINE_URL);
         when(server.mcpUrl("abc-1")).thenReturn(MCP_URL);
+        when(server.sessionToken("abc-1")).thenReturn(TOKEN);
         writer = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, HELPER, installationWith("2.1.200"), CODE_MODE);
         windowsWriter = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, WINDOWS_HELPER, installationWith("2.1.200"), CODE_MODE);
     }
@@ -110,7 +113,7 @@ class HookSettingsWriterTest {
 
         try (var files = Files.list(ownDir())) {
             assertThat(files.map(file -> file.getFileName().toString()))
-                    .containsExactlyInAnyOrder("abc-1.json", "abc-1.mcp.json");
+                    .containsExactlyInAnyOrder("abc-1.json", "abc-1.mcp.json", "abc-1.token");
         }
     }
 
@@ -155,9 +158,28 @@ class HookSettingsWriterTest {
         assertThat(handler.path("type").asString()).isEqualTo("http");
         assertThat(handler.path("url").asString()).isEqualTo(URL);
         assertThat(handler.path("timeout").asInt()).isEqualTo(5);
-        assertThat(handler.path("headers").toString()).isEqualTo("{\"Authorization\":\"Bearer $CCM_HOOK_TOKEN\"}");
-        assertThat(handler.path("allowedEnvVars").toString()).isEqualTo("[\"CCM_HOOK_TOKEN\"]");
-        assertThat(handler.toString()).doesNotContain("tok-abc");
+        assertThat(handler.path("headers").toString()).isEqualTo("{\"Authorization\":\"Bearer " + TOKEN + "\"}");
+        assertThat(handler.has("allowedEnvVars")).isFalse();
+        assertThat(handler.toString()).doesNotContain("CCM_HOOK_TOKEN");
+    }
+
+    @Test
+    void theTokenFileHoldsOnlyTheTokenAndIsOwnerOnlyOnPosix() throws Exception {
+        writer.write("abc-1");
+
+        var tokenFile = ownDir().resolve("abc-1.token");
+        assertThat(Files.readString(tokenFile)).isEqualTo(TOKEN);
+        if (dataDir.getFileSystem().supportedFileAttributeViews().contains("posix")) {
+            assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(tokenFile))).isEqualTo("rw-------");
+        }
+    }
+
+    @Test
+    void noWrittenFileReferencesTheTokenVariable() throws Exception {
+        var files = writer.write("abc-1", java.util.Map.of(), new CodeModeAccess(java.util.List.of(), java.util.List.of("jira")));
+
+        assertThat(Files.readString(files.settings())).doesNotContain("CCM_HOOK_TOKEN");
+        assertThat(Files.readString(files.mcpConfig())).doesNotContain("CCM_HOOK_TOKEN");
     }
 
     @Test
@@ -169,13 +191,15 @@ class HookSettingsWriterTest {
     }
 
     @Test
-    void sessionStartIsAnAsyncCommandRunningTheHelperWithoutTheToken() throws Exception {
+    void sessionStartIsAnAsyncCommandRunningTheHelperWithTheTokenFileNotTheToken() throws Exception {
         var handler = mapper.readTree(Files.readString(writer.write("abc-1").settings())).path("hooks").path("SessionStart").get(0)
                 .path("hooks").get(0);
 
         assertThat(handler.path("type").asString()).isEqualTo("command");
         assertThat(handler.path("command").asString()).isEqualTo("/opt/ccm/ccm-app");
-        assertThat(handler.path("args").toString()).isEqualTo("[\"--post-hook\",\"" + URL + "\"]");
+        assertThat(handler.path("args").get(2).asString()).isEqualTo("--token-file");
+        assertThat(handler.path("args").get(3).asString()).isEqualTo(ownDir().resolve("abc-1.token").toAbsolutePath().toString());
+        assertThat(handler.path("args").toString()).doesNotContain(TOKEN);
         assertThat(handler.path("async").asBoolean()).isTrue();
     }
 
@@ -195,23 +219,25 @@ class HookSettingsWriterTest {
         var statusLine = mapper.readTree(Files.readString(writer.write("abc-1").settings())).path("statusLine");
 
         assertThat(statusLine.path("type").asString()).isEqualTo("command");
-        assertThat(statusLine.path("command").asString()).isEqualTo("/opt/ccm/ccm-app --post-hook " + STATUS_LINE_URL);
+        assertThat(statusLine.path("command").asString())
+                .isEqualTo("/opt/ccm/ccm-app --post-hook " + STATUS_LINE_URL + " --token-file " + ownDir().resolve("abc-1.token").toAbsolutePath());
+        assertThat(statusLine.path("command").asString()).doesNotContain(TOKEN);
     }
 
     @Test
-    void onWindowsTheStatusLineUsesTheShortPathAndSessionStartTheRealPathAndNoSideFileIsWritten() throws Exception {
+    void onWindowsTheStatusLineUsesTheShortPathAndSessionStartTheRealPathAndOnlyTheTokenFileIsAdded() throws Exception {
         var json = mapper.readTree(Files.readString(windowsWriter.write("abc-1").settings()));
 
-        assertThat(json.path("statusLine").path("command").asString()).isEqualTo("C:/PROGRA~1/CLAUDE~1/ccm.exe --post-hook " + STATUS_LINE_URL);
+        assertThat(json.path("statusLine").path("command").asString()).startsWith("C:/PROGRA~1/CLAUDE~1/ccm.exe --post-hook " + STATUS_LINE_URL + " --token-file ");
         var sessionStart = json.path("hooks").path("SessionStart").get(0).path("hooks").get(0);
         assertThat(sessionStart.path("command").asString()).isEqualTo("C:\\Program Files\\Claude Code Manager\\ccm.exe");
         try (var files = Files.list(ownDir())) {
-            assertThat(files.map(file -> file.getFileName().toString())).containsExactlyInAnyOrder("abc-1.json", "abc-1.mcp.json");
+            assertThat(files.map(file -> file.getFileName().toString())).containsExactlyInAnyOrder("abc-1.json", "abc-1.mcp.json", "abc-1.token");
         }
     }
 
     @Test
-    void assistantMcpFileReferencesTheTokenVariableAndHoldsNoSecret() throws Exception {
+    void assistantMcpFileHoldsTheLiteralSecretAndNoVariableAndProjectFilesNeverHoldIt() throws Exception {
         when(server.assistantMcpUrl()).thenReturn(APP_MCP_URL);
         when(server.assistantMcpToken()).thenReturn(APP_TOKEN);
 
@@ -220,10 +246,15 @@ class HookSettingsWriterTest {
         var text = Files.readString(files.mcpConfig());
         var entry = mapper.readTree(text).path("mcpServers").path("cc-manager-app");
         assertThat(entry.path("url").asString()).isEqualTo(APP_MCP_URL);
-        assertThat(entry.path("headers").path("Authorization").asString()).isEqualTo("Bearer ${CCM_ASSISTANT_TOKEN}");
-        assertThat(text).doesNotContain(APP_TOKEN);
+        assertThat(entry.path("headers").path("Authorization").asString()).isEqualTo("Bearer " + APP_TOKEN);
+        assertThat(text).doesNotContain("CCM_ASSISTANT_TOKEN");
         assertThat(Files.readString(files.settings())).doesNotContain(APP_TOKEN);
-        assertThat(Files.readString(writer.write("abc-1").mcpConfig())).doesNotContain("CCM_ASSISTANT_TOKEN");
+        if (dataDir.getFileSystem().supportedFileAttributeViews().contains("posix")) {
+            assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(files.mcpConfig()))).isEqualTo("rw-------");
+        }
+        var project = writer.write("abc-1");
+        assertThat(Files.readString(project.mcpConfig())).doesNotContain(APP_TOKEN).doesNotContain(APP_MCP_URL);
+        assertThat(Files.readString(project.settings())).doesNotContain(APP_TOKEN);
     }
 
     @Test
@@ -245,7 +276,7 @@ class HookSettingsWriterTest {
         assertThat(files.mcpConfig()).isEqualTo(ownDir().resolve("abc-1.mcp.json"));
         assertThat(mapper.readTree(Files.readString(files.mcpConfig())).path("mcpServers").path("cc-manager").toString())
                 .isEqualTo(PROJECT_MCP_ENTRY);
-        assertThat(Files.readString(files.mcpConfig())).doesNotContain("secret", "tok-abc");
+        assertThat(Files.readString(files.mcpConfig())).doesNotContain("secret");
         assertThat(mapper.readTree(Files.readString(files.settings())).path("permissions").path("allow").toString()).isEqualTo("[\"mcp__cc-manager__list_run_configurations\"]");
     }
 
@@ -292,10 +323,13 @@ class HookSettingsWriterTest {
     @Test
     void deleteRemovesFileAndRejectsPathTraversal() {
         var file = writer.write("abc-1").settings();
+        var tokenFile = ownDir().resolve("abc-1.token");
+        assertThat(tokenFile).exists();
 
         writer.delete("abc-1");
 
         assertThat(file).doesNotExist();
+        assertThat(tokenFile).doesNotExist();
         assertThat(ownDir()).isEmptyDirectory();
         assertThatThrownBy(() -> writer.write("../evil")).isInstanceOf(IllegalArgumentException.class);
     }
@@ -348,7 +382,7 @@ class HookSettingsWriterTest {
         var entry = mapper.readTree(Files.readString(files.mcpConfig())).path("mcpServers").path("cc-manager-code");
 
         assertThat(entry.path("url").asString()).isEqualTo("http://127.0.0.1:1/code/abc-1");
-        assertThat(entry.path("headers").path("Authorization").asString()).isEqualTo("Bearer ${CCM_HOOK_TOKEN}");
+        assertThat(entry.path("headers").path("Authorization").asString()).isEqualTo("Bearer " + TOKEN);
         assertThat(entry.path("timeout").asLong()).isEqualTo(Duration.ofHours(1).plusSeconds(30).toMillis());
         assertThat(settings.path("disabledMcpjsonServers").toString()).isEqualTo("[\"jira\"]");
         assertThat(settings.path("permissions").path("allow").toString())

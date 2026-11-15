@@ -24,6 +24,7 @@ final class StatusReducer {
     private static final Pattern LAUNCHED_AGENT_ID = Pattern.compile("agent_?[iI]d\\\\?\"?\\s*[:=]\\s*\\\\?\"?([A-Za-z0-9_-]{1,64})");
     private static final Pattern SAFE_AGENT_ID = Pattern.compile("[A-Za-z0-9_-]{1,64}");
     private static final String COMPACT_SOURCE = "compact";
+    private static final String FORK_SOURCE = "fork";
     private static final String MANUAL_TRIGGER = "manual";
     private static final String UNKNOWN_ERROR = "unknown";
 
@@ -60,7 +61,7 @@ final class StatusReducer {
 
     private static void observe(SessionState.Draft draft, HookEvent event) {
         draft.lastEventAt = event.receivedAt();
-        if (!event.fromSubagent()) {
+        if (!event.fromSubagent() && !(event.type() == HookEventType.SESSION_START && carriesAgentType(event))) {
             draft.rememberMetadata(event.text("permission_mode"), event.text("model"), event.text("session_title"));
             var claudeSessionId = event.text("session_id");
             draft.claudeSessionId = claudeSessionId.isEmpty() ? draft.claudeSessionId : claudeSessionId;
@@ -108,8 +109,10 @@ final class StatusReducer {
         };
     }
 
+    /** Compact, fork and the agent-view startup (it carries an agent_type) continue the same ccm session, so its agents must survive them. */
     private static SessionState sessionStarted(SessionState state, HookEvent event) {
-        if (COMPACT_SOURCE.equals(event.text("source"))) {
+        var source = event.text("source");
+        if (COMPACT_SOURCE.equals(source) || FORK_SOURCE.equals(source) || carriesAgentType(event)) {
             return state;
         }
         return state.edit(draft -> {
@@ -119,6 +122,10 @@ final class StatusReducer {
             draft.backgroundTasks = 0;
             draft.error = "";
         });
+    }
+
+    private static boolean carriesAgentType(HookEvent event) {
+        return !event.text("agent_type").isEmpty();
     }
 
     private static void preTool(SessionState.Draft draft, HookEvent event, boolean otherActionHeld) {

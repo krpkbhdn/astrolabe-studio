@@ -194,9 +194,7 @@ public class ClaudeLauncher {
             }
             String sessionToken = hookSettings.sessionToken(ccmSessionId);
             Map<String, String> parent = ClaudeCommand.withSearchPath(System.getenv(), executableLookup.searchPath());
-            Map<String, String> environment = projectId == ASSISTANT_PROJECT_ID
-                    ? ClaudeCommand.assistantEnvironment(parent, ccmSessionId, sessionToken, hookSettings.assistantToken())
-                    : group ? ClaudeCommand.groupEnvironment(parent, ccmSessionId, sessionToken)
+            Map<String, String> environment = group ? ClaudeCommand.groupEnvironment(parent, ccmSessionId, sessionToken)
                     : ClaudeCommand.environment(parent, ccmSessionId, sessionToken);
             process = PtySpawner.spawn(command, directory, environment);
             watchExit(ccmSessionId, process);
