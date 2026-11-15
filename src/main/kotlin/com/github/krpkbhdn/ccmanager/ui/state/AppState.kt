@@ -220,7 +220,7 @@ class AppState(
         backend.git.taskWorktrees::forProject,
         { sessions.sessionDirectories },
     )
-    val tasks = TaskDialogState(sessions, teams, queue, scope, backend.git.taskWorktrees, notifications::reportError, gits::branchOf, { projectId, sessionId -> gits.branchOf(projectId, sessionId) }, gits::taskRowsChanged)
+    val tasks = TaskDialogState(sessions, teams, queue, scope, backend.git.taskWorktrees, notifications::reportError, gits::branchOf, { projectId, sessionId -> gits.branchOf(projectId, sessionId) }, gits::taskRowsChanged, TaskImages(backend.dataDir.resolve("task-images"), backend.taskAttachments).also { scope.launch(kotlinx.coroutines.Dispatchers.IO) { it.deleteExpired() } })
     private val projectReload = Refresher(scope) { guarded { projects.load() } }
     private val sessionReload = Refresher(scope) { guarded { loadSessions() } }
 

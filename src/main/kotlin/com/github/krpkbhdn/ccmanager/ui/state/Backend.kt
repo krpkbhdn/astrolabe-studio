@@ -44,6 +44,7 @@ import com.github.krpkbhdn.ccmanager.extension.plugin.PluginService
 import com.github.krpkbhdn.ccmanager.extension.skill.SkillService
 import com.github.krpkbhdn.ccmanager.shell.ShellDetector
 import com.github.krpkbhdn.ccmanager.shell.ShellLauncher
+import com.github.krpkbhdn.ccmanager.taskattachment.TaskAttachmentProperties
 import com.github.krpkbhdn.ccmanager.team.TeamService
 import com.github.krpkbhdn.ccmanager.ui.git.model.GitBackend
 import com.github.krpkbhdn.ccmanager.usage.RateLimitService
@@ -121,6 +122,7 @@ class Backend(
     val pluginMcpServers: PluginMcpServers? = null,
     val codeModeExecutions: ExecutionRegistry? = null,
     val toolchain: ToolchainBackend? = null,
+    val taskAttachments: TaskAttachmentProperties = TaskAttachmentProperties(10, 20L * 1024 * 1024, Duration.ofDays(7), 10, 1000),
 ) {
     companion object {
         fun from(context: ConfigurableApplicationContext) = Backend(
@@ -189,6 +191,7 @@ class Backend(
                 context.getBean(ContainerRuntimeDetector::class.java),
                 context.getBean(CodeModeProperties::class.java).image(),
             ),
+            taskAttachments = context.getBean(TaskAttachmentProperties::class.java),
         )
     }
 }

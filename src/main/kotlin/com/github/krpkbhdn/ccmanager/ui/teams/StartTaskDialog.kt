@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -14,9 +13,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.unit.dp
 import com.github.krpkbhdn.ccmanager.project.Project
 import com.github.krpkbhdn.ccmanager.prompt.PlaceholderSubstitution
@@ -35,6 +36,7 @@ import com.github.krpkbhdn.ccmanager.ui.components.PopupMenu
 import com.github.krpkbhdn.ccmanager.ui.icons.Icons
 import com.github.krpkbhdn.ccmanager.ui.prompts.TemplatePickerDialog
 import com.github.krpkbhdn.ccmanager.ui.prompts.teamForTemplate
+import com.github.krpkbhdn.ccmanager.ui.state.TaskDialogState
 import com.github.krpkbhdn.ccmanager.ui.theme.Spacing
 import com.github.krpkbhdn.ccmanager.ui.theme.Type
 import com.github.krpkbhdn.ccmanager.ui.theme.colors
@@ -53,23 +55,25 @@ class StartTaskActions(val onStart: (team: Team?, task: String, makeDefault: Boo
 
 /** Pick a team (or none), describe the task, and see which roles the lead will have; Ctrl+Enter starts it. */
 @Composable
-fun StartTaskDialog(project: Project, teams: TeamsState, templates: TaskTemplates, actions: StartTaskActions, canIsolate: Boolean) {
+fun StartTaskDialog(project: Project, teams: TeamsState, tasks: TaskDialogState, templates: TaskTemplates, actions: StartTaskActions, canIsolate: Boolean) {
     var selected by remember { mutableStateOf(teams.defaultTeamOf(project.id)?.id) }
     var makeDefault by remember { mutableStateOf(false) }
     var isolated by remember { mutableStateOf(false) }
-    val task = rememberTextFieldState()
+    val task = tasks.task
     val focus = remember { FocusRequester() }
     var picking by remember { mutableStateOf(false) }
     val apply: (PromptTemplate) -> Unit = { template ->
         task.setTextAndPlaceCursorAtEnd(PlaceholderSubstitution.apply(template.text, templates.values))
         selected = teamForTemplate(template, teams.teams, selected?.let(teams::find))?.id
     }
+    LaunchedEffect(Unit) { snapshotFlow { task.text.toString() to task.selection }.collect { tasks.onTextChanged() } }
     LaunchedEffect(Unit) {
         focus.requestFocus()
         templates.available.firstOrNull { it.id == templates.initialId }?.let(apply)
     }
     val team = selected?.let(teams::find)
-    val start = { if (task.text.isNotBlank()) actions.onStart(team, task.text.toString().trim(), team != null && makeDefault, canIsolate && isolated) }
+    val startable = task.text.isNotBlank()
+    val start = { if (startable) actions.onStart(team, task.text.toString().trim(), team != null && makeDefault, canIsolate && isolated) }
     ModalHost(actions.onDismiss, width = dialogWidth, takeFocus = false, hasInput = { task.text.isNotEmpty() }) {
         DialogBody("Start task in ${project.name}", Icons.Users, colors.accent) {
             Label("Team", color = colors.textSecondary, style = Type.smallMedium)
@@ -79,11 +83,12 @@ fun StartTaskDialog(project: Project, teams: TeamsState, templates: TaskTemplate
                 Label("Task", Modifier.weight(1f), color = colors.textSecondary, style = Type.smallMedium)
                 AppButton("From library", { picking = true }, icon = Icons.Message, compact = true, tooltip = "Fill the task from a saved prompt in the library")
             }
-            VoiceTextArea(task, Modifier.fillMaxWidth(), placeholder = "Describe what to do", focusRequester = focus, onSubmit = start)
+            VoiceTextArea(task, Modifier.fillMaxWidth().onPreviewKeyEvent { taskFieldKey(it, tasks) }, placeholder = "Describe what to do", focusRequester = focus, onSubmit = start)
+            TaskImageRow(tasks)
             Label(if (team != null) TASK_HINT else NO_TEAM_TASK_HINT, color = colors.textTertiary, style = Type.caption, maxLines = 2)
             if (team != null) DefaultTeamToggle(makeDefault) { makeDefault = it }
             if (canIsolate) IsolatedToggle(isolated) { isolated = it }
-            DialogActions("Start task", task.text.isNotBlank(), false, start, actions.onDismiss)
+            DialogActions("Start task", startable, false, start, actions.onDismiss)
         }
     }
     if (picking) TemplatePickerDialog(templates.available, project.id, teams.teams, { picking = false; apply(it); focus.requestFocus() }, { picking = false; focus.requestFocus() })
