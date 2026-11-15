@@ -24,7 +24,7 @@ import org.springframework.stereotype.Service;
 public class ProjectService {
 
     private static final Logger log = LoggerFactory.getLogger(ProjectService.class);
-    private static final String SELECT = "SELECT id, name, path, created_at, model, effort, is_group, group_id FROM project";
+    private static final String SELECT = "SELECT id, name, path, created_at, model, effort, is_group, group_id, trust_level FROM project";
 
     private final JdbcClient jdbc;
     private final GroupWorkspace groupWorkspace;
@@ -92,6 +92,25 @@ public class ProjectService {
         return find(id).orElseThrow();
     }
 
+    /** Stores the trust level override of the sessions the project starts next; groups always ask, so their level cannot be set. */
+    public Project selectTrust(long id, TrustLevel level) {
+        return storeTrust(id, level.name());
+    }
+
+    /** Clears the override: the project follows the app default trust level again. */
+    public Project useDefaultTrust(long id) {
+        return storeTrust(id, null);
+    }
+
+    private Project storeTrust(long id, String level) {
+        var updated = jdbc.sql("UPDATE project SET trust_level = ? WHERE id = ? AND is_group = 0").param(level).param(id).update();
+        if (updated == 0) {
+            throw new IllegalArgumentException("Project not found or a group: " + id);
+        }
+        fireChanged();
+        return find(id).orElseThrow();
+    }
+
     /** A group's service directory goes with it; its members stay registered. */
     public void remove(long id) {
         var removed = jdbc.sql("DELETE FROM project WHERE id = ? RETURNING path, is_group").param(id)
@@ -151,7 +170,7 @@ public class ProjectService {
     private static Project mapRow(ResultSet rs, int rowNum) throws SQLException {
         return new Project(rs.getLong("id"), rs.getString("name"), Path.of(rs.getString("path")),
                 Instant.parse(rs.getString("created_at")), ModelSelection.stored(rs.getString("model"), rs.getString("effort")),
-                rs.getInt("is_group") != 0, groupId(rs));
+                rs.getInt("is_group") != 0, groupId(rs), TrustLevel.storedOverride(rs.getString("trust_level")));
     }
 
     private static Long groupId(ResultSet rs) throws SQLException {

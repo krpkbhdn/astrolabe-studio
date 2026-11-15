@@ -34,6 +34,7 @@ import com.github.krpkbhdn.ccmanager.preset.ProjectPresetService
 import com.github.krpkbhdn.ccmanager.preset.apply.PresetApplyService
 import com.github.krpkbhdn.ccmanager.project.ProjectGroupService
 import com.github.krpkbhdn.ccmanager.project.ProjectService
+import com.github.krpkbhdn.ccmanager.project.TrustSettingsService
 import com.github.krpkbhdn.ccmanager.prompt.PromptTemplateService
 import com.github.krpkbhdn.ccmanager.run.RunConfigurationService
 import com.github.krpkbhdn.ccmanager.review.ReviewService
@@ -120,6 +121,7 @@ class Backend(
     val voice: VoiceBackend? = null,
     val hookHelper: HookHelperCommand? = null,
     val codeMode: CodeModeBackend? = null,
+    val trust: TrustSettingsService? = null,
     val projectCodeMode: ProjectCodeModeService? = null,
     val pluginMcpServers: PluginMcpServers? = null,
     val codeModeExecutions: ExecutionRegistry? = null,
@@ -195,6 +197,7 @@ class Backend(
                 context.getBean(ContainerRuntimeDetector::class.java),
                 context.getBean(CodeModeProperties::class.java).image(),
             ),
+            trust = context.getBean(TrustSettingsService::class.java),
             taskAttachments = context.getBean(TaskAttachmentProperties::class.java),
         )
     }

@@ -51,6 +51,7 @@ fun StatusBar(state: AppState, modifier: Modifier = Modifier) {
             ContextMeterSegment(state)
             LspIndicatorSegment(state)
             CodeModeIndicatorSegment(state)
+            TrustIndicatorSegment(state)
             SessionCounters(state)
             state.environment.installation?.let { ClaudeSegment(it) }
         }

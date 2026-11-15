@@ -15,6 +15,7 @@ import com.github.krpkbhdn.ccmanager.claude.plugin.ClaudePluginWriter;
 import com.github.krpkbhdn.ccmanager.claude.install.ClaudeInstallation;
 import com.github.krpkbhdn.ccmanager.claude.mcp.AssistantMcpServer;
 import com.github.krpkbhdn.ccmanager.claude.install.ClaudeInstallationService;
+import com.github.krpkbhdn.ccmanager.claude.proposal.SessionTrust;
 import com.github.krpkbhdn.ccmanager.claude.session.SessionRegistry;
 import com.github.krpkbhdn.ccmanager.config.AppProperties;
 import com.github.krpkbhdn.ccmanager.extension.mcp.ProjectMcpServers;
@@ -34,6 +35,8 @@ import com.github.krpkbhdn.ccmanager.claude.hook.CodeModeAccess;
 import java.util.Map;
 import com.github.krpkbhdn.ccmanager.project.Project;
 import com.github.krpkbhdn.ccmanager.project.ProjectService;
+import com.github.krpkbhdn.ccmanager.project.TrustLevel;
+import com.github.krpkbhdn.ccmanager.project.TrustSettingsService;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -53,10 +56,16 @@ class ClaudeLauncherTest {
     private final ProjectCodeModeService codeModes = mock(ProjectCodeModeService.class);
     private final McpConfigReader mcpConfigs = mock(McpConfigReader.class);
     private final GitWorktreeService worktrees = mock(GitWorktreeService.class);
+    private final SessionTrust sessionTrust = mock(SessionTrust.class);
+    private final TrustSettingsService trustSettings = mock(TrustSettingsService.class, org.mockito.Mockito.CALLS_REAL_METHODS);
     private final Path dataDir = Path.of("build", "launcher-test-data").toAbsolutePath();
     private final ClaudeLauncher launcher = new ClaudeLauncher(projects, installation, hooks, mock(ClaudePluginWriter.class), sessions, new AppProperties(dataDir),
             groups, mock(GroupWorkspace.class), mock(ProjectMcpServers.class), assistantEndpoint, new WorkDirectories(worktrees),
-            codeModes, mcpConfigs, mock(ExecutableLookup.class));
+            codeModes, mcpConfigs, mock(ExecutableLookup.class), sessionTrust, trustSettings);
+
+    {
+        org.mockito.Mockito.doReturn(TrustLevel.ASK).when(trustSettings).defaultLevel();
+    }
 
     @TempDir
     Path directory;
@@ -275,5 +284,73 @@ class ClaudeLauncherTest {
         assertThatThrownBy(() -> launcher.launchTask(1, "t")).isInstanceOf(IllegalStateException.class);
         verify(hooks).write("ccm-1");
         verify(hooks, never()).write(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyMap(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void assistantNeverRegistersATrustLevel() throws Exception {
+        Path notExecutable = Files.createFile(directory.resolve("claude-fake"));
+        when(installation.current()).thenReturn(new ClaudeInstallation(true, notExecutable, "1", null, null));
+        when(sessions.register(ClaudeLauncher.ASSISTANT_PROJECT_ID)).thenReturn("ccm-0");
+        when(assistantEndpoint.toolNames()).thenReturn(List.of("list_projects"));
+        when(hooks.writeAssistant("ccm-0")).thenReturn(new SessionFiles(directory.resolve("s.json"), directory.resolve("m.json")));
+
+        assertThatThrownBy(launcher::launchAssistant).isInstanceOf(IllegalStateException.class);
+
+        verify(sessionTrust, never()).set(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void groupNeverRegistersATrustLevelEvenWhenItsProjectsAreTrusted() throws Exception {
+        Path notExecutable = Files.createFile(directory.resolve("claude-fake"));
+        when(installation.current()).thenReturn(new ClaudeInstallation(true, notExecutable, "1", null, null));
+        var member = new Project(3, "m", directory, Instant.now(), ModelSelection.DEFAULT, false, null, TrustLevel.AUTONOMOUS);
+        when(projects.find(2)).thenReturn(Optional.of(new Project(2, "g", directory, Instant.now(), ModelSelection.DEFAULT, true, null, TrustLevel.AUTONOMOUS)));
+        when(groups.members(2)).thenReturn(List.of(member));
+        when(sessions.register(2)).thenReturn("ccm-2");
+
+        assertThatThrownBy(() -> launcher.launch(2, LaunchMode.NEW)).isInstanceOf(IllegalStateException.class);
+
+        verify(sessionTrust, never()).set(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void aTrustedProjectRegistersItsLevelAndFolderAndWritesTrustedSettings() throws Exception {
+        claudeInstalledAndSpawnFails();
+        when(projects.find(1)).thenReturn(Optional.of(new Project(1, "p", directory, Instant.now(), ModelSelection.DEFAULT, false, null, TrustLevel.TRUSTED)));
+        when(codeModes.get(1)).thenReturn(new ProjectCodeMode(1, false, List.of()));
+        when(hooks.write("ccm-1", Map.of(), CodeModeAccess.OFF, TrustLevel.TRUSTED))
+                .thenReturn(new SessionFiles(directory.resolve("s.json"), directory.resolve("m.json")));
+
+        assertThatThrownBy(() -> launcher.launch(1, LaunchMode.NEW)).isInstanceOf(IllegalStateException.class);
+
+        verify(sessionTrust).set("ccm-1", TrustLevel.TRUSTED, directory);
+        verify(sessionTrust).forget("ccm-1");
+    }
+
+    @Test
+    void aProjectWithoutOverrideStartsWithTheAppDefaultLevel() throws Exception {
+        claudeInstalledAndSpawnFails();
+        org.mockito.Mockito.doReturn(TrustLevel.AUTONOMOUS).when(trustSettings).defaultLevel();
+        when(projects.find(1)).thenReturn(Optional.of(new Project(1, "p", directory, Instant.now())));
+        when(codeModes.get(1)).thenReturn(new ProjectCodeMode(1, false, List.of()));
+        when(hooks.write("ccm-1", Map.of(), CodeModeAccess.OFF, TrustLevel.AUTONOMOUS))
+                .thenReturn(new SessionFiles(directory.resolve("s.json"), directory.resolve("m.json")));
+
+        assertThatThrownBy(() -> launcher.launch(1, LaunchMode.NEW)).isInstanceOf(IllegalStateException.class);
+
+        verify(sessionTrust).set("ccm-1", TrustLevel.AUTONOMOUS, directory);
+    }
+
+    @Test
+    void anOverrideBeatsTheAppDefault() throws Exception {
+        claudeInstalledAndSpawnFails();
+        org.mockito.Mockito.doReturn(TrustLevel.AUTONOMOUS).when(trustSettings).defaultLevel();
+        when(projects.find(1)).thenReturn(Optional.of(new Project(1, "p", directory, Instant.now(), ModelSelection.DEFAULT, false, null, TrustLevel.ASK)));
+        when(codeModes.get(1)).thenReturn(new ProjectCodeMode(1, false, List.of()));
+        when(hooks.write("ccm-1")).thenReturn(new SessionFiles(directory.resolve("s.json"), directory.resolve("m.json")));
+
+        assertThatThrownBy(() -> launcher.launch(1, LaunchMode.NEW)).isInstanceOf(IllegalStateException.class);
+
+        verify(sessionTrust, never()).set(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 }

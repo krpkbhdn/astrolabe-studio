@@ -5,7 +5,6 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,14 +22,15 @@ final class DecisionHold {
     }
 
     /**
-     * The event is accepted (stored and published) on the worker first, so its order and the NEEDS_ACTION status are as for any hook; the worker never waits.
+     * The event is stored and published (unless it is allowed at once) on the worker first, so its order and the NEEDS_ACTION status are as for any hook; the worker never waits.
      * An empty output leaves the terminal dialog in charge.
      */
-    CompletableFuture<Optional<String>> hold(OrderedWorker worker, String ccmSessionId, Supplier<HookEvent> accept, Runnable onRejected) {
+    CompletableFuture<Optional<String>> hold(OrderedWorker worker, String ccmSessionId, HookEvent event, Runnable store, Runnable publish, Runnable onRejected) {
         var decision = new CompletableFuture<Optional<String>>();
         Runnable hold = () -> {
             try {
-                proposals.hold(accept.get()).whenComplete((output, error) -> decision.complete(output == null ? Optional.empty() : output));
+                store.run();
+                proposals.hold(event, publish).whenComplete((output, error) -> decision.complete(output == null ? Optional.empty() : output));
             } catch (RuntimeException e) {
                 log.warn("Could not hold hook call for session {}: {}", ccmSessionId, e.toString());
                 decision.complete(Optional.empty());

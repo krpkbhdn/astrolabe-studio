@@ -40,6 +40,7 @@ import com.github.krpkbhdn.ccmanager.ui.queue.QueueState
 import com.github.krpkbhdn.ccmanager.ui.queue.QueuedPrompt
 import com.github.krpkbhdn.ccmanager.ui.run.RunState
 import com.github.krpkbhdn.ccmanager.ui.settings.CodeModeSettingsState
+import com.github.krpkbhdn.ccmanager.ui.trust.TrustState
 import com.github.krpkbhdn.ccmanager.ui.settings.SettingsState
 import com.github.krpkbhdn.ccmanager.ui.presets.PresetsState
 import com.github.krpkbhdn.ccmanager.ui.presets.apply.ApplyPresetState
@@ -207,6 +208,7 @@ class AppState(
     val settingsDialog = SettingsState()
     val voice: VoiceSettingsState? = voiceSettingsOf(backend.voice, scope, { settings }, prefs::update, notifications::reportError)
     val codeModeSettings = CodeModeSettingsState(backend.codeMode, scope) { notifications.reportError(it) }
+    val trust = TrustState(backend.trust, scope) { notifications.reportError(it) }
     val codeModeChip = CodeModeChipState(
         backend.projectCodeMode != null,
         { ProjectCodeModeState(backend.projectCodeMode, it.id, scope, { backend.pluginMcpServers?.servers(it.path) ?: emptyList() }, notifications::reportError) },

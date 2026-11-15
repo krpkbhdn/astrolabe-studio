@@ -16,6 +16,7 @@ enum class SettingsCategory(val label: String) {
     UPDATES("Updates"),
     PRESETS("Project presets"),
     CODE_MODE("Code Mode"),
+    TRUST("Trust"),
     AUTHOR("Author setup"),
     ABOUT("About"),
     ;

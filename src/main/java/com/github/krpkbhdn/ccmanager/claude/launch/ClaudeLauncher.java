@@ -7,6 +7,7 @@ import com.github.krpkbhdn.ccmanager.claude.install.ClaudeInstallation;
 import com.github.krpkbhdn.ccmanager.claude.install.ClaudeInstallationService;
 import com.github.krpkbhdn.ccmanager.claude.mcp.AssistantMcpServer;
 import com.github.krpkbhdn.ccmanager.claude.plugin.ClaudePluginWriter;
+import com.github.krpkbhdn.ccmanager.claude.proposal.SessionTrust;
 import com.github.krpkbhdn.ccmanager.claude.session.SessionRegistry;
 import com.github.krpkbhdn.ccmanager.codemode.ProjectCodeModeService;
 import com.github.krpkbhdn.ccmanager.config.AppProperties;
@@ -16,6 +17,8 @@ import com.github.krpkbhdn.ccmanager.extension.mcp.McpServerConfig;
 import com.github.krpkbhdn.ccmanager.extension.mcp.ProjectMcpServers;
 import com.github.krpkbhdn.ccmanager.project.GroupWorkspace;
 import com.github.krpkbhdn.ccmanager.project.Project;
+import com.github.krpkbhdn.ccmanager.project.TrustLevel;
+import com.github.krpkbhdn.ccmanager.project.TrustSettingsService;
 import com.github.krpkbhdn.ccmanager.project.ModelSelection;
 import com.github.krpkbhdn.ccmanager.project.ProjectGroupService;
 import com.github.krpkbhdn.ccmanager.project.ProjectService;
@@ -59,12 +62,17 @@ public class ClaudeLauncher {
     private final ProjectCodeModeService codeModes;
     private final McpConfigReader mcpConfigs;
     private final ExecutableLookup executableLookup;
+    private final SessionTrust sessionTrust;
+    private final TrustSettingsService trustSettings;
 
     public ClaudeLauncher(ProjectService projects, ClaudeInstallationService installation,
             HookSettingsWriter hookSettings, ClaudePluginWriter plugin, SessionRegistry sessions, AppProperties properties,
             ProjectGroupService groups, GroupWorkspace groupWorkspace, ProjectMcpServers projectMcpServers,
             AssistantMcpServer assistantMcp, WorkDirectories workDirectories,
-            ProjectCodeModeService codeModes, McpConfigReader mcpConfigs, ExecutableLookup executableLookup) {
+            ProjectCodeModeService codeModes, McpConfigReader mcpConfigs, ExecutableLookup executableLookup, SessionTrust sessionTrust,
+            TrustSettingsService trustSettings) {
+        this.trustSettings = trustSettings;
+        this.sessionTrust = sessionTrust;
         this.executableLookup = executableLookup;
         this.codeModes = codeModes;
         this.mcpConfigs = mcpConfigs;
@@ -116,7 +124,7 @@ public class ClaudeLauncher {
         Project project = project(projectId);
         boolean keepsCwd = insideProject(cwd, project.path()) || cwd != null && workDirectories.accepts(project, cwd);
         Path directory = keepsCwd ? cwd : project.path();
-        return start(projectId, directory, project.modelSelection(), ClaudeCommand.label(LaunchMode.RESUME_PICKER, team),
+        return start(projectId, directory, project.modelSelection(), trustSettings.effective(project), ClaudeCommand.label(LaunchMode.RESUME_PICKER, team),
                 (files, exe, selection) -> ClaudeCommand.resumeArguments(exe, files, plugin.directory(), claudeSessionId, selection, team),
                 project.group() ? members(project) : List.of());
     }
@@ -159,22 +167,23 @@ public class ClaudeLauncher {
         } catch (IOException e) {
             throw new IllegalStateException("Could not create the assistant folder: " + e.getMessage(), e);
         }
-        return start(ASSISTANT_PROJECT_ID, directory, ModelSelection.DEFAULT, ClaudeCommand.label(LaunchMode.NEW),
+        return start(ASSISTANT_PROJECT_ID, directory, ModelSelection.DEFAULT, TrustLevel.ASK, ClaudeCommand.label(LaunchMode.NEW),
                 (files, exe, selection) -> ClaudeCommand.assistantArguments(exe, files, selection, assistantMcp.toolNames()), List.of());
     }
 
     private LaunchedSession start(long projectId, String label, CommandFactory commandFactory) {
         Project project = project(projectId);
-        return start(projectId, project.path(), project.modelSelection(), label, commandFactory,
+        return start(projectId, project.path(), project.modelSelection(), trustSettings.effective(project), label, commandFactory,
                 project.group() ? members(project) : List.of());
     }
 
     private LaunchedSession startIn(long projectId, Path directory, String label, CommandFactory commandFactory) {
         Project project = project(projectId);
-        return start(projectId, workDirectories.validate(project, directory), project.modelSelection(), label, commandFactory, List.of());
+        return start(projectId, workDirectories.validate(project, directory), project.modelSelection(), trustSettings.effective(project), label, commandFactory,
+                List.of());
     }
 
-    private LaunchedSession start(long projectId, Path directory, ModelSelection modelSelection, String label,
+    private LaunchedSession start(long projectId, Path directory, ModelSelection modelSelection, TrustLevel trust, String label,
             CommandFactory commandFactory, List<Project> members) {
         boolean group = !members.isEmpty();
         Path executable = executable();
@@ -187,7 +196,7 @@ public class ClaudeLauncher {
             }
             SessionFiles files = projectId == ASSISTANT_PROJECT_ID ? hookSettings.writeAssistant(ccmSessionId)
                     : group ? hookSettings.write(ccmSessionId, projectMcpServers.approved(memberPaths))
-                    : writeProjectFiles(ccmSessionId, codeModeAccess(ccmSessionId, projectId, directory));
+                    : writeProjectFiles(ccmSessionId, codeModeAccess(ccmSessionId, projectId, directory), trust, directory);
             List<String> command = new ArrayList<>(commandFactory.build(files, executable, modelSelection));
             if (group) {
                 ClaudeCommand.addDirectories(command, memberPaths);
@@ -209,7 +218,11 @@ public class ClaudeLauncher {
         }
     }
 
-    private SessionFiles writeProjectFiles(String ccmSessionId, CodeModeAccess codeMode) {
+    private SessionFiles writeProjectFiles(String ccmSessionId, CodeModeAccess codeMode, TrustLevel trust, Path directory) {
+        if (trust != TrustLevel.ASK) {
+            sessionTrust.set(ccmSessionId, trust, directory);
+            return hookSettings.write(ccmSessionId, Map.of(), codeMode, trust);
+        }
         return codeMode == CodeModeAccess.OFF ? hookSettings.write(ccmSessionId) : hookSettings.write(ccmSessionId, Map.of(), codeMode);
     }
 
@@ -285,6 +298,7 @@ public class ClaudeLauncher {
 
     private void release(String ccmSessionId) {
         codeModes.forgetDirectory(ccmSessionId);
+        sessionTrust.forget(ccmSessionId);
         deleteSettings(ccmSessionId);
     }
 

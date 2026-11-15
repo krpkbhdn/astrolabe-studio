@@ -8,6 +8,7 @@ import com.github.krpkbhdn.ccmanager.claude.mcp.McpEndpoint;
 import com.github.krpkbhdn.ccmanager.codemode.CodeModeProperties;
 import com.github.krpkbhdn.ccmanager.codemode.mcp.CodeModeEndpoint;
 import com.github.krpkbhdn.ccmanager.config.AppProperties;
+import com.github.krpkbhdn.ccmanager.project.TrustLevel;
 import com.github.krpkbhdn.ccmanager.workspace.TreeDeleter;
 import jakarta.annotation.PostConstruct;
 import java.io.IOException;
@@ -122,13 +123,18 @@ public class HookSettingsWriter {
 
     /** With [codeMode] other than OFF the session also gets the Code Mode server and the listed servers are hidden from the model. */
     public SessionFiles write(String ccmSessionId, Map<String, JsonNode> extraServers, CodeModeAccess codeMode) {
+        return write(ccmSessionId, extraServers, codeMode, TrustLevel.ASK);
+    }
+
+    /** The [trust] level adds its permission mode and allow and deny rules to the session's settings. */
+    public SessionFiles write(String ccmSessionId, Map<String, JsonNode> extraServers, CodeModeAccess codeMode, TrustLevel trust) {
         var bearer = BEARER_PREFIX + server.sessionToken(ccmSessionId);
         var config = mcpConfig(McpEndpoint.SERVER_NAME, server.mcpUrl(ccmSessionId), bearer, extraServers);
         if (codeMode != CodeModeAccess.OFF) {
             config.withObject("/mcpServers").putObject(CodeModeEndpoint.SERVER_NAME).put("type", "http").put("url", server.codeModeUrl(ccmSessionId))
                     .put("timeout", codeModeTimeoutMillis).putObject("headers").put("Authorization", bearer);
         }
-        return write(ccmSessionId, config, codeMode);
+        return write(ccmSessionId, config, codeMode, trust);
     }
 
     /**
@@ -138,7 +144,7 @@ public class HookSettingsWriter {
      */
     public SessionFiles writeAssistant(String ccmSessionId) {
         return write(ccmSessionId, mcpConfig(AssistantMcpServer.SERVER_NAME, server.assistantMcpUrl(), BEARER_PREFIX + server.assistantMcpToken(), Map.of()),
-                CodeModeAccess.OFF);
+                CodeModeAccess.OFF, TrustLevel.ASK);
     }
 
     /** Value of {@link HookServer#SESSION_TOKEN_ENV}: the fallback for the helper, the files hold the token themselves because a restarted claude keeps their paths but not the environment. */
@@ -146,13 +152,13 @@ public class HookSettingsWriter {
         return server.sessionToken(ccmSessionId);
     }
 
-    private SessionFiles write(String ccmSessionId, ObjectNode mcpConfig, CodeModeAccess codeMode) {
+    private SessionFiles write(String ccmSessionId, ObjectNode mcpConfig, CodeModeAccess codeMode, TrustLevel trust) {
         var file = fileOf(ccmSessionId);
         var mcpFile = mcpFileOf(ccmSessionId);
         try {
             restrictToOwner(Files.createDirectories(hooksDir), "rwx------");
             writeOwnerOnly(tokenFileOf(ccmSessionId), server.sessionToken(ccmSessionId));
-            writeOwnerOnly(file, mapper.writeValueAsString(settings(ccmSessionId, codeMode)));
+            writeOwnerOnly(file, mapper.writeValueAsString(settings(ccmSessionId, codeMode, trust)));
             writeOwnerOnly(mcpFile, mapper.writeValueAsString(mcpConfig));
         } catch (IOException e) {
             throw new UncheckedIOException("Cannot write hook settings " + file, e);
@@ -208,6 +214,10 @@ public class HookSettingsWriter {
     }
 
     ObjectNode settings(String ccmSessionId, CodeModeAccess codeMode) {
+        return settings(ccmSessionId, codeMode, TrustLevel.ASK);
+    }
+
+    ObjectNode settings(String ccmSessionId, CodeModeAccess codeMode, TrustLevel trust) {
         var hooks = mapper.createObjectNode();
         Arrays.stream(HookEventType.values())
                 .filter(type -> !NOT_SUBSCRIBED.contains(type))
@@ -217,10 +227,12 @@ public class HookSettingsWriter {
         settings.set("hooks", hooks);
         helper.shellCommand(server.statusLineUrl(ccmSessionId), tokenFileOf(ccmSessionId)).ifPresent(command -> settings.set("statusLine", statusLine(command)));
         var permissions = settings.putObject("permissions");
-        permissions.putArray("allow")
-                .add("mcp__" + McpEndpoint.SERVER_NAME + "__" + LIST_RUN_CONFIGURATIONS_TOOL);
+        var allow = permissions.putArray("allow").add("mcp__" + McpEndpoint.SERVER_NAME + "__" + LIST_RUN_CONFIGURATIONS_TOOL);
+        TrustPermissions.allow(trust).forEach(allow::add);
         var deny = permissions.putArray("deny");
         deny.add("Read(" + absoluteRule(hooksRoot) + "/**)");
+        TrustPermissions.deny(trust).forEach(deny::add);
+        TrustPermissions.defaultMode(trust).ifPresent(mode -> permissions.put("defaultMode", mode));
         if (codeMode != CodeModeAccess.OFF) {
             applyCodeMode(settings, permissions, deny, codeMode);
         }

@@ -69,6 +69,34 @@ class HookSettingsWriterTest {
         return installation;
     }
 
+    private tools.jackson.databind.JsonNode permissionsFor(com.github.krpkbhdn.ccmanager.project.TrustLevel level) throws Exception {
+        var files = writer.write("abc-1", java.util.Map.of(), CodeModeAccess.OFF, level);
+        return mapper.readTree(Files.readString(files.settings())).path("permissions");
+    }
+
+    @Test
+    void askSettingsHaveNoDefaultModeAndNoTrustRules() throws Exception {
+        var permissions = permissionsFor(com.github.krpkbhdn.ccmanager.project.TrustLevel.ASK);
+        assertThat(permissions.has("defaultMode")).isFalse();
+        assertThat(permissions.path("allow").toString()).doesNotContain("\"Read\"");
+        assertThat(permissions.path("deny").toString()).doesNotContain(".env");
+    }
+
+    @Test
+    void trustedSettingsAcceptEditsAndKeepSecretDenies() throws Exception {
+        var permissions = permissionsFor(com.github.krpkbhdn.ccmanager.project.TrustLevel.TRUSTED);
+        assertThat(permissions.path("defaultMode").asString()).isEqualTo("acceptEdits");
+        assertThat(permissions.path("allow").toString()).contains("Bash(git status)").doesNotContain("\"Read\"", "gradlew");
+        assertThat(permissions.path("deny").toString()).contains("Read(**/.env*)");
+    }
+
+    @Test
+    void autonomousSettingsBypassPermissionsButKeepDenies() throws Exception {
+        var permissions = permissionsFor(com.github.krpkbhdn.ccmanager.project.TrustLevel.AUTONOMOUS);
+        assertThat(permissions.path("defaultMode").asString()).isEqualTo("bypassPermissions");
+        assertThat(permissions.path("deny").toString()).contains("Read(**/.env*)", "Bash(rm -rf *)", "Bash(git push --force*)", "Bash(git reset --hard*)");
+    }
+
     @Test
     void sessionStartNeedsAClaudeThatKnowsTheExecFormArgsField() throws Exception {
         for (var version : java.util.Arrays.asList("2.1.138", "2.0.0", null)) {

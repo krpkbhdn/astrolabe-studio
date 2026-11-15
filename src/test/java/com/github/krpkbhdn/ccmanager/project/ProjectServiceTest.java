@@ -125,6 +125,24 @@ class ProjectServiceTest {
     }
 
     @Test
+    void selectTrustSetsAndClearsTheOverrideAndUnknownStoredValueFallsBackToAsk() throws IOException {
+        var project = service.add(directory("alpha"));
+        assertThat(project.trustOverride()).isNull();
+
+        assertThat(service.selectTrust(project.id(), TrustLevel.AUTONOMOUS).trustOverride()).isEqualTo(TrustLevel.AUTONOMOUS);
+        assertThat(service.find(project.id()).orElseThrow().trustOverride()).isEqualTo(TrustLevel.AUTONOMOUS);
+        assertThat(service.useDefaultTrust(project.id()).trustOverride()).isNull();
+        assertThat(service.find(project.id()).orElseThrow().trustOverride()).isNull();
+
+        jdbc.sql("UPDATE project SET trust_level = 'BOGUS' WHERE id = ?").param(project.id()).update();
+        assertThat(service.find(project.id()).orElseThrow().trustOverride()).isEqualTo(TrustLevel.ASK);
+        assertThatThrownBy(() -> service.selectTrust(999, TrustLevel.TRUSTED)).isInstanceOf(IllegalArgumentException.class);
+
+        jdbc.sql("UPDATE project SET is_group = 1 WHERE id = ?").param(project.id()).update();
+        assertThatThrownBy(() -> service.selectTrust(project.id(), TrustLevel.TRUSTED)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void subscribersAreNotifiedUntilUnsubscribed() throws IOException {
         var calls = new AtomicInteger();
         var unsubscribe = service.subscribe(calls::incrementAndGet);

@@ -235,10 +235,40 @@ class HookServerTest {
                 new HookProperties(10, MAX_BODY, 500, Duration.ofSeconds(5), 10, 1000, 2), mcp, assistantMcp, codeMode, proposals);
     }
 
+    /** Like the proposal service for a request it holds: the event is published, then the decision follows. */
+    private void holdPublishing(CompletableFuture<Optional<String>> decision) {
+        when(proposals.hold(any(HookEvent.class), any(Runnable.class))).thenAnswer(call -> {
+            call.<Runnable>getArgument(1).run();
+            return decision;
+        });
+    }
+
+    @Test
+    void permissionRequestAllowedAtOnceIsStoredButNeverPublished() throws Exception {
+        var allowed = "{\"allowed\":true}";
+        when(proposals.hold(any(HookEvent.class), any(Runnable.class))).thenReturn(CompletableFuture.completedFuture(Optional.of(allowed)));
+
+        var response = post(server.hookUrl("sess-1"), "{\"hook_event_name\":\"PermissionRequest\",\"tool_name\":\"Read\"}");
+
+        assertThat(response.body()).isEqualTo(allowed);
+        verify(store, timeout(VERIFY_TIMEOUT_MS)).save(any(HookEvent.class));
+        verify(publisher, never()).publishEvent(any(HookEvent.class));
+    }
+
+    @Test
+    void permissionRequestThatIsHeldIsPublishedAndStored() throws Exception {
+        holdPublishing(CompletableFuture.completedFuture(Optional.empty()));
+
+        post(server.hookUrl("sess-1"), "{\"hook_event_name\":\"PermissionRequest\",\"tool_name\":\"Bash\"}");
+
+        verify(publisher, timeout(VERIFY_TIMEOUT_MS)).publishEvent(any(HookEvent.class));
+        verify(store, timeout(VERIFY_TIMEOUT_MS)).save(any(HookEvent.class));
+    }
+
     @Test
     void permissionRequestIsHeldUntilDecidedThenAnsweredWithTheDecision() throws Exception {
         var decision = new CompletableFuture<Optional<String>>();
-        when(proposals.hold(org.mockito.ArgumentMatchers.any(HookEvent.class))).thenReturn(decision);
+        holdPublishing(decision);
         var response = client.sendAsync(HttpRequest.newBuilder(URI.create(server.hookUrl("sess-1")))
                 .header("Authorization", "Bearer " + server.sessionToken("sess-1")).POST(HttpRequest.BodyPublishers.ofString("{\"hook_event_name\":\"PermissionRequest\",\"tool_name\":\"Bash\"}")).build(),
                 HttpResponse.BodyHandlers.ofString());
@@ -257,7 +287,7 @@ class HookServerTest {
 
     @Test
     void heldCallWithoutDecisionGetsEmptyOk() throws Exception {
-        when(proposals.hold(org.mockito.ArgumentMatchers.any(HookEvent.class))).thenReturn(CompletableFuture.completedFuture(Optional.empty()));
+        holdPublishing(CompletableFuture.completedFuture(Optional.empty()));
 
         var response = post(server.hookUrl("sess-1"), "{\"hook_event_name\":\"Elicitation\"}");
 

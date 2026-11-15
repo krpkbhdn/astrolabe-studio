@@ -13,6 +13,8 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
@@ -24,14 +26,18 @@ import org.springframework.stereotype.Component;
 @Component
 public class ProposalService implements DecisionHolder {
 
+    private static final Logger log = LoggerFactory.getLogger(ProposalService.class);
+
     private final Map<String, Held> held = new ConcurrentHashMap<>();
     private final ChangeListeners listeners = new ChangeListeners("Proposal");
     private final SessionRegistry sessions;
     private final HookProperties properties;
+    private final SessionTrust trust;
 
-    public ProposalService(SessionRegistry sessions, HookProperties properties) {
+    public ProposalService(SessionRegistry sessions, HookProperties properties, SessionTrust trust) {
         this.sessions = sessions;
         this.properties = properties;
+        this.trust = trust;
         sessions.subscribe(this::releaseOfEndedOrInterruptedSessions);
         sessions.holdActionWhile(this::holdsProposalNotSettledBy);
     }
@@ -43,12 +49,19 @@ public class ProposalService implements DecisionHolder {
     }
 
     /**
-     * Registers the proposal behind a PermissionRequest or Elicitation event, in event order.
+     * Registers the proposal behind a PermissionRequest or Elicitation event, in event order: [publish] runs just before, except for a request the session's trust level allows.
      * @return completes with the hook output to send back, or empty for an empty 200; already empty for any other event
      */
     @Override
-    public CompletableFuture<Optional<String>> hold(HookEvent event) {
+    public CompletableFuture<Optional<String>> hold(HookEvent event, Runnable publish) {
         var proposal = ProposalParser.parse(event);
+        var allowed = proposal.filter(PermissionProposal.class::isInstance).map(PermissionProposal.class::cast)
+                .filter(permission -> TrustPolicy.autoAllows(trust.of(event.ccmSessionId()), permission));
+        if (allowed.isPresent()) {
+            log.debug("Allowed {} for session {} by its trust level", allowed.get().toolName(), event.ccmSessionId());
+            return CompletableFuture.completedFuture(Optional.of(ProposalAnswer.PermissionAllow.once().hookOutput(allowed.get())));
+        }
+        publish.run();
         if (proposal.isEmpty()) {
             return CompletableFuture.completedFuture(Optional.empty());
         }

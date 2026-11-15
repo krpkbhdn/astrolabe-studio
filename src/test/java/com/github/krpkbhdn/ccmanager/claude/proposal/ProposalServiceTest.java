@@ -43,7 +43,7 @@ class ProposalServiceTest {
     }
 
     private ProposalService serviceHolding(Duration hold, int cap) {
-        return new ProposalService(registry, new HookProperties(10, 1024, 500, hold, cap, 1000, 1000));
+        return new ProposalService(registry, new HookProperties(10, 1024, 500, hold, cap, 1000, 1000), new SessionTrust());
     }
 
     @Test

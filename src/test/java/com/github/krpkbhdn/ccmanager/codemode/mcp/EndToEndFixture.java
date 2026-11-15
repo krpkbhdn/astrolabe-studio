@@ -101,7 +101,7 @@ abstract class EndToEndFixture {
 
     final JsonMapper mapper = JsonMapper.builder().build();
     final SessionRegistry registry = new SessionRegistry(new SessionProperties(Duration.ofMinutes(10), Duration.ofMinutes(10)), mock(TranscriptService.class));
-    final ProposalService proposals = new ProposalService(registry, new HookProperties(10, 1024, 500, Duration.ofSeconds(30), 100, 1000, 1000));
+    final ProposalService proposals = new ProposalService(registry, new HookProperties(10, 1024, 500, Duration.ofSeconds(30), 100, 1000, 1000), new com.github.krpkbhdn.ccmanager.claude.proposal.SessionTrust());
     final IsolationSettingsService isolation = mock(IsolationSettingsService.class);
     final ContainerRuntimeDetector detector = mock(ContainerRuntimeDetector.class);
     final CodeModeAudit audit = mock(CodeModeAudit.class);

@@ -212,7 +212,8 @@ public class HookServer implements SmartLifecycle {
         var receivedAt = Instant.now();
         var payload = parser.parseObject(ccmSessionId, body);
         if (body.length <= properties.maxBodyBytes() && payload.filter(this::asksForDecision).isPresent()) {
-            var decision = decisionHold.hold(worker, ccmSessionId, () -> acceptHook(ccmSessionId, payload.get(), receivedAt),
+            var event = eventOf(ccmSessionId, payload.get(), receivedAt);
+            var decision = decisionHold.hold(worker, ccmSessionId, event, () -> persistLater(event), () -> publishEvent(event),
                     () -> dropped("held hook call", ccmSessionId));
             respondWithDecision(exchange, decision);
             return;
@@ -288,12 +289,20 @@ public class HookServer implements SmartLifecycle {
     }
 
     private HookEvent acceptHook(String ccmSessionId, JsonNode payload, Instant receivedAt) {
-        var rawName = payload.path("hook_event_name").asString("");
-        var event = new HookEvent(ccmSessionId, HookEventType.of(rawName), rawName, payload, receivedAt);
-        log.debug("Hook event {} for session {}", rawName, ccmSessionId);
-        publisher.publishEvent(event);
+        var event = eventOf(ccmSessionId, payload, receivedAt);
+        publishEvent(event);
         persistLater(event);
         return event;
+    }
+
+    private static HookEvent eventOf(String ccmSessionId, JsonNode payload, Instant receivedAt) {
+        var rawName = payload.path("hook_event_name").asString("");
+        return new HookEvent(ccmSessionId, HookEventType.of(rawName), rawName, payload, receivedAt);
+    }
+
+    private void publishEvent(HookEvent event) {
+        log.debug("Hook event {} for session {}", event.rawName(), event.ccmSessionId());
+        publisher.publishEvent(event);
     }
 
     /** Stored after publishing, on its own thread, so a locked database never delays statuses or proposal dialogs. */

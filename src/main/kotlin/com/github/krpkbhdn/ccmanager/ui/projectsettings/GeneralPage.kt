@@ -14,6 +14,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.github.krpkbhdn.ccmanager.ui.components.AppButton
+import com.github.krpkbhdn.ccmanager.project.Project
+import com.github.krpkbhdn.ccmanager.project.TrustLevel
+import com.github.krpkbhdn.ccmanager.ui.components.Label
 import com.github.krpkbhdn.ccmanager.ui.components.MenuEntry
 import com.github.krpkbhdn.ccmanager.ui.components.PopupMenu
 import com.github.krpkbhdn.ccmanager.ui.icons.Icons
@@ -22,6 +25,14 @@ import com.github.krpkbhdn.ccmanager.ui.settings.SettingGroup
 import com.github.krpkbhdn.ccmanager.ui.settings.SettingRow
 import com.github.krpkbhdn.ccmanager.ui.state.AppState
 import com.github.krpkbhdn.ccmanager.ui.theme.Spacing
+import com.github.krpkbhdn.ccmanager.ui.theme.Type
+import com.github.krpkbhdn.ccmanager.ui.theme.colors
+import com.github.krpkbhdn.ccmanager.ui.trust.AUTONOMOUS_WARNING
+import com.github.krpkbhdn.ccmanager.ui.trust.TRUST_HINT
+import com.github.krpkbhdn.ccmanager.ui.trust.appDefaultLabel
+import com.github.krpkbhdn.ccmanager.ui.trust.trustDescription
+import com.github.krpkbhdn.ccmanager.ui.trust.trustIndicatorOf
+import com.github.krpkbhdn.ccmanager.ui.trust.trustLabel
 
 /** Model, default team and preset of the project; each reuses the control that edits it elsewhere in the app. */
 @Composable
@@ -30,6 +41,13 @@ fun GeneralPage(app: AppState, projectId: Long) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Spacing.xl), verticalArrangement = Arrangement.spacedBy(Spacing.lg)) {
         SettingGroup("Model") {
             SettingRow("Model and effort", "Used by sessions you start next in this project.") { ModelControl(app, project, null) }
+        }
+        if (!project.group()) {
+            val effective = project.trustOverride() ?: app.trust.defaultLevel
+            SettingGroup("Trust level") {
+                SettingRow("Permission prompts", "${trustDescription(effective)} $TRUST_HINT") { TrustPicker(app, project) }
+                if (effective == TrustLevel.AUTONOMOUS) Label(AUTONOMOUS_WARNING, color = colors.warning, style = Type.small)
+            }
         }
         if (app.teams.teams.isNotEmpty()) {
             SettingGroup("Default team") {
@@ -40,6 +58,20 @@ fun GeneralPage(app: AppState, projectId: Long) {
             SettingRow("Project preset", "Review what a preset would add to this project, then apply it.") {
                 AppButton("Apply preset...", { app.applyPreset.open(projectId) }, icon = Icons.Tasks)
             }
+        }
+    }
+}
+
+@Composable
+private fun TrustPicker(app: AppState, project: Project) {
+    var open by remember { mutableStateOf(false) }
+    val override = project.trustOverride()
+    Box {
+        AppButton(override?.let(::trustLabel) ?: appDefaultLabel(app.trust.defaultLevel), { open = !open }, icon = Icons.Shield)
+        if (open) {
+            val entries = trustIndicatorOf(project, app.trust.defaultLevel)?.options.orEmpty()
+                .map { option -> MenuEntry(option.label, checked = option.checked) { app.projects.selectTrust(project, option.level) } }
+            PopupMenu(entries, { open = false }, alignEnd = true)
         }
     }
 }

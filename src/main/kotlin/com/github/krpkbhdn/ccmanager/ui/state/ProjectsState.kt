@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import com.github.krpkbhdn.ccmanager.claude.launch.ClaudeLauncher
 import com.github.krpkbhdn.ccmanager.project.ModelSelection
 import com.github.krpkbhdn.ccmanager.project.Project
+import com.github.krpkbhdn.ccmanager.project.TrustLevel
 import com.github.krpkbhdn.ccmanager.ui.sessions.UNKNOWN_PROJECT
 import java.nio.file.Path
 import kotlinx.coroutines.CoroutineScope
@@ -87,6 +88,11 @@ class ProjectsState(
 
     fun selectModel(project: Project, selection: ModelSelection) {
         scope.launch { guarded { io { backend.projects.selectModel(project.id, selection) }; load() } }
+    }
+
+    /** Sets the project's trust override; null makes it follow the app default again. */
+    fun selectTrust(project: Project, level: TrustLevel?) {
+        scope.launch { guarded { io { if (level == null) backend.projects.useDefaultTrust(project.id) else backend.projects.selectTrust(project.id, level) }; load() } }
     }
 
     /** Creates the group (or replaces the members of [group]) and renames it; a backend message goes to [onError] and keeps the dialog open. */

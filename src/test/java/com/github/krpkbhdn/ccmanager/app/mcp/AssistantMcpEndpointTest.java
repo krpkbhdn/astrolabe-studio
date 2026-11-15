@@ -44,7 +44,7 @@ class AssistantMcpEndpointTest {
     private AssistantMcpEndpoint endpoint;
 
     private ProposalService proposalsHolding(Duration hold) {
-        return new ProposalService(registry, new HookProperties(10, 1024, 500, hold, 1000, 1000, 1000));
+        return new ProposalService(registry, new HookProperties(10, 1024, 500, hold, 1000, 1000, 1000), new com.github.krpkbhdn.ccmanager.claude.proposal.SessionTrust());
     }
 
     @BeforeEach

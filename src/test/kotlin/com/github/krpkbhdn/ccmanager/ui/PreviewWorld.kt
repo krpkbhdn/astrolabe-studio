@@ -317,6 +317,7 @@ class PreviewWorld(many: Boolean = false, empty: Boolean = false, val git: FakeR
             projects.first { it.id == id.getArgument<Long>(0) }
         }
         `when`(projectService.selectModel(anyLong(), any())).thenAnswer { projects.first { p -> p.id == it.getArgument<Long>(0) } }
+        `when`(projectService.selectTrust(anyLong(), any())).thenAnswer { projects.first { p -> p.id == it.getArgument<Long>(0) } }
 
         val registry = mock(SessionRegistry::class.java)
         `when`(registry.sessions()).thenAnswer { sessions }

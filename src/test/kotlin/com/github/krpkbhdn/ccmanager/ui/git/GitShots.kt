@@ -120,6 +120,8 @@ private val shots = listOf(
     Shot("usage-none", limits = null, prepare = { state, _, _ -> state.navigate(Route.Overview) }),
     Shot("codemode-chip", prepare = { state, _, _ -> state.codeModeChip.track(state.projects.all.first { it.id == 1L }); waitFor { state.codeModeChip.codeMode?.loaded == true && state.codeModeChip.mcp?.loaded == true } }),
     Shot("codemode-popup", prepare = { state, _, _ -> state.codeModeChip.track(state.projects.all.first { it.id == 1L }); waitFor { state.codeModeChip.codeMode?.loaded == true && state.codeModeChip.mcp?.loaded == true }; state.codeModeChip.open = true }),
+    Shot("trust-chip", prepare = { state, _, _ -> state.navigate(Route.Project(1)) }),
+    Shot("trust-popup", prepare = { state, _, _ -> state.navigate(Route.Project(1)); state.trust.open = true }),
     Shot("usage-panel", prepare = { state, _, _ -> state.usageOpen = true }),
     Shot("usage-panel-high", limits = limitsAt(72.0, 93.4), prepare = { state, _, _ -> state.usageOpen = true }),
     Shot("usage-panel-none", limits = null, prepare = { state, _, _ -> state.usageOpen = true }),
