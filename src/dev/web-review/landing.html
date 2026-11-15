@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lumen - landing page demo</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.5 "Segoe UI", system-ui, sans-serif; color: #1e293b; background: #fff; }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 18px 64px; border-bottom: 1px solid #e2e8f0; }
+  .logo { font-weight: 800; font-size: 22px; color: #4f46e5; }
+  nav a { margin-left: 28px; color: #475569; text-decoration: none; font-weight: 500; }
+  #hero { padding: 88px 64px 96px; text-align: center; background: linear-gradient(135deg, #eef2ff, #fdf2f8); }
+  #hero .tag { display: inline-block; padding: 4px 14px; border-radius: 999px; background: #e0e7ff; color: #4338ca; font-size: 13px; font-weight: 600; }
+  #hero h1 { margin: 20px auto 16px; max-width: 760px; font-size: 52px; line-height: 1.1; letter-spacing: -1px; }
+  #hero p { margin: 0 auto 32px; max-width: 560px; font-size: 19px; color: #475569; }
+  .cta { padding: 14px 30px; border: 0; border-radius: 10px; background: #4f46e5; color: #fff; font-size: 17px; font-weight: 600; box-shadow: 0 8px 20px rgba(79,70,229,.35); }
+  .cta.ghost { margin-left: 12px; background: #fff; color: #4f46e5; box-shadow: inset 0 0 0 2px #c7d2fe; }
+  .features { display: flex; gap: 24px; padding: 72px 64px; background: #fff; }
+  .card { flex: 1; padding: 28px; border: 1px solid #e2e8f0; border-radius: 16px; box-shadow: 0 4px 14px rgba(15,23,42,.06); }
+  .card .icon { width: 44px; height: 44px; margin-bottom: 16px; border-radius: 12px; background: #e0e7ff; }
+  .card:nth-child(2) .icon { background: #fce7f3; }
+  .card:nth-child(3) .icon { background: #dcfce7; }
+  .card h3 { margin: 0 0 8px; font-size: 20px; }
+  .card p { margin: 0 0 18px; color: #64748b; }
+  .btn { padding: 9px 18px; border: 0; border-radius: 8px; background: #e2e8f0; color: #334155; font-weight: 600; }
+  footer { padding: 36px 64px; background: #0f172a; color: #94a3b8; display: flex; justify-content: space-between; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">Lumen</div>
+  <nav><a href="#">Product</a><a href="#">Pricing</a><a href="#">Docs</a><a href="#">Sign in</a></nav>
+</header>
+<section id="hero">
+  <span class="tag">New: team dashboards</span>
+  <h1>Ship better products with calmer analytics</h1>
+  <p>Lumen turns your raw events into clear answers, so the whole team knows what to build next.</p>
+  <button class="cta">Start free trial</button><button class="cta ghost">Watch demo</button>
+</section>
+<section class="features">
+  <div class="card"><div class="icon"></div><h3>Live insights</h3><p>See every signup and purchase the moment it happens.</p><button class="btn">Learn more</button></div>
+  <div class="card"><div class="icon"></div><h3>Smart alerts</h3><p>Get told about drops in conversion before customers notice.</p><button class="btn">Learn more</button></div>
+  <div class="card"><div class="icon"></div><h3>Shared reports</h3><p>Send a link, not a spreadsheet. Everyone sees the same numbers.</p><button class="btn">Learn more</button></div>
+</section>
+<footer><span>Lumen Analytics</span><span>&copy; 2026 Lumen Inc.</span></footer>
+</body>
+</html>

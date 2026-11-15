@@ -36,7 +36,7 @@ import kotlinx.coroutines.withContext
 private const val SETTLE_MILLIS = 1_600L
 
 /**
- * Dev preview with fake services. Flags: `--light` (default dark), `--many` (12 projects, long names), `--empty`, `--review` (sample visual review, Review tab selected), `--web` (real embedded browser on the bundled demo page src/dev/web-review/fixture.html with two seeded items, Web tab selected),
+ * Dev preview with fake services. Flags: `--light` (default dark), `--many` (12 projects, long names), `--empty`, `--review` (sample visual review, Review tab selected), `--web` (real embedded browser on the bundled demo page src/dev/web-review/landing.html with two seeded items, Web tab selected),
  * `--size=WxH`, `--shots` captures the main states into `--out=<dir>` with java.awt.Robot and exits; without
  * `--shots` the window stays open for manual inspection. `--real` boots the real stack instead (see RealMain).
  */

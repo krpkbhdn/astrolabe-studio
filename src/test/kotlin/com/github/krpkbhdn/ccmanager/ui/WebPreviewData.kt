@@ -21,7 +21,7 @@ import org.springframework.transaction.support.TransactionTemplate
 private const val OUTER_HTML_LIMIT = 600
 private const val MAX_SCREENSHOT_BYTES = 5_242_880L
 private const val MAX_ITEMS = 50
-private const val FIXTURE = "src/dev/web-review/fixture.html"
+private const val FIXTURE = "src/dev/web-review/landing.html"
 
 /** A real [WebReviewService] on a throwaway SQLite file, plus the revision the `--web` preview flag opens over the bundled demo page. */
 internal object WebPreviewData {
@@ -51,8 +51,8 @@ internal object WebPreviewData {
     fun seed(projectId: Long) {
         jdbc.sql("INSERT OR IGNORE INTO project (id, name, path, created_at) VALUES (?, 'cc-manager', 'preview', 'now')").param(projectId).update()
         val url = Path.of(FIXTURE).toAbsolutePath().toUri().toString()
-        add(projectId, url, "#hero h1", "h1", ElementAnchor.Rect(40.0, 90.0, 300.0, 40.0), "The hero heading is too small.", StyleChange("font-size", "28px", "36px"))
-        add(projectId, url, ".card:nth-child(1) .btn", "button", ElementAnchor.Rect(60.0, 260.0, 90.0, 32.0), "Buy A should be the primary colour.")
+        add(projectId, url, "#hero h1", "h1", ElementAnchor.Rect(40.0, 90.0, 300.0, 40.0), "The hero heading is too small.", StyleChange("font-size", "52px", "60px"))
+        add(projectId, url, ".card:nth-child(1) .btn", "button", ElementAnchor.Rect(90.0, 640.0, 110.0, 38.0), "Learn more should be the primary colour.")
     }
 
     private fun add(projectId: Long, url: String, selector: String, tag: String, rect: ElementAnchor.Rect, comment: String, vararg changes: StyleChange) {

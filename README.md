@@ -6,7 +6,7 @@
 
 **One desktop app to run, watch and steer many local Claude Code sessions.**
 
-Visual review of what Claude builds, agent teams, notifications, and one-click approval of everything Claude asks for.
+Visual review of what Claude builds (screenshots and live websites), agent teams, notifications, and one-click approval of everything Claude asks for.
 
 [![Release](https://img.shields.io/github/v/release/krpkbhdn/cc-manager?label=release)](https://github.com/krpkbhdn/cc-manager/releases)
 ![Windows](https://img.shields.io/badge/Windows-installer-informational)
@@ -14,6 +14,7 @@ Visual review of what Claude builds, agent teams, notifications, and one-click a
 ![Java](https://img.shields.io/badge/Java-25%20(JBR)-orange)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4-7F52FF)
 ![License](https://img.shields.io/badge/License-Apache%202.0-blue)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/krpkbhdn)
 
 **English** · [Українська](README.uk.md)
 
@@ -21,7 +22,7 @@ Visual review of what Claude builds, agent teams, notifications, and one-click a
 
 ![Overview](docs/images/overview.png)
 
-**Contents:** [Why](#why) · [Visual review](#visual-review) · [Quick start](#quick-start) · [Features](#features) · [Screenshots](#screenshots) · [Requirements](#requirements) · [Install](#install) · [Build from source](#build-and-run-from-source) · [Shortcuts](#keyboard-shortcuts) · [Configuration](#configuration) · [Contributing](#contributing) · [License](#license)
+**Contents:** [Why](#why) · [Visual review](#visual-review) · [Web review](#web-review) · [Quick start](#quick-start) · [Features](#features) · [Screenshots](#screenshots) · [Requirements](#requirements) · [Install](#install) · [Build from source](#build-and-run-from-source) · [Shortcuts](#keyboard-shortcuts) · [Configuration](#configuration) · [Support](#support-the-project) · [License](#license)
 
 ## Why
 
@@ -58,6 +59,23 @@ Reviews older than 7 days are deleted automatically (`cc-manager.review.retentio
 
 Bonus: the bundled plugin skill `visual-review` teaches Claude to take and submit screenshots on its own.
 
+## Web review
+
+Claude builds a website; you review the running page itself, not just screenshots. The **Web** tab (`Alt+F11`) embeds Chromium (JCEF), so you click the real page and tell Claude exactly what to change.
+
+![Web tab: inspector, pins and device mode](docs/images/web-review.png)
+
+- **Pick elements** (`I`) and leave a comment: a numbered pin is anchored to the element (selector, XPath, computed styles, source hint).
+- **Edit styles live** in the inspector and see the result at once; the changes go into the feedback.
+- **Device mode**: mobile, tablet and desktop presets or a custom size, rotation and zoom up to 400%; feedback is scoped per device category.
+- **Overlays**: spacing, audit, similar elements and contrast, plus a layer stack under the cursor (right-click).
+- **Screenshots to Review**: the visible part, the whole page or a dragged region go to the Review tab (`S`, `Shift+S`, `R`).
+- **Send** puts the open items into the bound or a chosen session as a prompt (through its queue), or starts a new one; **Approve** settles the revision.
+
+The Web tab needs the JCEF flavour of JetBrains Runtime (`jbrsdk_jcef`); the build checks it, and without it the tab explains what is missing.
+
+**Review or Web?** Use [Visual review](#visual-review) for images Claude produced (screenshots, mockups); use Web review for a page that is running right now.
+
 ## Quick start
 
 1. Install and log in to [Claude Code](https://code.claude.com/docs/en/overview).
@@ -69,6 +87,7 @@ When any session needs you, it turns red on the Overview and in the status bar; 
 ## Features
 
 **Visual review**
+- **[Web review](#web-review)**: an embedded Chromium tab for a running website: pick elements, pin comments, edit styles live, device presets, audit and spacing overlays, screenshots to Review, feedback sent to the session as a prompt.
 - **[Visual review](#visual-review)**: Claude submits screenshots, you mark problem areas (rectangle, ellipse, pin, freeform polygon) with numbered comments in the Review tab, then send the annotated images and `review.md` back to a session or approve.
 
 **Sessions**
@@ -88,6 +107,8 @@ When any session needs you, it turns red on the Overview and in the status bar; 
 - **Usage meters**: 5-hour and 7-day limits (Pro/Max plans only; Team plans get the per-session list instead) plus per-session model, context and cost.
 - **Extensions**: manage plugins, marketplaces, MCP servers and skills.
 - **Voice dictation** (experimental, Windows first): hold Space in the prompt, task and commit-message fields to dictate with a local Whisper model. Models are downloaded only when you ask.
+- **Language servers (LSP)**: quick setup per project. The app detects the languages in your folder, installs the server (jdtls and kotlin-lsp are downloaded and checksum-verified automatically) and enables Claude's LSP plugin with one switch in Project settings → Languages. Supported: TypeScript/JavaScript (incl. React, Angular and Vue), C/C++, Java, Python, Rust, Go, C# and Kotlin.
+- **Code Mode for MCP**: hide a project's chosen MCP servers from Claude and let it find tools by search and call them from a short JavaScript snippet instead, so large tool lists stop filling the context. Turn it on per project in Project settings → Code Mode, or ship it in a project preset. Isolation levels: a **GraalJS sandbox** inside the app (default, no extra software) or a **Docker/Podman container** (strongest boundary, choose it in Settings → Code Mode). Calls to read-only tools run on their own; everything else asks you first.
 - **Command palette and shortcuts** for almost everything.
 
 ## Screenshots
@@ -155,10 +176,10 @@ cd cc-manager
 
 | Task | Windows (PowerShell) | Linux / macOS / Git Bash |
 |---|---|---|
-| Run the app | `.\gradlew.bat run` | `./gradlew run` |
-| Tests | `.\gradlew.bat test` | `./gradlew test` |
-| Compile, test, jar | `.\gradlew.bat build` | `./gradlew build` |
-| Installer | `.\gradlew.bat packageMsi` (or `packageExe`) | `./gradlew packageDeb` (Linux), `./gradlew packageDmg` (macOS) |
+| Run the app | `.\gradlew run` | `./gradlew run` |
+| Tests | `.\gradlew test` | `./gradlew test` |
+| Compile, test, jar | `.\gradlew build` | `./gradlew build` |
+| Installer | `.\gradlew packageMsi` (or `packageExe`) | `./gradlew packageDeb` (Linux), `./gradlew packageDmg` (macOS) |
 
 Installers are written to `build/compose/binaries/main/<format>/`.
 
@@ -199,12 +220,14 @@ Data lives in `~/.cc-manager` (SQLite database `cc-manager.db`); change the loca
 Settings are `cc-manager.*` properties, see [`application.properties`](src/main/resources/application.properties).
 The hooks and protocol reference is in [docs/claude-code-protocol.md](docs/claude-code-protocol.md).
 
-## Contributing
-
-Development happens on `develop`; `main` is stable. Run `./gradlew test` before opening a pull request.
-
 ## License
 
 Licensed under the Apache License, Version 2.0 — see [LICENSE](LICENSE).
 
 Copyright 2026 Bohdan Krupko
+
+## Support the project
+
+Claude Code Manager is free and built in spare time. If it saves you time and you want to support the project and its author, you can buy me a coffee. Thank you!
+
+[![Support me on Ko-fi](https://storage.ko-fi.com/cdn/kofi3.png?v=3)](https://ko-fi.com/krpkbhdn)
