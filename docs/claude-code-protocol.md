@@ -199,7 +199,7 @@ State machine (main agent only: IGNORE events where agent_id is present for stat
   - API error ends turn -> StopFailure (not Stop). Always handle both.
   - Stop fires at every turn end, even if background tasks pending: check Stop.background_tasks[] / session_crons[] non-empty => "IDLE but background work in flight / will self-wake" (show as WORKING-background or distinct state). A Stop-hook block (decision:block) re-continues; don't block from the manager.
   - Subagents: events with agent_id are the subagent's; main Stop only after subagents done (SubagentStop precedes). SubagentStop.agent_type "" = internal helper (ignore).
-  - Compaction: PreCompact/PostCompact (trigger auto|manual) -> WORKING(compacting). Auto compaction can occur mid-turn.
+  - Compaction: PreCompact/PostCompact (trigger auto|manual) -> WORKING only while compacting (PreCompact sets it, PostCompact clears it; neither opens or closes a turn, so an auto compact of an idle session returns to IDLE and one mid-turn stays WORKING until Stop).
   - Process crash / kill / terminal close: no hooks guaranteed. SessionEnd runs on exit, /clear, resume switch, and SIGTERM, but with 1.5s budget; a hard crash fires nothing. Use PTY child exit as the authority, plus `~/.claude/sessions/` leftover files (UNVERIFIED format).
   - /clear: SessionEnd(reason clear) then SessionStart(source clear) with NEW session_id -> same tab, rekey. `/resume` in-session: SessionEnd(resume) then SessionStart(resume). Compaction fires SessionStart(source compact). Fork: SessionStart(fork).
   - HTTP hook failures are non-blocking: if manager is down, Claude continues; on manager restart you've lost state -> resync from transcript tail or wait for next event.

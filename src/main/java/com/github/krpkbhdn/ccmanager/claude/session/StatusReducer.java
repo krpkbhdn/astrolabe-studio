@@ -25,7 +25,6 @@ final class StatusReducer {
     private static final Pattern SAFE_AGENT_ID = Pattern.compile("[A-Za-z0-9_-]{1,64}");
     private static final String COMPACT_SOURCE = "compact";
     private static final String FORK_SOURCE = "fork";
-    private static final String MANUAL_TRIGGER = "manual";
     private static final String UNKNOWN_ERROR = "unknown";
 
     private StatusReducer() {}
@@ -97,14 +96,8 @@ final class StatusReducer {
                 draft.backgroundTasks = event.count("background_tasks") + event.count("session_crons");
                 draft.error = event.type() == HookEventType.STOP ? "" : failureOf(event);
             });
-            case PRE_COMPACT -> state.edit(draft -> {
-                draft.compacting = true;
-                draft.turnOpen = true;
-            });
-            case POST_COMPACT -> state.edit(draft -> {
-                draft.compacting = false;
-                draft.turnOpen = draft.turnOpen && !MANUAL_TRIGGER.equals(event.text("trigger"));
-            });
+            case PRE_COMPACT -> state.edit(draft -> draft.compacting = true);
+            case POST_COMPACT -> state.edit(draft -> draft.compacting = false);
             default -> state;
         };
     }

@@ -432,15 +432,27 @@ class StatusReducerTest {
     }
 
     @Test
-    void compactionKeepsWorkingUntilPostCompactAndManualCompactEndsIdle() {
+    void midTurnCompactionStaysWorkingUntilStop() {
         apply("UserPromptSubmit", "{}");
         assertThat(apply("PreCompact", "{\"trigger\":\"auto\"}").activity()).isEqualTo("Compacting context");
         assertThat(apply("SessionStart", "{\"source\":\"compact\"}").status()).isEqualTo(AgentStatus.WORKING);
         assertThat(apply("PostCompact", "{\"trigger\":\"auto\"}").status()).isEqualTo(AgentStatus.WORKING);
+        assertThat(apply("Stop", "{}").status()).isEqualTo(AgentStatus.IDLE);
+    }
 
-        apply("Stop", "{}");
-        apply("PreCompact", "{\"trigger\":\"manual\"}");
+    @Test
+    void manualCompactionEndsIdle() {
+        assertThat(apply("PreCompact", "{\"trigger\":\"manual\"}").status()).isEqualTo(AgentStatus.WORKING);
         assertThat(apply("PostCompact", "{\"trigger\":\"manual\"}").status()).isEqualTo(AgentStatus.IDLE);
+    }
+
+    @Test
+    void autoCompactionOfIdleSessionReturnsToIdle() {
+        apply("UserPromptSubmit", "{}");
+        apply("Stop", "{}");
+        assertThat(apply("PreCompact", "{\"trigger\":\"auto\"}").status()).isEqualTo(AgentStatus.WORKING);
+        assertThat(apply("PostCompact", "{\"trigger\":\"auto\"}").status()).isEqualTo(AgentStatus.IDLE);
+        assertThat(apply("SessionStart", "{\"source\":\"compact\"}").status()).isEqualTo(AgentStatus.IDLE);
     }
 
     @Test
