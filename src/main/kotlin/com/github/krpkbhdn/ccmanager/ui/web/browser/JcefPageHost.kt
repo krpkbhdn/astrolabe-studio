@@ -82,10 +82,6 @@ class JcefPageHost(app: CefApp, url: String = "about:blank", private val screens
     private var pendingUrl: String? = null
     private val userNavigationDeadline = AtomicLong(NO_DEADLINE)
 
-    /** Redirects of a navigation the user typed are part of it; this lasts until that load ends or the same window as the mark runs out. */
-    @Volatile private var userRedirectDeadline = NO_DEADLINE
-    private val userRedirectChain get() = userRedirectDeadline != NO_DEADLINE && System.nanoTime() - userRedirectDeadline < 0
-
     private val eventSource = Canvas()
     private val client: CefClient = app.createClient()
     private val router = CefMessageRouter.create()
@@ -231,15 +227,11 @@ class JcefPageHost(app: CefApp, url: String = "about:blank", private val screens
         override fun onLoadEnd(b: CefBrowser, f: CefFrame, httpStatusCode: Int) {
             if (!f.isMain) return
             userNavigationDeadline.set(NO_DEADLINE)
-            userRedirectDeadline = NO_DEADLINE
             f.executeJavaScript(INSPECTOR_BOOTSTRAP, f.url, 0)
         }
 
         override fun onLoadError(b: CefBrowser, f: CefFrame, errorCode: CefLoadHandler.ErrorCode, errorText: String, failedUrl: String) {
-            if (f.isMain) {
-                userNavigationDeadline.set(NO_DEADLINE)
-                userRedirectDeadline = NO_DEADLINE
-            }
+            if (f.isMain) userNavigationDeadline.set(NO_DEADLINE)
             if (f.isMain && errorCode != CefLoadHandler.ErrorCode.ERR_ABORTED) emit(PageEvent.LoadFailed(failedUrl, errorText))
         }
     }
@@ -248,8 +240,8 @@ class JcefPageHost(app: CefApp, url: String = "about:blank", private val screens
     private fun navigationGuard() = object : CefRequestHandlerAdapter() {
         override fun onBeforeBrowse(b: CefBrowser, f: CefFrame, request: CefRequest, userGesture: Boolean, isRedirect: Boolean): Boolean {
             val url = request.url
-            if (f.isMain && !isRedirect && consumeUserNavigation()) userRedirectDeadline = System.nanoTime() + USER_NAVIGATION_WINDOW_NANOS
-            val allowed = if (userRedirectChain && f.isMain) NavigationPolicy.isAllowed(url) else NavigationPolicy.isAllowedFromPage(url, pageState.value.url, f.isMain)
+            val typed = f.isMain && !isRedirect && consumeUserNavigation()
+            val allowed = if (typed) NavigationPolicy.isAllowed(url) else NavigationPolicy.isAllowedFromPage(url, pageState.value.url, f.isMain)
             if (!allowed) reportBlocked(url)
             return !allowed
         }
@@ -276,7 +268,7 @@ class JcefPageHost(app: CefApp, url: String = "about:blank", private val screens
     private fun reportBlocked(url: String) {
         val where = NavigationPolicy.originOf(url) ?: "a ${NavigationPolicy.schemeOf(url)} URL"
         log.warn("Blocked navigation to {}", where)
-        emit(PageEvent.LoadFailed(where, "blocked: a page may only open its own origin or the local network"))
+        emit(PageEvent.LoadFailed(where, "blocked: this page may not open that kind of URL"))
     }
 
     private fun renderHandler() = object : CefRenderHandler {
