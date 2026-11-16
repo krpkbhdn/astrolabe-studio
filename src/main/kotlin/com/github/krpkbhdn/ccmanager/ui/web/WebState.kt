@@ -57,7 +57,7 @@ class WebState(
     private val reportError: (String) -> Unit,
     reviewService: ReviewService,
     onCaptured: (projectId: Long, reviewId: Long) -> Unit,
-    confirm: (ConfirmRequest) -> Unit,
+    private val confirm: (ConfirmRequest) -> Unit,
     private val availability: () -> Availability = { Availability.Ready },
     private val prepareBrowser: (() -> Unit)? = null,
     clock: Clock = Clock.systemUTC(),
@@ -335,6 +335,12 @@ class WebState(
     fun delete(item: WebItem) = guarded { service.deleteItem(item.id()) }
 
     fun approve(revision: WebRevision) = guarded { service.approve(revision.id()) }
+
+    fun confirmDeleteRevision(revision: WebRevision) = confirm(
+        ConfirmRequest("Delete revision ${revision.number()}?", "Its items and screenshots are removed for good.", "Delete") {
+            guarded { service.deleteRevision(revision.id()) }
+        },
+    )
 
     fun startNextRevision(projectId: Long) = guarded { service.startNextRevision(projectId) }
 

@@ -382,6 +382,83 @@ class WebReviewServiceTest {
     }
 
     @Test
+    void deleteRevisionRemovesItsItemsAndFilesAndLeavesOthers() {
+        var item = add("first");
+        service.saveScreenshot(item.id(), PNG);
+        var first = service.currentRevision(projectId);
+        service.prepareFeedback(first.id());
+        var second = service.startNextRevision(projectId);
+        var kept = add("second");
+        var folder = temp.resolve("web-review/" + projectId + "/" + first.id());
+        assertThat(folder).exists();
+
+        service.deleteRevision(first.id());
+
+        assertThat(service.findRevision(first.id())).isEmpty();
+        assertThat(service.allItems(first.id())).isEmpty();
+        assertThat(folder).doesNotExist();
+        assertThat(service.findRevision(second.id())).isPresent();
+        assertThat(service.allItems(second.id())).extracting(WebItem::id).containsExactly(kept.id());
+    }
+
+    @Test
+    void deleteRevisionRemovesApprovedAndSentRevisionsAndNotifiesListeners() {
+        var approvedItem = add("a");
+        service.saveScreenshot(approvedItem.id(), PNG);
+        var approved = service.currentRevision(projectId);
+        service.prepareFeedback(approved.id());
+        service.approve(approved.id());
+        var sent = service.startNextRevision(projectId);
+        var sentItem = add("s");
+        service.saveScreenshot(sentItem.id(), PNG);
+        service.prepareFeedback(sent.id());
+        var pending = service.startNextRevision(projectId);
+        var keptItem = add("p");
+        var fired = new AtomicInteger();
+        service.subscribe(fired::incrementAndGet);
+
+        service.deleteRevision(approved.id());
+        service.deleteRevision(sent.id());
+
+        assertThat(fired.get()).isEqualTo(2);
+        assertThat(service.findRevision(approved.id())).isEmpty();
+        assertThat(service.findRevision(sent.id())).isEmpty();
+        assertThat(temp.resolve("web-review/" + projectId + "/" + approved.id())).doesNotExist();
+        assertThat(temp.resolve("web-review/" + projectId + "/" + sent.id())).doesNotExist();
+        assertThat(jdbc.sql("SELECT COUNT(*) FROM web_review_item WHERE revision_id IN (?, ?)").param(approved.id()).param(sent.id())
+                .query(Integer.class).single()).isZero();
+        assertThat(service.findRevision(pending.id())).isPresent();
+        assertThat(service.allItems(pending.id())).extracting(WebItem::id).containsExactly(keptItem.id());
+    }
+
+    @Test
+    void deleteRevisionOfUnknownIdDoesNothing() {
+        add("x");
+        var fired = new AtomicInteger();
+        service.subscribe(fired::incrementAndGet);
+
+        service.deleteRevision(987654L);
+
+        assertThat(service.revisions(projectId)).hasSize(1);
+        assertThat(fired.get()).isZero();
+    }
+
+    @Test
+    void afterDeletingThePendingRevisionTheNextItemCreatesANewOne() {
+        var pending = service.currentRevision(projectId);
+        add("gone");
+
+        service.deleteRevision(pending.id());
+        var item = add("again");
+
+        assertThat(service.revisions(projectId)).hasSize(1);
+        var current = service.currentRevision(projectId);
+        assertThat(current.id()).isNotEqualTo(pending.id());
+        assertThat(current.status()).isEqualTo(ReviewStatus.PENDING);
+        assertThat(item.revisionId()).isEqualTo(current.id());
+    }
+
+    @Test
     void pagesAreOrderedByLastVisit() {
         service.addItem(projectId, "http://localhost:5173/a", "", anchor(), "", List.of());
         service.addItem(projectId, "http://localhost:5173/b", "", anchor(), "", List.of());

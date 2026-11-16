@@ -260,6 +260,22 @@ public class WebReviewService {
         return revision;
     }
 
+    /** Deletes a revision of any status with its items, screenshots and markdown; a no-op for an unknown id. */
+    public void deleteRevision(long revisionId) {
+        itemLock.lock();
+        try {
+            var revision = repository.findRevision(revisionId);
+            if (revision.isEmpty()) {
+                return;
+            }
+            transaction.executeWithoutResult(status -> repository.deleteRevision(revisionId));
+            bestEffort(() -> screenshots.deleteRevision(revision.get().projectId(), revisionId, revision.get().number()));
+        } finally {
+            itemLock.unlock();
+        }
+        listeners.fire();
+    }
+
     /** Deletes APPROVED revisions settled before the cutoff with their items, screenshots and markdown; PENDING and SENT ones are never touched. */
     public int deleteApprovedBefore(Instant cutoff) {
         var old = repository.approvedBefore(cutoff);

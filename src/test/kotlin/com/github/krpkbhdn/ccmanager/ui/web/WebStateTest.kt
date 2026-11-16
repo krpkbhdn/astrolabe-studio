@@ -859,6 +859,21 @@ class WebStateTest {
     }
 
     @Test
+    fun `deleting a revision asks first, and only confirming deletes it whatever its status`() {
+        val approved = revision(11, ReviewStatus.APPROVED)
+
+        state.confirmDeleteRevision(approved)
+
+        assertThat(confirms.single().title).isEqualTo("Delete revision 11?")
+        assertThat(confirms.single().confirmLabel).isEqualTo("Delete")
+        verify(service, never()).deleteRevision(anyLong())
+
+        confirms.single().onConfirm()
+
+        await { runCatching { verify(service).deleteRevision(11L) }.isSuccess }
+    }
+
+    @Test
     fun `a settled pinned review is reported as closed and dropping the question drops the shot`() {
         val view = readyToShoot()
         state.pin(1, 3)

@@ -101,7 +101,6 @@ private fun RevisionHeader(row: ItemsRow.Header, projectId: Long, state: WebStat
 @Composable
 private fun RevisionActions(row: ItemsRow.Header, projectId: Long, state: WebState) {
     val revision = row.revision
-    if (revision.status() == ReviewStatus.APPROVED && !row.startsNext) return
     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
         when (revision.status()) {
             ReviewStatus.PENDING -> AppButton("Send to agent", { state.send(revision) }, variant = ButtonVariant.PRIMARY, icon = Icons.Send, enabled = row.openCount > 0 && !state.isSending(revision.id()), loading = state.isSending(revision.id()), compact = true)
@@ -109,6 +108,7 @@ private fun RevisionActions(row: ItemsRow.Header, projectId: Long, state: WebSta
             ReviewStatus.APPROVED -> Unit
         }
         if (row.startsNext) AppButton("Next revision", { state.startNextRevision(projectId) }, icon = Icons.Plus, compact = true)
+        AppButton("Delete revision", { state.confirmDeleteRevision(revision) }, icon = Icons.Trash, compact = true)
     }
 }
 
