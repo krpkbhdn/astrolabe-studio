@@ -11,6 +11,7 @@ import com.github.krpkbhdn.ccmanager.voice.asset.RuntimeBuild
 import com.github.krpkbhdn.ccmanager.voice.asset.VoiceAsset
 import com.github.krpkbhdn.ccmanager.voice.asset.WhisperModel
 import com.github.krpkbhdn.ccmanager.voice.device.ComputeDevice
+import com.github.krpkbhdn.ccmanager.voice.recognize.LanguageCode
 import kotlin.concurrent.thread
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +26,7 @@ private const val INPUTS_FAILED = "Could not list microphones: "
 private const val RESTART_HINT = "Restart the app to switch between CPU and GPU"
 private const val DOWNLOAD_FIRST_HINT = "Download all components first"
 private const val ENABLE_FIRST_HINT = "Enable voice input first"
+private const val UNKNOWN_LANGUAGE_HINT = "Unknown code. Use auto, one code (uk) or a list (uk,en), up to 4 (Ukrainian is uk, not ua)"
 private const val EXIT_CLOSE_TIMEOUT_MILLIS = 4000L
 
 /**
@@ -64,6 +66,8 @@ class VoiceSettingsState(
 
     /** The saved microphone, or the system default (blank) when it is not plugged in any more. */
     val input: String get() = settings().voiceInput.takeIf { it.isBlank() || inputs.isEmpty() || it in inputs }.orEmpty()
+
+    val language: String get() = settings().voiceLanguage
 
     val resources: List<VoiceResource>
         get() = needed.map { VoiceResource(it, downloads.statusOf(it) ?: if (it in installed) VoiceResourceStatus.Installed else VoiceResourceStatus.Missing) }
@@ -107,6 +111,13 @@ class VoiceSettingsState(
 
     fun selectInput(name: String) = update { it.copy(voiceInput = name) }
 
+    /** Saves a typed language (blank means auto); returns why it was rejected, null when saved. */
+    fun selectLanguage(typed: String): String? {
+        val code = LanguageCode.normalize(typed.ifBlank { LanguageCode.AUTO }).orElse(null) ?: return UNKNOWN_LANGUAGE_HINT
+        update { it.copy(voiceLanguage = code) }
+        return null
+    }
+
     fun refreshDevices() = launchRecompute { listInputs(); listDevices(refresh = true) }
 
     fun download(resource: VoiceResource) = downloads.start(listOf(resource.asset))
@@ -132,7 +143,7 @@ class VoiceSettingsState(
         dictationSession?.let { session -> thread(isDaemon = true) { session.close() }.join(closeTimeoutMillis) }
     }
 
-    private fun dictationRequest() = DictationRequest(model, resolved.spec, input, null)
+    private fun dictationRequest() = DictationRequest(model, resolved.spec, input, language)
 
     private fun modelOf(chosen: UiSettings) = WhisperModel.byAlias(chosen.voiceModel).orElse(WhisperModel.BASE_Q5_1)
 
@@ -151,7 +162,7 @@ class VoiceSettingsState(
             resolved = device
             needed = assets
             installed = present
-            restartRequired = build != null && restartRequiredFor(DictationRequest(modelOf(chosen), device.spec, null, null))
+            restartRequired = build != null && restartRequiredFor(DictationRequest(modelOf(chosen), device.spec, null, chosen.voiceLanguage))
             downloads.forgetFailedIn(present)
         }
     }

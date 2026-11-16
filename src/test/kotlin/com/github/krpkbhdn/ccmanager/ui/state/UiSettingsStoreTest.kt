@@ -106,10 +106,17 @@ class UiSettingsStoreTest {
     @Test
     fun `voice settings default to off and round trip`(@TempDir dir: Path) {
         val store = UiSettingsStore(dir.resolve("ui.properties"))
-        assertThat(store.load()).extracting({ it.voiceEnabled }, { it.voiceModel }, { it.voiceDevice }, { it.voiceInput }).containsExactly(false, "base-q5_1", "best", "")
-        val settings = UiSettings(voiceEnabled = true, voiceModel = "large-v3-turbo-q5_0", voiceDevice = "NVIDIA GeForce RTX 5080", voiceInput = "USB mic")
+        assertThat(store.load()).extracting({ it.voiceEnabled }, { it.voiceModel }, { it.voiceDevice }, { it.voiceInput }, { it.voiceLanguage }).containsExactly(false, "base-q5_1", "best", "", "auto")
+        val settings = UiSettings(voiceEnabled = true, voiceModel = "large-v3-turbo-q5_0", voiceDevice = "NVIDIA GeForce RTX 5080", voiceInput = "USB mic", voiceLanguage = "uk")
         store.save(settings)
         assertThat(store.load()).isEqualTo(settings)
+    }
+
+    @Test
+    fun `a stored unknown voice language loads as auto`(@TempDir dir: Path) {
+        val file = dir.resolve("ui.properties")
+        Files.writeString(file, "voice.language=ua\n")
+        assertThat(UiSettingsStore(file).load().voiceLanguage).isEqualTo("auto")
     }
 
     @Test

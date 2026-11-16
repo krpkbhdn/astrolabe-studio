@@ -4,8 +4,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -18,6 +22,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.github.krpkbhdn.ccmanager.ui.components.AppButton
 import com.github.krpkbhdn.ccmanager.ui.components.AppSwitch
+import com.github.krpkbhdn.ccmanager.ui.components.AppTextField
 import com.github.krpkbhdn.ccmanager.ui.components.ButtonVariant
 import com.github.krpkbhdn.ccmanager.ui.components.Glyph
 import com.github.krpkbhdn.ccmanager.ui.components.IconButton
@@ -34,9 +39,11 @@ import com.github.krpkbhdn.ccmanager.ui.voice.LiveTestBlock
 import com.github.krpkbhdn.ccmanager.ui.voice.ResourceRow
 import com.github.krpkbhdn.ccmanager.ui.voice.VoiceSettingsState
 import com.github.krpkbhdn.ccmanager.ui.voice.humanSize
+import com.github.krpkbhdn.ccmanager.voice.recognize.LanguageCode
 
 private const val DEFAULT_INPUT_LABEL = "System default"
 private const val ENABLE_LABEL = "Enable voice input"
+private val LANGUAGE_FIELD_WIDTH = 120.dp
 
 @Composable
 fun VoicePage(app: AppState) {
@@ -54,6 +61,7 @@ fun VoicePage(app: AppState) {
     Column(Modifier.alpha(if (voice.enabled) 1f else Alpha.DISABLED), verticalArrangement = Arrangement.spacedBy(Spacing.xl)) {
         DeviceGroup(voice)
         ModelGroup(voice)
+        LanguageGroup(voice)
         ComponentsGroup(voice)
         LiveTestGroup(voice)
     }
@@ -98,6 +106,19 @@ private fun ModelGroup(voice: VoiceSettingsState) {
                 voice.enabled,
             )
         }
+    }
+}
+
+@Composable
+private fun LanguageGroup(voice: VoiceSettingsState) {
+    val field = rememberTextFieldState(voice.language)
+    var error by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(field) { snapshotFlow { field.text.toString() }.collect { error = voice.selectLanguage(it) } }
+    SettingGroup("Language") {
+        SettingRow("Spoken language", "auto detects it; or type a code such as en, uk, de, pl, fr. Blank means auto.") {
+            AppTextField(field, Modifier.width(LANGUAGE_FIELD_WIDTH), placeholder = LanguageCode.AUTO, mono = true)
+        }
+        error?.let { Label(it, color = colors.danger, style = Type.small) }
     }
 }
 

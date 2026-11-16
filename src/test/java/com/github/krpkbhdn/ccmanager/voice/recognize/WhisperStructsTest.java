@@ -8,6 +8,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemoryLayout.PathElement;
+import java.lang.foreign.MemorySegment;
 import java.lang.foreign.PaddingLayout;
 import java.lang.foreign.StructLayout;
 import org.junit.jupiter.api.Test;
@@ -28,6 +29,7 @@ class WhisperStructsTest {
         assertThat(offsetOf("translate")).isEqualTo(20);
         assertThat(offsetOf("thold_pt")).isEqualTo(32);
         assertThat(offsetOf("suppress_regex")).isEqualTo(64);
+        assertThat(offsetOf("initial_prompt")).isEqualTo(72);
         assertThat(offsetOf("language")).isEqualTo(104);
         assertThat(offsetOf("temperature")).isEqualTo(116);
         assertThat(offsetOf("new_segment_callback")).isEqualTo(160);

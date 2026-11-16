@@ -107,6 +107,59 @@ class VoiceSettingsStateTest {
     }
 
     @Test
+    fun `a valid language is normalised and saved`() {
+        assertThat(state.selectLanguage(" UK ")).isNull()
+
+        assertThat(settings.voiceLanguage).isEqualTo("uk")
+        assertThat(state.language).isEqualTo("uk")
+    }
+
+    @Test
+    fun `a language list is normalised and saved`() {
+        assertThat(state.selectLanguage("UK, en")).isNull()
+
+        assertThat(settings.voiceLanguage).isEqualTo("uk,en")
+    }
+
+    @Test
+    fun `a list with an unknown code is rejected and not stored`() {
+        state.selectLanguage("de")
+
+        assertThat(state.selectLanguage("uk,xx")).contains("list")
+        assertThat(state.selectLanguage("auto,en")).contains("list")
+
+        assertThat(settings.voiceLanguage).isEqualTo("de")
+    }
+
+    @Test
+    fun `a blank language means auto`() {
+        state.selectLanguage("de")
+
+        assertThat(state.selectLanguage("  ")).isNull()
+
+        assertThat(settings.voiceLanguage).isEqualTo("auto")
+    }
+
+    @Test
+    fun `an unknown language is rejected and not stored`() {
+        state.selectLanguage("de")
+
+        assertThat(state.selectLanguage("ua")).contains("uk")
+
+        assertThat(settings.voiceLanguage).isEqualTo("de")
+    }
+
+    @Test
+    fun `hold dictation uses the saved language`() {
+        capture(mock(DictationSession::class.java))
+        state.selectLanguage("DE")
+
+        state.startDictation(mock(DictationListener::class.java))
+
+        verify(voice).start(org.mockito.ArgumentMatchers.argThat<DictationRequest> { it.language() == "de" }, any<DictationListener>())
+    }
+
+    @Test
     fun `devices offer auto, the CPU and every GPU and microphones are listed`() {
         await { state.deviceChoices.size == 3 && state.inputs.isNotEmpty() }
 
@@ -247,7 +300,7 @@ class VoiceSettingsStateTest {
         ready.startLiveTest()
 
         await { ready.liveTest == LiveTestState.Listening }
-        verify(voice).start(eq(DictationRequest(WhisperModel.BASE_Q5_1, "best", "USB mic", null)), any<DictationListener>())
+        verify(voice).start(eq(DictationRequest(WhisperModel.BASE_Q5_1, "best", "USB mic", "auto")), any<DictationListener>())
     }
 
     @Test
@@ -572,7 +625,7 @@ class VoiceSettingsStateTest {
         assertThat(ready.resources.map { it.asset }).contains(RuntimeBuild.WINDOWS_X64_CUDA12.asset())
         ready.startLiveTest()
         await { ready.liveTest == LiveTestState.Listening }
-        verify(voice).start(eq(DictationRequest(WhisperModel.BASE_Q5_1, "best", "", null)), any<DictationListener>())
+        verify(voice).start(eq(DictationRequest(WhisperModel.BASE_Q5_1, "best", "", "auto")), any<DictationListener>())
     }
 
     @Test
@@ -584,7 +637,7 @@ class VoiceSettingsStateTest {
         assertThat(ready.deviceLabel).isEqualTo("Best available (auto)")
         ready.startLiveTest()
         await { ready.liveTest == LiveTestState.Listening }
-        verify(voice).start(eq(DictationRequest(WhisperModel.BASE_Q5_1, "best", "", null)), any<DictationListener>())
+        verify(voice).start(eq(DictationRequest(WhisperModel.BASE_Q5_1, "best", "", "auto")), any<DictationListener>())
     }
 
     @Test
@@ -605,7 +658,7 @@ class VoiceSettingsStateTest {
         assertThat(ready.input).isEmpty()
         ready.startLiveTest()
         await { ready.liveTest == LiveTestState.Listening }
-        verify(voice).start(eq(DictationRequest(WhisperModel.BASE_Q5_1, "best", "", null)), any<DictationListener>())
+        verify(voice).start(eq(DictationRequest(WhisperModel.BASE_Q5_1, "best", "", "auto")), any<DictationListener>())
     }
 
     @Test

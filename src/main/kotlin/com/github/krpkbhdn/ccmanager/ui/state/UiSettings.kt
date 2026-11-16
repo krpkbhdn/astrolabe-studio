@@ -6,6 +6,7 @@ import com.github.krpkbhdn.ccmanager.ui.git.model.GitPrefs
 import com.github.krpkbhdn.ccmanager.ui.git.model.GitSubView
 import com.github.krpkbhdn.ccmanager.ui.picker.writeAtomically
 import com.github.krpkbhdn.ccmanager.ui.theme.Scale
+import com.github.krpkbhdn.ccmanager.voice.recognize.LanguageCode
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -40,6 +41,7 @@ data class UiSettings(
     val voiceModel: String = DEFAULT_VOICE_MODEL,
     val voiceDevice: String = DEFAULT_VOICE_DEVICE,
     val voiceInput: String = "",
+    val voiceLanguage: String = LanguageCode.AUTO,
     val usageFiveHourPercent: Int? = null,
     val usageSevenDayPercent: Int? = null,
     val usageDailyBudgetUsd: Double? = null,
@@ -84,6 +86,7 @@ private const val KEY_VOICE_ENABLED = "voice.enabled"
 private const val KEY_VOICE_MODEL = "voice.model"
 private const val KEY_VOICE_DEVICE = "voice.device"
 private const val KEY_VOICE_INPUT = "voice.input"
+private const val KEY_VOICE_LANGUAGE = "voice.language"
 private const val KEY_USAGE_FIVE_HOUR = "usage.fivehour.percent"
 private const val KEY_USAGE_SEVEN_DAY = "usage.sevenday.percent"
 private const val KEY_USAGE_DAILY_BUDGET = "usage.daily.budget"
@@ -135,6 +138,7 @@ class UiSettingsStore(private val file: Path?) {
             setProperty(KEY_VOICE_MODEL, settings.voiceModel)
             setProperty(KEY_VOICE_DEVICE, settings.voiceDevice)
             setProperty(KEY_VOICE_INPUT, settings.voiceInput)
+            setProperty(KEY_VOICE_LANGUAGE, settings.voiceLanguage)
             settings.usageFiveHourPercent?.let { setProperty(KEY_USAGE_FIVE_HOUR, it.toString()) }
             settings.usageSevenDayPercent?.let { setProperty(KEY_USAGE_SEVEN_DAY, it.toString()) }
             settings.usageDailyBudgetUsd?.let { setProperty(KEY_USAGE_DAILY_BUDGET, it.toString()) }
@@ -180,6 +184,7 @@ class UiSettingsStore(private val file: Path?) {
             voiceModel = props.getProperty(KEY_VOICE_MODEL) ?: defaults.voiceModel,
             voiceDevice = props.getProperty(KEY_VOICE_DEVICE) ?: defaults.voiceDevice,
             voiceInput = props.getProperty(KEY_VOICE_INPUT) ?: defaults.voiceInput,
+            voiceLanguage = props.getProperty(KEY_VOICE_LANGUAGE)?.takeIf { LanguageCode.isKnown(it) } ?: defaults.voiceLanguage,
             usageFiveHourPercent = props.getProperty(KEY_USAGE_FIVE_HOUR)?.toIntOrNull(),
             usageSevenDayPercent = props.getProperty(KEY_USAGE_SEVEN_DAY)?.toIntOrNull(),
             usageDailyBudgetUsd = props.getProperty(KEY_USAGE_DAILY_BUDGET)?.toDoubleOrNull(),

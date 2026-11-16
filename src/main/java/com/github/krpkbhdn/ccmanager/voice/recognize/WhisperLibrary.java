@@ -28,6 +28,10 @@ final class WhisperLibrary {
     private final MethodHandle noSpeechProbability;
     private final MethodHandle languageId;
     private final MethodHandle languageName;
+    private final MethodHandle pcmToMel;
+    private final MethodHandle langAutoDetect;
+    private final MethodHandle langMaxId;
+    private final MethodHandle langId;
 
     WhisperLibrary(NativeRuntime runtime) {
         var contextParams = WhisperStructs.CONTEXT_PARAMS;
@@ -44,6 +48,45 @@ final class WhisperLibrary {
         noSpeechProbability = runtime.handle("whisper_full_get_segment_no_speech_prob", FunctionDescriptor.of(JAVA_FLOAT, ADDRESS, JAVA_INT));
         languageId = runtime.handle("whisper_full_lang_id", FunctionDescriptor.of(JAVA_INT, ADDRESS));
         languageName = runtime.handle("whisper_lang_str", FunctionDescriptor.of(ADDRESS, JAVA_INT));
+        pcmToMel = runtime.handle("whisper_pcm_to_mel", FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT, JAVA_INT));
+        langAutoDetect = runtime.handle("whisper_lang_auto_detect", FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT, JAVA_INT, ADDRESS));
+        langMaxId = runtime.handle("whisper_lang_max_id", FunctionDescriptor.of(JAVA_INT));
+        langId = runtime.handle("whisper_lang_id", FunctionDescriptor.of(JAVA_INT, ADDRESS));
+    }
+
+    /** Computes the mel spectrogram that {@link #detectLanguage} reads; negative on failure. */
+    int pcmToMel(MemorySegment context, MemorySegment samples, int sampleCount, int threads) {
+        try {
+            return (int) pcmToMel.invoke(context, samples, sampleCount, threads);
+        } catch (Throwable e) {
+            throw NativeFailure.of(FAILED, e);
+        }
+    }
+
+    /** Fills {@code probabilities} (one float per language id) and returns the best id, negative on failure. */
+    int detectLanguage(MemorySegment context, int threads, MemorySegment probabilities) {
+        try {
+            return (int) langAutoDetect.invoke(context, 0, threads, probabilities);
+        } catch (Throwable e) {
+            throw NativeFailure.of(FAILED, e);
+        }
+    }
+
+    int languageMaxId() {
+        try {
+            return (int) langMaxId.invoke();
+        } catch (Throwable e) {
+            throw NativeFailure.of(FAILED, e);
+        }
+    }
+
+    /** The whisper id of a language code, -1 when unknown. */
+    int languageIdOf(Arena arena, String code) {
+        try {
+            return (int) langId.invoke(arena.allocateFrom(code));
+        } catch (Throwable e) {
+            throw NativeFailure.of(FAILED, e);
+        }
     }
 
     MemorySegment contextDefaults(SegmentAllocator allocator) {
