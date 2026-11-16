@@ -2,6 +2,9 @@ package com.github.krpkbhdn.ccmanager.toolchain;
 
 import static com.github.krpkbhdn.ccmanager.toolchain.ExecutableLookups.lookup;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -14,6 +17,9 @@ import com.github.krpkbhdn.ccmanager.toolchain.ToolInstallService.Outcome;
 import com.github.krpkbhdn.ccmanager.config.AppProperties;
 import com.github.krpkbhdn.ccmanager.toolchain.managed.ManagedToolInstaller;
 import com.github.krpkbhdn.ccmanager.toolchain.managed.ManagedToolsDirectory;
+import com.github.krpkbhdn.ccmanager.toolchain.managed.ToolChannel;
+import com.github.krpkbhdn.ccmanager.toolchain.managed.ToolChannelStore;
+import java.util.concurrent.atomic.AtomicInteger;
 import com.github.krpkbhdn.ccmanager.workspace.CommandRunner;
 import com.github.krpkbhdn.ccmanager.workspace.FakeHostEnvironment;
 import com.github.krpkbhdn.ccmanager.workspace.HostEnvironment;
@@ -207,7 +213,7 @@ class ToolInstallServiceTest {
             return result;
         };
 
-        new ToolInstallService(catalog, probe, lookup(windows), host, properties, runner, directory, installer).install("ts", line -> {});
+        new ToolInstallService(catalog, probe, lookup(windows), host, properties, runner, directory, installer, new ToolChannelStore(directory)).install("ts", line -> {});
 
         assertThat(seen).hasSize(1);
         assertThat(seen.getFirst().get("PATH")).startsWith("old").contains(nodeDirectory.toString());
@@ -240,7 +246,7 @@ class ToolInstallServiceTest {
     }
 
     private ToolInstallService service() {
-        return new ToolInstallService(catalog, probe, lookup(host), host, properties, runner, directory, installer);
+        return new ToolInstallService(catalog, probe, lookup(host), host, properties, runner, directory, installer, new ToolChannelStore(directory));
     }
 
     private static final DownloadSource DOWNLOAD = new DownloadSource(
@@ -282,7 +288,7 @@ class ToolInstallServiceTest {
     @Test
     void downloadInstallUsesTheManagedInstallerNotTheCommandRunner() throws Exception {
         registerDownloadTool();
-        when(installer.install(any(), any(), any())).thenReturn(new ManagedToolInstaller.Installed("1.2", false, Path.of("l")));
+        when(installer.install(any(), any(), any(), any())).thenReturn(new ManagedToolInstaller.Installed("1.2", false, Path.of("l")));
 
         var installed = service().install("dl", line -> {});
 
@@ -294,7 +300,7 @@ class ToolInstallServiceTest {
     @Test
     void downloadInstallOfTheNewestVersionSaysUpToDate() throws Exception {
         registerDownloadTool();
-        when(installer.install(any(), any(), any())).thenReturn(new ManagedToolInstaller.Installed("1.2", true, Path.of("l")));
+        when(installer.install(any(), any(), any(), any())).thenReturn(new ManagedToolInstaller.Installed("1.2", true, Path.of("l")));
 
         assertThat(service().install("dl", line -> {}).message()).isEqualTo("Downloaded is already up to date (1.2)");
     }
@@ -302,7 +308,7 @@ class ToolInstallServiceTest {
     @Test
     void downloadFailureIsReportedAsFailed() throws Exception {
         registerDownloadTool();
-        when(installer.install(any(), any(), any())).thenThrow(new IOException("SHA-256 mismatch"));
+        when(installer.install(any(), any(), any(), any())).thenThrow(new IOException("SHA-256 mismatch"));
 
         var installed = service().install("dl", line -> {});
 
@@ -313,7 +319,7 @@ class ToolInstallServiceTest {
     @Test
     void interruptedDownloadFailsAsCancelledAndKeepsTheInterruptFlag() throws Exception {
         registerDownloadTool();
-        when(installer.install(any(), any(), any())).thenThrow(new InterruptedException());
+        when(installer.install(any(), any(), any(), any())).thenThrow(new InterruptedException());
 
         var installed = service().install("dl", line -> {});
 
@@ -325,12 +331,12 @@ class ToolInstallServiceTest {
     @Test
     void reinstallUsesTheRepairPathOfTheManagedInstaller() throws Exception {
         registerDownloadTool();
-        when(installer.reinstall(any(), any(), any())).thenReturn(new ManagedToolInstaller.Installed("1.2", false, Path.of("l")));
+        when(installer.reinstall(any(), any(), any(), any())).thenReturn(new ManagedToolInstaller.Installed("1.2", false, Path.of("l")));
 
         var repaired = service().reinstall("dl");
 
         assertThat(repaired.outcome()).isEqualTo(Outcome.INSTALLED);
-        verify(installer, never()).install(any(), any(), any());
+        verify(installer, never()).install(any(), any(), any(), any());
     }
 
     @Test
@@ -339,7 +345,7 @@ class ToolInstallServiceTest {
         var version = directory.versionDirectory("dl", "1.0");
         Files.createDirectories(version);
         directory.markComplete(version);
-        when(installer.reinstall(any(), any(), any())).thenThrow(new IOException("offline"));
+        when(installer.reinstall(any(), any(), any(), any())).thenThrow(new IOException("offline"));
 
         var repaired = service().reinstall("dl");
 
@@ -358,7 +364,7 @@ class ToolInstallServiceTest {
         registerDownloadTool();
         var entered = new CountDownLatch(1);
         var release = new CountDownLatch(1);
-        when(installer.install(any(), any(), any())).thenAnswer(call -> {
+        when(installer.install(any(), any(), any(), any())).thenAnswer(call -> {
             entered.countDown();
             release.await();
             return new ManagedToolInstaller.Installed("1.2", false, Path.of("l"));
@@ -372,7 +378,7 @@ class ToolInstallServiceTest {
             release.countDown();
             first.get(5, TimeUnit.SECONDS);
         }
-        verify(installer, never()).reinstall(any(), any(), any());
+        verify(installer, never()).reinstall(any(), any(), any(), any());
     }
 
     @Test
@@ -385,7 +391,7 @@ class ToolInstallServiceTest {
         var pathCopy = Path.of("usr", "bin").toAbsolutePath().resolve("dl");
         when(host.pathDirectories()).thenReturn(List.of(pathCopy.getParent()));
         when(host.isFile(any())).thenAnswer(call -> pathCopy.equals(call.getArgument(0)));
-        var service = new ToolInstallService(catalog, probe, new ExecutableLookup(host, directory), host, properties, runner, directory, installer);
+        var service = new ToolInstallService(catalog, probe, new ExecutableLookup(host, directory), host, properties, runner, directory, installer, new ToolChannelStore(directory));
 
         assertThat(service.runsManagedLauncher("dl")).isFalse();
 
@@ -428,7 +434,7 @@ class ToolInstallServiceTest {
         registerDownloadTool();
         status("dl", ToolState.MISSING);
         when(probe.probeFresh("dl")).thenReturn(new ToolStatus("dl", ToolState.MISSING, "", ""));
-        when(installer.install(any(), any(), any())).thenReturn(new ManagedToolInstaller.Installed("1.2", false, Path.of("l")));
+        when(installer.install(any(), any(), any(), any())).thenReturn(new ManagedToolInstaller.Installed("1.2", false, Path.of("l")));
 
         var installed = service().install("dl", line -> {});
 
@@ -440,7 +446,7 @@ class ToolInstallServiceTest {
     void cancelInterruptsOnlyTheRunningInstallAndClearsTheInterruptFlag() throws Exception {
         registerDownloadTool();
         var entered = new CountDownLatch(1);
-        when(installer.install(any(), any(), any())).thenAnswer(invocation -> {
+        when(installer.install(any(), any(), any(), any())).thenAnswer(invocation -> {
             entered.countDown();
             new CountDownLatch(1).await();
             return null;
@@ -521,5 +527,55 @@ class ToolInstallServiceTest {
     @Test
     void planWithoutManualInstallHasEmptyManualCommand() {
         assertThat(service().plan("ts").orElseThrow().manualCommand()).isEmpty();
+    }
+
+    private void registerPinnedTool() {
+        var pinned = new DownloadSource(DOWNLOAD.latest(), DOWNLOAD.archiveUrl(), DOWNLOAD.archive(), DOWNLOAD.launcher(),
+                new PinnedVersion("1.0", "https://example.com/dl.zip", "0".repeat(64)));
+        register(new ToolDefinition("pin", "Pinned", "g", ToolKind.LANGUAGE_SERVER, "pin", List.of(), "", "", List.of(),
+                Map.of(), "https://docs", Map.of(), Map.of("linux", pinned)));
+        status("pin", ToolState.INSTALLED);
+    }
+
+    @Test
+    void selectingAChannelOnlyStoresItAndNotifies() {
+        registerPinnedTool();
+        var notified = new AtomicInteger();
+        var service = service();
+        service.onChannelChange(notified::incrementAndGet);
+
+        assertThat(service.selectedChannel("pin")).isEqualTo(ToolChannel.VERIFIED);
+        service.selectChannel("pin", ToolChannel.LATEST);
+
+        assertThat(service.selectedChannel("pin")).isEqualTo(ToolChannel.LATEST);
+        assertThat(notified).hasValue(1);
+        verifyNoInteractions(installer);
+    }
+
+    @Test
+    void channelsAreRejectedForUnknownAndUnsupportedTools() {
+        registerDownloadTool();
+        var service = service();
+
+        assertThatThrownBy(() -> service.selectChannel("nope", ToolChannel.LATEST)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.selectChannel("dl", ToolChannel.LATEST)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(service.selectedChannel("dl")).isEqualTo(ToolChannel.VERIFIED);
+    }
+
+    @Test
+    void installUsesTheSelectedChannel() throws Exception {
+        registerPinnedTool();
+        when(installer.install(any(), any(), any(), any())).thenReturn(new ManagedToolInstaller.Installed("1.0", false, Path.of("l")));
+        var service = service();
+        service.selectChannel("pin", ToolChannel.LATEST);
+
+        service.install("pin", line -> {});
+
+        verify(installer).install(any(), any(), eq(ToolChannel.LATEST), any());
+    }
+
+    @Test
+    void installedChannelIsVerifiedForAnUnknownTool() {
+        assertThat(service().installedChannel("nope")).isEqualTo(ToolChannel.VERIFIED);
     }
 }

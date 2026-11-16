@@ -9,6 +9,12 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.github.krpkbhdn.ccmanager.config.AppProperties;
+import com.github.krpkbhdn.ccmanager.toolchain.managed.JdtlsWorkspace;
+import com.github.krpkbhdn.ccmanager.toolchain.managed.ManagedToolsDirectory;
+import com.github.krpkbhdn.ccmanager.toolchain.managed.ToolChannel;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -20,12 +26,14 @@ import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class LspHealthMonitorTest {
 
     private static final class Monitor extends LspHealthMonitor {
-        Monitor(ProjectToolsService tools, ToolProbe probe, ToolInstallService installer, LspHealthProperties properties, Clock clock, Pause pause) {
-            super(tools, probe, installer, properties, clock, pause);
+        Monitor(ProjectToolsService tools, ToolProbe probe, ToolInstallService installer, LspHealthProperties properties,
+                ManagedToolsDirectory managedTools, Clock clock, Pause pause) {
+            super(tools, probe, installer, properties, managedTools, clock, pause);
         }
 
         void begin() { start(); }
@@ -45,6 +53,10 @@ class LspHealthMonitorTest {
     private final List<List<DetectedTechnology>> delivered = new ArrayList<>();
     private Instant now = Instant.parse("2026-01-01T00:00:00Z");
     private Monitor monitor;
+    private ManagedToolsDirectory managedTools;
+
+    @TempDir
+    Path dataDir;
 
     @BeforeEach
     void setUp() {
@@ -54,7 +66,91 @@ class LspHealthMonitorTest {
             @Override public Clock withZone(java.time.ZoneId zone) { return this; }
             @Override public Instant instant() { return now; }
         };
-        monitor = new Monitor(projectTools, probe, installer, properties, clock, pauses::add);
+        managedTools = new ManagedToolsDirectory(new AppProperties(dataDir));
+        monitor = new Monitor(projectTools, probe, installer, properties, managedTools, clock, pauses::add);
+    }
+
+    private void jdtlsProject(Path project, boolean gradle, String... markerLines) throws IOException {
+        Files.createDirectories(project);
+        if (gradle) {
+            Files.writeString(project.resolve("build.gradle.kts"), "");
+        }
+        var workspace = JdtlsWorkspace.folderOf(managedTools.stateDirectory("jdtls"), project);
+        Files.createDirectories(workspace.resolve(".metadata"));
+        if (markerLines.length > 0) {
+            var marker = JdtlsWorkspace.markerFile(managedTools.stateDirectory("jdtls"), project);
+            Files.createDirectories(marker.getParent());
+            Files.write(marker, List.of(markerLines));
+        }
+    }
+
+    private List<DetectedTechnology> checkJdtls(Path project) {
+        var java = tool("jdtls");
+        when(projectTools.detected(project)).thenReturn(List.of(new DetectedTechnology(java, ToolState.INSTALLED)));
+        when(probe.probeFresh("jdtls")).thenReturn(new ToolStatus("jdtls", ToolState.RESPONDING, "", ""));
+        monitor.watch(project, delivered::add);
+        monitor.checkNow(project);
+        return delivered.getLast();
+    }
+
+    @Test
+    void okMarkerKeepsJdtlsHealthy() throws IOException {
+        var project = dataDir.resolve("proj");
+        jdtlsProject(project, true, project + " OK build/eclipse-out");
+
+        assertThat(checkJdtls(project)).extracting(DetectedTechnology::serverState).containsExactly(ToolState.RESPONDING);
+        assertThat(monitor.failureDetail(project, "jdtls")).isEmpty();
+    }
+
+    @Test
+    void missingMarkerInAnOpenedWorkspaceFailsWithTheChannel() throws IOException {
+        var project = dataDir.resolve("proj");
+        jdtlsProject(project, true);
+        when(installer.installedChannel("jdtls")).thenReturn(ToolChannel.LATEST);
+
+        assertThat(checkJdtls(project)).extracting(DetectedTechnology::serverState).containsExactly(ToolState.FAILED);
+        assertThat(monitor.failureDetail(project, "jdtls")).contains("Gradle output redirect did not run (LATEST)");
+    }
+
+    @Test
+    void failedMarkerLineFails() throws IOException {
+        var project = dataDir.resolve("proj");
+        jdtlsProject(project, true, project + " FAILED java.io.IOException");
+
+        assertThat(checkJdtls(project)).extracting(DetectedTechnology::serverState).containsExactly(ToolState.FAILED);
+        assertThat(monitor.failureDetail(project, "jdtls")).contains("Gradle output redirect did not run (VERIFIED)");
+    }
+
+    @Test
+    void neverOpenedWorkspaceIsNotChecked() throws IOException {
+        var project = dataDir.resolve("proj");
+        Files.createDirectories(project);
+        Files.writeString(project.resolve("build.gradle"), "");
+
+        assertThat(checkJdtls(project)).extracting(DetectedTechnology::serverState).containsExactly(ToolState.RESPONDING);
+    }
+
+    @Test
+    void mavenProjectIsNeverChecked() throws IOException {
+        var project = dataDir.resolve("proj");
+        jdtlsProject(project, false);
+        Files.writeString(project.resolve("pom.xml"), "");
+
+        assertThat(checkJdtls(project)).extracting(DetectedTechnology::serverState).containsExactly(ToolState.RESPONDING);
+    }
+
+    @Test
+    void latestChannelFailureIsRetriedButNeverReinstalled() {
+        detect(new DetectedTechnology(go, ToolState.INSTALLED));
+        probes(go, ToolState.FAILED, ToolState.FAILED, ToolState.FAILED, ToolState.FAILED);
+        when(installer.runsManagedLauncher("go")).thenReturn(true);
+        when(installer.installedChannel("go")).thenReturn(ToolChannel.LATEST);
+        monitor.watch(DIR, delivered::add);
+
+        monitor.sweep();
+
+        assertThat(delivered.getLast()).containsExactly(new DetectedTechnology(go, ToolState.FAILED));
+        verify(installer, never()).reinstall(anyString());
     }
 
     @AfterEach

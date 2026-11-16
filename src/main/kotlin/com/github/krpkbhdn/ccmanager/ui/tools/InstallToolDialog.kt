@@ -87,7 +87,7 @@ private fun Confirm(plan: InstallPlan, verb: String, tools: ToolsState) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
             if (plan.download().isPresent) {
-                downloadFactsOf(plan).forEach { Fact(it) }
+                downloadFactsOf(plan, tools.selectedChannel(plan.tool().id())).forEach { Fact(it) }
             } else {
                 CodeBlock(plan.commandLine())
                 Label(PERMISSION_NOTE, color = colors.textSecondary, maxLines = Int.MAX_VALUE)

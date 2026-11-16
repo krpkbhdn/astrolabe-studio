@@ -33,6 +33,7 @@ import com.github.krpkbhdn.ccmanager.ui.settings.tint
 import com.github.krpkbhdn.ccmanager.ui.theme.Spacing
 import com.github.krpkbhdn.ccmanager.ui.theme.Type
 import com.github.krpkbhdn.ccmanager.ui.theme.colors
+import com.github.krpkbhdn.ccmanager.ui.tools.ChannelControls
 import com.github.krpkbhdn.ccmanager.ui.tools.InstallButton
 import com.github.krpkbhdn.ccmanager.ui.tools.InstallButtonView
 import com.github.krpkbhdn.ccmanager.ui.tools.InstallFlow
@@ -124,5 +125,6 @@ private fun ServerControls(row: ProjectToolRow, install: InstallButton, tools: T
     val tool = row.tool
     val chip = statusChipOf(row.status, false)
     WithTooltip(chip.tooltip) { Chip(chip.text, chip.tone.tint()) }
+    ChannelControls(tool, row.status, tools)
     InstallButtonView(install, "Install server", { tools.requestInstall(tool.id()) }, tools::openDocs, { tools.requestUninstall(tool.id()) }, reasonShownElsewhere = true)
 }

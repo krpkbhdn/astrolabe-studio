@@ -101,6 +101,20 @@ class ToolCatalogContentTest {
     }
 
     @Test
+    void jdtlsPinsTheMilestoneAndKotlinLspHasNoPin() {
+        var jdtls = catalog.find("jdtls").orElseThrow();
+
+        for (var os : List.of("windows", "linux")) {
+            var pinned = jdtls.downloadSource(os).orElseThrow().pinnedVersion().orElseThrow();
+            assertThat(pinned.version()).isEqualTo("1.63.0-202610191322");
+            assertThat(pinned.url()).isEqualTo("https://download.eclipse.org/jdtls/milestones/1.63.0/jdt-language-server-1.63.0-202610191322.tar.gz");
+            assertThat(pinned.sha256()).isEqualTo("b1f2abe0b3cccb462cf64fb4a5587c7d09df60cf8be7748b152cbd89d018bdc4");
+        }
+        assertThat(jdtls.supportsChannels()).isTrue();
+        assertThat(catalog.find("kotlin-lsp").orElseThrow().supportsChannels()).isFalse();
+    }
+
+    @Test
     void kotlinLspLauncherPassesItsStateDirectoryAsSystemPath() {
         var install = java.nio.file.Path.of("I");
         var windows = catalog.find("kotlin-lsp").orElseThrow().download().get("windows").launcher();

@@ -8,6 +8,7 @@ import com.github.krpkbhdn.ccmanager.toolchain.ArchiveKind;
 import com.github.krpkbhdn.ccmanager.toolchain.DownloadSource;
 import com.github.krpkbhdn.ccmanager.toolchain.LatestSource;
 import com.github.krpkbhdn.ccmanager.toolchain.LauncherSpec;
+import com.github.krpkbhdn.ccmanager.toolchain.PinnedVersion;
 import com.github.krpkbhdn.ccmanager.toolchain.ToolDefinition;
 import com.github.krpkbhdn.ccmanager.toolchain.ToolKind;
 import com.github.krpkbhdn.ccmanager.toolchain.ToolchainProperties;
@@ -92,7 +93,7 @@ class ManagedToolInstallerTest {
     void downloadsVerifiesUnpacksAndWritesTheLauncher() throws Exception {
         var output = new ArrayList<String>();
 
-        var installed = installer.install(TOOL, zipSource(), output::add);
+        var installed = installer.install(TOOL, zipSource(), ToolChannel.LATEST, output::add);
 
         var version = directory.versionDirectory("demo", "1.0.0");
         assertThat(installed.version()).isEqualTo("1.0.0");
@@ -125,7 +126,7 @@ class ManagedToolInstallerTest {
         Files.createDirectories(directory.binDirectory());
         Files.writeString(directory.binDirectory().resolve("demo"), "old launcher");
 
-        installer.refreshLauncher(TOOL, ROUTED);
+        installer.refreshLauncher(TOOL, withLauncher(ROUTED));
 
         assertThat(Files.readString(directory.binDirectory().resolve("demo"))).isEqualTo("#!/bin/sh\nexec '" + version.resolve("bin/router")
                 + "' '--server-launcher' '" + version.resolve("bin/server") + "' '--system-path' '" + directory.stateDirectory("demo") + "'\n");
@@ -135,7 +136,7 @@ class ManagedToolInstallerTest {
     void refreshingAnArchiveWithoutTheRouterKeepsTheDirectServerLauncher() throws Exception {
         var version = installedWith("bin/server");
 
-        installer.refreshLauncher(TOOL, ROUTED);
+        installer.refreshLauncher(TOOL, withLauncher(ROUTED));
 
         assertThat(Files.readString(directory.binDirectory().resolve("demo"))).isEqualTo("#!/bin/sh\nexec '" + version.resolve("bin/server")
                 + "' '--system-path' '" + directory.stateDirectory("demo") + "' \"$@\"\n");
@@ -143,17 +144,17 @@ class ManagedToolInstallerTest {
 
     @Test
     void refreshingWithoutAnInstalledVersionWritesNothing() throws Exception {
-        installer.refreshLauncher(TOOL, ROUTED);
+        installer.refreshLauncher(TOOL, withLauncher(ROUTED));
 
         assertThat(directory.binDirectory().resolve("demo")).doesNotExist();
     }
 
     @Test
     void sameVersionAgainOnlyRewritesTheLauncher() throws Exception {
-        installer.install(TOOL, zipSource(), line -> {});
+        installer.install(TOOL, zipSource(), ToolChannel.LATEST, line -> {});
         Files.delete(directory.binDirectory().resolve("demo"));
 
-        var again = installer.install(TOOL, zipSource(), line -> {});
+        var again = installer.install(TOOL, zipSource(), ToolChannel.LATEST, line -> {});
 
         assertThat(again.upToDate()).isTrue();
         assertThat(archiveRequests).hasValue(1);
@@ -162,10 +163,10 @@ class ManagedToolInstallerTest {
 
     @Test
     void newVersionReplacesTheOldOneAfterTheSwitch() throws Exception {
-        installer.install(TOOL, zipSource(), line -> {});
+        installer.install(TOOL, zipSource(), ToolChannel.LATEST, line -> {});
         latest.set("v1.1.0");
 
-        var updated = installer.install(TOOL, zipSource(), line -> {});
+        var updated = installer.install(TOOL, zipSource(), ToolChannel.LATEST, line -> {});
 
         assertThat(updated.version()).isEqualTo("1.1.0");
         assertThat(directory.versionDirectory("demo", "1.1.0").resolve("bin/demo")).hasContent("two");
@@ -175,11 +176,11 @@ class ManagedToolInstallerTest {
 
     @Test
     void checksumMismatchLeavesTheOldVersionAndNoPartialFolder() throws Exception {
-        installer.install(TOOL, zipSource(), line -> {});
+        installer.install(TOOL, zipSource(), ToolChannel.LATEST, line -> {});
         latest.set("v1.1.0");
         checksumOverride.set("0".repeat(64) + "  demo.zip");
 
-        assertThatThrownBy(() -> installer.install(TOOL, zipSource(), line -> {}))
+        assertThatThrownBy(() -> installer.install(TOOL, zipSource(), ToolChannel.LATEST, line -> {}))
                 .isInstanceOf(IOException.class).hasMessageContaining("SHA-256 mismatch");
 
         assertThat(directory.installedVersion("demo")).contains("1.0.0");
@@ -192,7 +193,7 @@ class ManagedToolInstallerTest {
     void missingChecksumFileFailsClosed() throws Exception {
         checksumOverride.set("not a checksum");
 
-        assertThatThrownBy(() -> installer.install(TOOL, zipSource(), line -> {}))
+        assertThatThrownBy(() -> installer.install(TOOL, zipSource(), ToolChannel.LATEST, line -> {}))
                 .isInstanceOf(IOException.class).hasMessageContaining("SHA-256");
 
         assertThat(directory.installedVersion("demo")).isEmpty();
@@ -203,7 +204,7 @@ class ManagedToolInstallerTest {
     void unsafeVersionStringIsRefusedBeforeAnyDownload() {
         latest.set("v1.0/../evil");
 
-        assertThatThrownBy(() -> installer.install(TOOL, zipSource(), line -> {}))
+        assertThatThrownBy(() -> installer.install(TOOL, zipSource(), ToolChannel.LATEST, line -> {}))
                 .isInstanceOf(IOException.class).hasMessageContaining("Unusable version");
 
         assertThat(archiveRequests).hasValue(0);
@@ -219,7 +220,7 @@ class ManagedToolInstallerTest {
         var source = new DownloadSource(new LatestSource(LatestSource.Kind.TEXT_FILE, server.uri("/latest.txt").toString(), "v(\\S+)"),
                 server.uri("/").toString() + "pkg/{version}/demo.tar.gz", ArchiveKind.TAR_GZ, new LauncherSpec(LauncherSpec.Kind.JDTLS, ""));
 
-        var installed = installer.install(TOOL, source, line -> {});
+        var installed = installer.install(TOOL, source, ToolChannel.LATEST, line -> {});
 
         assertThat(directory.versionDirectory("demo", "2.0.0").resolve("plugins/org.eclipse.equinox.launcher_1.jar")).hasContent("jar");
         assertThat(Files.readString(installed.launcher())).contains("org.eclipse.equinox.launcher_1.jar");
@@ -248,7 +249,7 @@ class ManagedToolInstallerTest {
         var failure = new AtomicReference<Throwable>();
         var worker = new Thread(() -> {
             try {
-                installer.install(TOOL, zipSource(), line -> {});
+                installer.install(TOOL, zipSource(), ToolChannel.LATEST, line -> {});
             } catch (Throwable e) {
                 failure.set(e);
             }
@@ -268,10 +269,10 @@ class ManagedToolInstallerTest {
 
     @Test
     void sameVersionWithAMissingBinaryIsInstalledAgain() throws Exception {
-        installer.install(TOOL, zipSource(), line -> {});
+        installer.install(TOOL, zipSource(), ToolChannel.LATEST, line -> {});
         Files.delete(directory.versionDirectory("demo", "1.0.0").resolve("bin/demo"));
 
-        var again = installer.install(TOOL, zipSource(), line -> {});
+        var again = installer.install(TOOL, zipSource(), ToolChannel.LATEST, line -> {});
 
         assertThat(again.upToDate()).isFalse();
         assertThat(archiveRequests).hasValue(2);
@@ -281,13 +282,13 @@ class ManagedToolInstallerTest {
 
     @Test
     void launcherWriteFailureKeepsTheOldVersionAndLeavesNoNewFolder() throws Exception {
-        installer.install(TOOL, zipSource(), line -> {});
+        installer.install(TOOL, zipSource(), ToolChannel.LATEST, line -> {});
         var launcher = directory.binDirectory().resolve("demo");
         Files.delete(launcher);
         Files.createDirectories(launcher.resolve("blocker"));
         latest.set("v1.1.0");
 
-        assertThatThrownBy(() -> installer.install(TOOL, zipSource(), line -> {}))
+        assertThatThrownBy(() -> installer.install(TOOL, zipSource(), ToolChannel.LATEST, line -> {}))
                 .isInstanceOf(IOException.class).hasMessage("Close sessions that use Demo and retry");
 
         assertThat(directory.installedVersion("demo")).contains("1.0.0");
@@ -296,11 +297,11 @@ class ManagedToolInstallerTest {
 
     @Test
     void reinstallOfTheSameVersionFetchesAFreshCopyAndLeavesOneFolder() throws Exception {
-        installer.install(TOOL, zipSource(), line -> {});
+        installer.install(TOOL, zipSource(), ToolChannel.LATEST, line -> {});
         var binary = directory.versionDirectory("demo", "1.0.0").resolve("bin/demo");
         Files.writeString(binary, "broken");
 
-        var repaired = installer.reinstall(TOOL, zipSource(), line -> {});
+        var repaired = installer.reinstall(TOOL, zipSource(), ToolChannel.LATEST, line -> {});
 
         assertThat(repaired.upToDate()).isFalse();
         assertThat(archiveRequests).hasValue(2);
@@ -311,12 +312,12 @@ class ManagedToolInstallerTest {
 
     @Test
     void failedReinstallDownloadLeavesTheOldInstallationUntouched() throws Exception {
-        installer.install(TOOL, zipSource(), line -> {});
+        installer.install(TOOL, zipSource(), ToolChannel.LATEST, line -> {});
         var binary = directory.versionDirectory("demo", "1.0.0").resolve("bin/demo");
         Files.writeString(binary, "old");
         checksumOverride.set("0".repeat(64) + "  demo.zip");
 
-        assertThatThrownBy(() -> installer.reinstall(TOOL, zipSource(), line -> {})).isInstanceOf(IOException.class);
+        assertThatThrownBy(() -> installer.reinstall(TOOL, zipSource(), ToolChannel.LATEST, line -> {})).isInstanceOf(IOException.class);
 
         assertThat(binary).hasContent("old");
         assertThat(directory.installedVersion("demo")).contains("1.0.0");
@@ -325,14 +326,14 @@ class ManagedToolInstallerTest {
 
     @Test
     void reinstallThatCannotWriteTheLauncherRestoresTheOldFolder() throws Exception {
-        installer.install(TOOL, zipSource(), line -> {});
+        installer.install(TOOL, zipSource(), ToolChannel.LATEST, line -> {});
         var binary = directory.versionDirectory("demo", "1.0.0").resolve("bin/demo");
         Files.writeString(binary, "old");
         var launcher = directory.binDirectory().resolve("demo");
         Files.delete(launcher);
         Files.createDirectories(launcher.resolve("blocker"));
 
-        assertThatThrownBy(() -> installer.reinstall(TOOL, zipSource(), line -> {})).isInstanceOf(IOException.class);
+        assertThatThrownBy(() -> installer.reinstall(TOOL, zipSource(), ToolChannel.LATEST, line -> {})).isInstanceOf(IOException.class);
 
         assertThat(binary).hasContent("old");
         assertThat(directory.installedVersion("demo")).contains("1.0.0");
@@ -341,11 +342,11 @@ class ManagedToolInstallerTest {
 
     @Test
     void interruptedReinstallKeepsTheOldInstallationAndLeavesNoPartialFolder() throws Exception {
-        installer.install(TOOL, zipSource(), line -> {});
+        installer.install(TOOL, zipSource(), ToolChannel.LATEST, line -> {});
         var binary = directory.versionDirectory("demo", "1.0.0").resolve("bin/demo");
         Files.writeString(binary, "old");
 
-        assertThatThrownBy(() -> installer.reinstall(TOOL, zipSource(), text -> {
+        assertThatThrownBy(() -> installer.reinstall(TOOL, zipSource(), ToolChannel.LATEST, text -> {
             if (text.contains("Checksum verified")) {
                 Thread.currentThread().interrupt();
             }
@@ -360,12 +361,12 @@ class ManagedToolInstallerTest {
 
     @Test
     void failedReinstallLauncherWriteLeavesNoStaleAsideFolderAndKeepsTheOldMarker() throws Exception {
-        installer.install(TOOL, zipSource(), line -> {});
+        installer.install(TOOL, zipSource(), ToolChannel.LATEST, line -> {});
         var launcher = directory.binDirectory().resolve("demo");
         Files.delete(launcher);
         Files.createDirectories(launcher.resolve("blocker"));
 
-        assertThatThrownBy(() -> installer.reinstall(TOOL, zipSource(), line -> {})).isInstanceOf(IOException.class);
+        assertThatThrownBy(() -> installer.reinstall(TOOL, zipSource(), ToolChannel.LATEST, line -> {})).isInstanceOf(IOException.class);
 
         assertThat(directory.versionDirectory("demo", "1.0.0").resolve(ManagedToolsDirectory.COMPLETE_MARKER)).exists();
         assertThat(entries(directory.root().resolve("demo"))).noneMatch(name -> name.contains("partial"));
@@ -373,7 +374,7 @@ class ManagedToolInstallerTest {
 
     @Test
     void interruptDuringTheExtractionIsReportedAsInterrupted() throws Exception {
-        assertThatThrownBy(() -> installer.install(TOOL, zipSource(), text -> {
+        assertThatThrownBy(() -> installer.install(TOOL, zipSource(), ToolChannel.LATEST, text -> {
             if (text.contains("Checksum verified")) {
                 Thread.currentThread().interrupt();
             }
@@ -392,7 +393,7 @@ class ManagedToolInstallerTest {
         Files.createDirectories(directory.versionDirectory("demo", "0.9.0.partial-abc"));
         Files.createDirectories(directory.versionDirectory("demo", "0.9.0.partial-stale-def"));
 
-        installer.install(TOOL, zipSource(), line -> {});
+        installer.install(TOOL, zipSource(), ToolChannel.LATEST, line -> {});
 
         assertThat(entries(directory.downloadsDirectory())).isEmpty();
         assertThat(entries(directory.root().resolve("demo"))).containsExactlyInAnyOrder("1.0.0", "state");
@@ -405,6 +406,77 @@ class ManagedToolInstallerTest {
         try (Stream<Path> files = Files.list(folder)) {
             return files.map(file -> file.getFileName().toString()).toList();
         }
+    }
+
+    private DownloadSource withLauncher(LauncherSpec launcher) {
+        var base = zipSource();
+        return new DownloadSource(base.latest(), base.archiveUrl(), base.archive(), launcher);
+    }
+
+    private DownloadSource pinnedSource(String version, String url, String sha256) {
+        var base = zipSource();
+        return new DownloadSource(base.latest(), base.archiveUrl(), base.archive(), base.launcher(), new PinnedVersion(version, url, sha256));
+    }
+
+    private DownloadSource servedPinnedSource(String sha256) {
+        return pinnedSource("1.0.0", server.uri("/pkg/1.0.0/demo.zip").toString(), sha256);
+    }
+
+    @Test
+    void verifiedChannelInstallsThePinnedVersionWithoutAskingForLatestOrTheRemoteChecksum() throws Exception {
+        latest.set("v9.9.9");
+        checksumOverride.set("garbage");
+
+        var installed = installer.install(TOOL, servedPinnedSource(sha256(zip("1.0.0", "one"))), ToolChannel.VERIFIED, line -> {});
+
+        assertThat(installed.version()).isEqualTo("1.0.0");
+        assertThat(Files.readString(directory.versionDirectory("demo", "1.0.0").resolve(".ccm/channel"))).isEqualTo("VERIFIED");
+        assertThat(installer.installedChannel(TOOL)).isEqualTo(ToolChannel.VERIFIED);
+    }
+
+    @Test
+    void aWrongCatalogHashFailsClosedAndInstallsNothing() {
+        assertThatThrownBy(() -> installer.install(TOOL, servedPinnedSource("0".repeat(64)), ToolChannel.VERIFIED, line -> {}))
+                .isInstanceOf(IOException.class).hasMessageContaining("mismatch");
+
+        assertThat(directory.installedVersion("demo")).isEmpty();
+    }
+
+    @Test
+    void latestChannelUsesTheResolverAndRecordsTheChannel() throws Exception {
+        latest.set("v1.1.0");
+
+        var installed = installer.install(TOOL, servedPinnedSource("0".repeat(64)), ToolChannel.LATEST, line -> {});
+
+        assertThat(installed.version()).isEqualTo("1.1.0");
+        assertThat(installer.installedChannel(TOOL)).isEqualTo(ToolChannel.LATEST);
+    }
+
+    @Test
+    void aToolWithoutAPinnedSourceIgnoresTheChannel() throws Exception {
+        latest.set("v1.1.0");
+
+        assertThat(installer.install(TOOL, zipSource(), ToolChannel.VERIFIED, line -> {}).version()).isEqualTo("1.1.0");
+    }
+
+    @Test
+    void refreshWritesARefusalForALegacyInstallThatIsNotThePinnedVersion() throws Exception {
+        installedWith("bin/demo");
+
+        installer.refreshLauncher(TOOL, pinnedSource("1.1.0", "https://example.com/demo.zip", "0".repeat(64)));
+
+        assertThat(Files.readString(directory.binDirectory().resolve("demo"))).contains("not the verified version 1.1.0").contains("exit 1");
+    }
+
+    @Test
+    void refreshWritesTheNormalLauncherForTheLatestChannel() throws Exception {
+        var version = installedWith("bin/demo");
+        Files.createDirectories(version.resolve(".ccm"));
+        Files.writeString(version.resolve(".ccm/channel"), "LATEST");
+
+        installer.refreshLauncher(TOOL, pinnedSource("1.1.0", "https://example.com/demo.zip", "0".repeat(64)));
+
+        assertThat(Files.readString(directory.binDirectory().resolve("demo"))).contains(version.resolve("bin/demo").toString());
     }
 
     private static void send(com.sun.net.httpserver.HttpExchange exchange, byte[] bytes) throws IOException {
@@ -443,6 +515,12 @@ class ManagedToolInstallerTest {
             entry.setMode(0755);
             tar.putArchiveEntry(entry);
             tar.write(data);
+            tar.closeArchiveEntry();
+            var config = "osgi.bundles=a@1:start\n".getBytes(StandardCharsets.UTF_8);
+            var configEntry = new TarArchiveEntry("demo-" + version + "/config_linux/config.ini");
+            configEntry.setSize(config.length);
+            tar.putArchiveEntry(configEntry);
+            tar.write(config);
             tar.closeArchiveEntry();
         }
         return bytes.toByteArray();

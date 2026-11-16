@@ -2,6 +2,7 @@ package com.github.krpkbhdn.ccmanager.toolchain;
 
 import com.github.krpkbhdn.ccmanager.toolchain.managed.LauncherWriter;
 import com.github.krpkbhdn.ccmanager.toolchain.managed.ManagedToolsDirectory;
+import com.github.krpkbhdn.ccmanager.toolchain.managed.ToolChannel;
 import com.github.krpkbhdn.ccmanager.workspace.CommandRunner;
 import com.github.krpkbhdn.ccmanager.workspace.HostEnvironment;
 import java.io.IOException;
@@ -22,6 +23,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Component;
@@ -48,6 +50,13 @@ public class ToolProbe {
         CommandRunner.Result run(List<String> command, Duration timeout, Map<String, String> environment) throws IOException;
     }
 
+    /** Which channel a managed tool was installed from; the install service provides it, VERIFIED when unknown. */
+    @FunctionalInterface
+    public interface InstalledChannels {
+        ToolChannel installedChannel(String toolId);
+    }
+
+    private final InstalledChannels channels;
     private final ToolCatalog catalog;
     private final ExecutableLookup lookup;
     private final HostEnvironment host;
@@ -64,13 +73,28 @@ public class ToolProbe {
 
     @Autowired
     public ToolProbe(ToolCatalog catalog, ExecutableLookup lookup, HostEnvironment host, LspHandshake handshake,
+                     ToolchainProperties properties, ManagedToolsDirectory managedTools, ObjectProvider<InstalledChannels> channels) {
+        this(catalog, lookup, host, handshake, properties, managedTools,
+                (command, timeout, environment) -> CommandRunner.run(command, null, timeout, environment), Clock.systemUTC(),
+                id -> channels.getIfAvailable(() -> unknown -> ToolChannel.VERIFIED).installedChannel(id));
+    }
+
+    public ToolProbe(ToolCatalog catalog, ExecutableLookup lookup, HostEnvironment host, LspHandshake handshake,
                      ToolchainProperties properties, ManagedToolsDirectory managedTools) {
         this(catalog, lookup, host, handshake, properties, managedTools,
-                (command, timeout, environment) -> CommandRunner.run(command, null, timeout, environment), Clock.systemUTC());
+                (command, timeout, environment) -> CommandRunner.run(command, null, timeout, environment), Clock.systemUTC(),
+                id -> ToolChannel.VERIFIED);
     }
 
     ToolProbe(ToolCatalog catalog, ExecutableLookup lookup, HostEnvironment host, LspHandshake handshake,
               ToolchainProperties properties, ManagedToolsDirectory managedTools, VersionCommand versionCommand, Clock clock) {
+        this(catalog, lookup, host, handshake, properties, managedTools, versionCommand, clock, id -> ToolChannel.VERIFIED);
+    }
+
+    ToolProbe(ToolCatalog catalog, ExecutableLookup lookup, HostEnvironment host, LspHandshake handshake,
+              ToolchainProperties properties, ManagedToolsDirectory managedTools, VersionCommand versionCommand, Clock clock,
+              InstalledChannels channels) {
+        this.channels = channels;
         this.managedTools = managedTools;
         this.catalog = catalog;
         this.lookup = lookup;
@@ -205,8 +229,14 @@ public class ToolProbe {
         return switch (result.outcome()) {
             case RESPONDED -> new ToolStatus(tool.id(), ToolState.RESPONDING, installed.version(), "");
             case NO_RESPONSE_IN_TIME -> installed;
-            case FAILED -> new ToolStatus(tool.id(), ToolState.FAILED, installed.version(), truncate(result.detail(), MAX_DETAIL_LENGTH));
+            case FAILED -> new ToolStatus(tool.id(), ToolState.FAILED, installed.version(),
+                    truncate(latestPrefix(tool, installed.version()) + result.detail(), MAX_DETAIL_LENGTH));
         };
+    }
+
+    private String latestPrefix(ToolDefinition tool, String version) {
+        return tool.supportsChannels() && channels.installedChannel(tool.id()) == ToolChannel.LATEST
+                ? "Latest " + tool.id() + " " + version + " (not verified with the output-redirect bundle): " : "";
     }
 
     /**

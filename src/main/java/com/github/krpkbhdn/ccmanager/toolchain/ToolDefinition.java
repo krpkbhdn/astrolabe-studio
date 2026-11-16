@@ -57,6 +57,10 @@ public record ToolDefinition(String id, String name, String group, ToolKind kind
         return Optional.ofNullable(download.get(os));
     }
 
+    public boolean supportsChannels() {
+        return download.values().stream().anyMatch(source -> source.pinnedVersion().isPresent());
+    }
+
     public List<String> installCommand(String os) {
         return install.getOrDefault(os, List.of());
     }

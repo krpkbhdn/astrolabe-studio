@@ -1,4 +1,8 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import java.net.URI
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
 
 plugins {
     java
@@ -10,7 +14,7 @@ plugins {
 }
 
 group = "com.github.krpkbhdn"
-version = "2.3.12"
+version = "2.3.13"
 
 java {
     toolchain {
@@ -190,6 +194,77 @@ tasks.named<JavaExec>("runPreview") {
             environment("CC_MANAGER_DATA_DIR", layout.buildDirectory.dir("preview-real-data").get().asFile.absolutePath)
         }
     }
+}
+
+// The jdtls output-redirect OSGi bundle compiles against the plugin jars of the pinned jdtls archive from tools.json
+// (jdtls jars are Java 25 bytecode, so javac 25 reads them while the bundle targets release 21).
+val jdtlsBundle = sourceSets.create("jdtlsBundle")
+
+val jdtlsPinned: Map<String, String> by lazy {
+    val tools = groovy.json.JsonSlurper().parse(file("src/main/resources/toolchain/tools.json")) as Map<*, *>
+    val jdtls = (tools["tools"] as List<*>).map { it as Map<*, *> }.first { it["id"] == "jdtls" }
+    fun pinnedOf(os: String) = (((jdtls["download"] as Map<*, *>)[os] as Map<*, *>)["pinned"] as? Map<*, *>)
+        ?: error("tools.json: jdtls has no download.$os.pinned (url, sha256)")
+    val pinned = pinnedOf("windows")
+    val other = pinnedOf("linux")
+    check(pinned["url"] == other["url"] && pinned["sha256"] == other["sha256"]) { "tools.json: jdtls pinned differs between windows and linux" }
+    mapOf("url" to pinned["url"] as String, "sha256" to (pinned["sha256"] as String).lowercase())
+}
+val jdtlsArchiveCache = gradle.gradleUserHomeDir.resolve("ccm-jdtls")
+
+val downloadJdtlsArchive = tasks.register("downloadJdtlsArchive") {
+    val toolsJson = file("src/main/resources/toolchain/tools.json")
+    inputs.file(toolsJson)
+    outputs.file(provider { File(jdtlsArchiveCache, "${jdtlsPinned.getValue("sha256")}.tar.gz") })
+    doLast {
+        val url = jdtlsPinned.getValue("url")
+        val sha256 = jdtlsPinned.getValue("sha256")
+        check(url.startsWith("https://")) { "jdtls pinned url must be https: $url" }
+        fun sha256Of(file: File) = MessageDigest.getInstance("SHA-256")
+            .digest(file.readBytes()).joinToString("") { "%02x".format(it) }
+        val archive = File(jdtlsArchiveCache, "$sha256.tar.gz")
+        if (archive.isFile && sha256Of(archive) == sha256) return@doLast
+        jdtlsArchiveCache.mkdirs()
+        val partial = File.createTempFile("jdtls-", ".partial", jdtlsArchiveCache)
+        try {
+            URI(url).toURL().openStream().use { input -> partial.outputStream().use { input.copyTo(it) } }
+            val actual = sha256Of(partial)
+            check(actual == sha256) { "jdtls archive SHA-256 mismatch: expected $sha256 but got $actual ($url)" }
+            Files.move(partial.toPath(), archive.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        } finally {
+            partial.delete()
+        }
+    }
+}
+
+// Only plugins/*.jar, flattened to the file name, so nothing in the untrusted archive can land outside the target folder.
+val fetchJdtlsForBundle = tasks.register<Copy>("fetchJdtlsForBundle") {
+    dependsOn(downloadJdtlsArchive)
+    from(provider { tarTree(resources.gzip(File(jdtlsArchiveCache, "${jdtlsPinned.getValue("sha256")}.tar.gz"))) }) {
+        include("plugins/*.jar")
+        eachFile { relativePath = RelativePath(true, name) }
+    }
+    includeEmptyDirs = false
+    into(layout.buildDirectory.dir("jdtls-plugins"))
+}
+
+dependencies {
+    "jdtlsBundleCompileOnly"(fileTree(layout.buildDirectory.dir("jdtls-plugins")) { include("*.jar"); builtBy(fetchJdtlsForBundle) })
+}
+
+tasks.named<JavaCompile>("compileJdtlsBundleJava") {
+    options.release = 21
+}
+
+val jdtlsBundleJar = tasks.register<Jar>("jdtlsBundleJar") {
+    from(jdtlsBundle.output) { exclude("META-INF/MANIFEST.MF", "composeResources/**") }
+    manifest { from(file("src/jdtlsBundle/resources/META-INF/MANIFEST.MF")) }
+    archiveFileName = "dev.ccm.jdtls.output.jar"
+    destinationDirectory = layout.buildDirectory.dir("jdtls-bundle")
+}
+
+tasks.processResources {
+    from(jdtlsBundleJar) { into("toolchain/jdtls") }
 }
 
 compose.desktop {

@@ -14,6 +14,7 @@ import com.github.krpkbhdn.ccmanager.ui.components.WithTooltip
 import com.github.krpkbhdn.ccmanager.ui.theme.Spacing
 import com.github.krpkbhdn.ccmanager.ui.theme.Type
 import com.github.krpkbhdn.ccmanager.ui.theme.colors
+import com.github.krpkbhdn.ccmanager.ui.tools.ChannelControls
 import com.github.krpkbhdn.ccmanager.ui.tools.ChipTone
 import com.github.krpkbhdn.ccmanager.ui.tools.InstallButtonView
 import com.github.krpkbhdn.ccmanager.ui.tools.ToolRow
@@ -47,6 +48,7 @@ private fun ToolRowView(row: ToolRow, tools: ToolsState) {
     SettingRow(tool.name, note ?: listOfNotNull(tool.binary, includesNoteOf(tool)).joinToString(" - ")) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             WithTooltip(chip.tooltip) { Chip(chip.text, chip.tone.tint()) }
+            ChannelControls(tool, row.status, tools)
             val install = installButtonOf(row.status, tools.plans[tool.id], tool.docsUrl, tools.isManaged(tool.id))
             InstallButtonView(install, "Install", { tools.requestInstall(tool.id) }, tools::openDocs, { tools.requestUninstall(tool.id) })
             AppButton("Check", { tools.check(tool.id) }, compact = true, enabled = !tools.isChecking(tool.id))

@@ -9,8 +9,11 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Pattern;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /** Writes the launcher in {@code tools/bin} that Claude's LSP plugin runs by command name: a .cmd on Windows, a sh script elsewhere. */
@@ -38,10 +41,42 @@ public class LauncherWriter {
     private static final String WINDOWS_WORKSPACE = "%WS%";
     private static final String POSIX_WORKSPACE = "$WS";
 
-    private final ManagedToolsDirectory directory;
+    private static final String BUNDLE_RESOURCE = "/toolchain/jdtls/dev.ccm.jdtls.output.jar";
+    private static final String BUNDLE_JAR = "dev.ccm.jdtls.output.jar";
+    private static final String OUR_FOLDER = ".ccm";
+    private static final String APPLICATION = "dev.ccm.jdtls.output.app";
+    private static final Pattern BUNDLES_LINE = Pattern.compile("^osgi\\.bundles=", Pattern.MULTILINE);
+    private static final Pattern UNSAFE_REASON = Pattern.compile("[^A-Za-z0-9 .,_-]");
+    private static final String MISSING_MESSAGE = "jdtls output bundle or its configuration is missing, reinstall jdtls";
+    private static final String MISSING_WINDOWS = ">&2 echo " + MISSING_MESSAGE + " & exit /b 1\r\n";
+    private static final String MISSING_POSIX = "{ echo '" + MISSING_MESSAGE + "' >&2; exit 1; }\n";
 
+    /** Source of the bytes of our jdtls output bundle. */
+    @FunctionalInterface
+    public interface JdtlsBundle {
+        byte[] bytes() throws IOException;
+    }
+
+    private final ManagedToolsDirectory directory;
+    private final JdtlsBundle bundle;
+
+    @Autowired
     public LauncherWriter(ManagedToolsDirectory directory) {
+        this(directory, LauncherWriter::bundleFromClasspath);
+    }
+
+    LauncherWriter(ManagedToolsDirectory directory, JdtlsBundle bundle) {
         this.directory = directory;
+        this.bundle = bundle;
+    }
+
+    private static byte[] bundleFromClasspath() throws IOException {
+        try (var in = LauncherWriter.class.getResourceAsStream(BUNDLE_RESOURCE)) {
+            if (in == null) {
+                throw new IOException("The bundled jdtls output bundle " + BUNDLE_RESOURCE + " is missing from the application");
+            }
+            return in.readAllBytes();
+        }
     }
 
     /** {@code binary} is run with all arguments passed on. */
@@ -82,12 +117,50 @@ public class LauncherWriter {
     public Path writeJdtls(String command, Path install, Path stateDirectory, Platform platform) throws IOException {
         var target = launcherPath(command, platform);
         var jar = findLauncherJar(install);
-        requireSafe(platform, target, install, stateDirectory, jar);
+        var ours = install.resolve(OUR_FOLDER);
+        var copiedJar = ours.resolve(BUNDLE_JAR);
+        var config = ours.resolve("config").resolve("config.ini");
+        requireSafe(platform, target, install, stateDirectory, jar, copiedJar);
+        installOurBundle(install, copiedJar, config, platform);
         var java = String.join(" ", jdtlsCommand(install, jar, stateDirectory, platform));
         var text = platform == Platform.WINDOWS
-                ? "@echo off\r\nsetlocal\r\nset \"WS=%CD%\"\r\nset \"WS=%WS:\\=_%\"\r\nset \"WS=%WS:/=_%\"\r\nset \"WS=%WS::=_%\"\r\n" + java + "\r\n"
-                : "#!/bin/sh\nWS=$(pwd | tr '/' '_')\nexec " + java + "\n";
+                ? "@echo off\r\nsetlocal\r\n"
+                        + "if not exist \"" + copiedJar + "\" " + MISSING_WINDOWS
+                        + "if not exist \"" + config + "\" " + MISSING_WINDOWS
+                        + "set \"WS=%CD%\"\r\nset \"WS=%WS:\\=_%\"\r\nset \"WS=%WS:/=_%\"\r\nset \"WS=%WS::=_%\"\r\n" + java + "\r\n"
+                : "#!/bin/sh\n[ -f " + posixQuote(copiedJar) + " ] && [ -f " + posixQuote(config) + " ] || " + MISSING_POSIX
+                        + "WS=$(pwd | tr '/' '_')\nexec " + java + "\n";
         return write(target, text, platform);
+    }
+
+    /** A launcher that only reports why the installed version may not run, for a version or channel that is not allowed. */
+    public Path writeRefusal(String command, String reason, Platform platform) throws IOException {
+        var target = launcherPath(command, platform);
+        var safe = UNSAFE_REASON.matcher(reason).replaceAll(" ");
+        var text = platform == Platform.WINDOWS
+                ? "@echo off\r\n>&2 echo " + safe + "\r\nexit /b 1\r\n"
+                : "#!/bin/sh\necho " + posixQuote(safe) + " >&2\nexit 1\n";
+        return write(target, text, platform);
+    }
+
+    private void installOurBundle(Path install, Path copiedJar, Path config, Platform platform) throws IOException {
+        var bytes = bundle.bytes();
+        Files.createDirectories(copiedJar.getParent());
+        if (!Files.isRegularFile(copiedJar) || !Arrays.equals(Files.readAllBytes(copiedJar), bytes)) {
+            Files.write(copiedJar, bytes);
+        }
+        var installed = install.resolve(platform.configDirectory()).resolve("config.ini");
+        var original = Files.readString(installed);
+        var matcher = BUNDLES_LINE.matcher(original);
+        if (!matcher.find()) {
+            throw new IOException("No osgi.bundles= line in " + installed);
+        }
+        var reference = "reference:file:" + copiedJar.toAbsolutePath().toString().replace('\\', '/') + "@4:start,";
+        var generated = original.substring(0, matcher.end()) + reference + original.substring(matcher.end());
+        Files.createDirectories(config.getParent());
+        if (!Files.isRegularFile(config) || !Files.readString(config).equals(generated)) {
+            Files.writeString(config, generated);
+        }
     }
 
     /** The java command line as quoted tokens; the workspace token is a variable the script sets from the working directory. */
@@ -98,19 +171,20 @@ public class LauncherWriter {
                 "java",
                 "-Djdk.xml.maxGeneralEntitySizeLimit=0",
                 "-Djdk.xml.totalEntitySizeLimit=0",
-                "-Declipse.application=org.eclipse.jdt.ls.core.id1",
+                "-Declipse.application=" + APPLICATION,
                 "-Dosgi.bundles.defaultStartLevel=4",
                 "-Declipse.product=org.eclipse.jdt.ls.core.product",
                 "-Dosgi.checkConfiguration=true",
                 quoted("-Dosgi.sharedConfiguration.area=" + install.resolve(platform.configDirectory()), windows),
                 "-Dosgi.sharedConfiguration.area.readOnly=true",
                 "-Dosgi.configuration.cascaded=false",
+                "-Djava.import.generatesMetadataFilesAtProjectRoot=false",
                 "-Xms1G",
                 "--add-modules=ALL-SYSTEM",
                 "--add-opens", "java.base/java.util=ALL-UNNAMED",
                 "--add-opens", "java.base/java.lang=ALL-UNNAMED",
                 "-jar", quoted(launcherJar.toString(), windows),
-                "-configuration", quoted(stateDirectory.resolve("config").toString(), windows),
+                "-configuration", quoted(install.resolve(OUR_FOLDER).resolve("config").toString(), windows),
                 "-data"));
         arguments.add(windows
                 ? "\"" + workspace + "\\" + WINDOWS_WORKSPACE + "\""

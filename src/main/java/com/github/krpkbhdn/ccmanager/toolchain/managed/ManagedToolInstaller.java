@@ -4,6 +4,7 @@ import com.github.krpkbhdn.ccmanager.toolchain.DownloadSource;
 import com.github.krpkbhdn.ccmanager.toolchain.LatestSource;
 import com.github.krpkbhdn.ccmanager.toolchain.LauncherSpec;
 import com.github.krpkbhdn.ccmanager.toolchain.ArchiveKind;
+import com.github.krpkbhdn.ccmanager.toolchain.PinnedVersion;
 import com.github.krpkbhdn.ccmanager.toolchain.ToolDefinition;
 import com.github.krpkbhdn.ccmanager.toolchain.ToolchainProperties;
 import java.io.IOException;
@@ -15,9 +16,12 @@ import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Downloads, verifies and unpacks a tool into {@code tools/<id>/<version>} and writes its launcher. The new version becomes visible
@@ -28,6 +32,9 @@ public final class ManagedToolInstaller {
     /** @param upToDate the newest version was already installed; only its launcher was rewritten */
     public record Installed(String version, boolean upToDate, Path launcher) {}
 
+    private static final Logger log = LoggerFactory.getLogger(ManagedToolInstaller.class);
+    private static final String CHANNEL_FOLDER = ".ccm";
+    private static final String CHANNEL_FILE = "channel";
     private static final String CHECKSUM_SUFFIX = ".sha256";
     private static final int MAX_CHECKSUM_BYTES = 4096;
     private static final double MEGABYTE = 1024.0 * 1024.0;
@@ -48,40 +55,49 @@ public final class ManagedToolInstaller {
         this.platform = platform;
     }
 
-    /** @param onOutput gets the whole progress text so far, the download percentage line replaced in place */
-    public Installed install(ToolDefinition tool, DownloadSource source, Consumer<String> onOutput)
+    /** @param onOutput gets the whole progress text so far, the download percentage line replaced in place; a tool without a pinned source ignores the channel */
+    public Installed install(ToolDefinition tool, DownloadSource source, ToolChannel channel, Consumer<String> onOutput)
             throws IOException, InterruptedException {
-        return install(tool, source, onOutput, false);
+        return install(tool, source, channel, onOutput, false);
     }
 
     /** Fetches and verifies a fresh copy even when the newest version is already installed; the old copy is replaced only after that, and restored if the swap fails. */
-    public Installed reinstall(ToolDefinition tool, DownloadSource source, Consumer<String> onOutput)
+    public Installed reinstall(ToolDefinition tool, DownloadSource source, ToolChannel channel, Consumer<String> onOutput)
             throws IOException, InterruptedException {
-        return install(tool, source, onOutput, true);
+        return install(tool, source, channel, onOutput, true);
     }
 
-    private Installed install(ToolDefinition tool, DownloadSource source, Consumer<String> onOutput, boolean repair)
-            throws IOException, InterruptedException {
+    private Installed install(ToolDefinition tool, DownloadSource source, ToolChannel channel, Consumer<String> onOutput,
+                              boolean repair) throws IOException, InterruptedException {
         var log = new Progress(onOutput);
         directory.sweepStale(tool.id());
-        log.line("Looking up the latest version of " + tool.name() + "...");
-        var version = latestVersion(source.latest());
+        var pinned = channel == ToolChannel.VERIFIED ? source.pinnedVersion() : Optional.<PinnedVersion>empty();
+        String version;
+        if (pinned.isPresent()) {
+            version = pinned.get().version();
+            log.line("Verified version of " + tool.name() + ": " + version);
+        } else {
+            log.line("Looking up the latest version of " + tool.name() + "...");
+            version = latestVersion(source.latest());
+            log.line("Latest version: " + version);
+        }
         var target = directory.versionDirectory(tool.id(), version);
-        log.line("Latest version: " + version);
         if (!repair && Files.exists(target.resolve(ManagedToolsDirectory.COMPLETE_MARKER))) {
             if (launcherTargetExists(usable(source.launcher(), target), target)) {
+                writeChannel(target, channel);
                 var launcher = writeLauncher(tool, source.launcher(), target);
                 log.line("Already up to date. Launcher: " + launcher);
                 return new Installed(version, true, launcher);
             }
             log.line("The installed files are incomplete, installing again");
         }
-        var archiveUri = URI.create(source.archiveUrl().replace("{version}", version));
-        var expectedChecksum = checksumText(URI.create(archiveUri + CHECKSUM_SUFFIX));
+        var archiveUri = URI.create(pinned.isPresent() ? pinned.get().url() : source.archiveUrl().replace("{version}", version));
+        var expectedChecksum = pinned.isPresent() ? pinned.get().sha256() : checksumText(URI.create(archiveUri + CHECKSUM_SUFFIX));
         var partial = target.resolveSibling(version + ".partial-" + UUID.randomUUID());
         Path replaced;
         try {
             unpack(source.archive(), archiveUri, expectedChecksum, partial, log);
+            writeChannel(partial, channel);
             replaced = publish(partial, target);
         } finally {
             ManagedToolsDirectory.deleteTree(partial);
@@ -128,17 +144,59 @@ public final class ManagedToolInstaller {
                 ? spec.fallback() : spec;
     }
 
-    /** Rewrites the launcher of the newest installed version without any download, so a launcher from an older app version gets the current form. */
-    public void refreshLauncher(ToolDefinition tool, LauncherSpec spec) throws IOException {
+    /**
+     * Rewrites the launcher of the newest installed version without any download, so a launcher from an older app version gets the current form.
+     * A VERIFIED install that is not the pinned version, or one whose launcher cannot be written, gets a launcher that only explains why it does not run.
+     */
+    public void refreshLauncher(ToolDefinition tool, DownloadSource source) throws IOException {
         var version = directory.installedVersion(tool.id());
-        if (version.isPresent()) {
-            writeLauncher(tool, spec, directory.versionDirectory(tool.id(), version.get()));
+        if (version.isEmpty()) {
+            return;
         }
+        var install = directory.versionDirectory(tool.id(), version.get());
+        var pinned = source.pinnedVersion();
+        if (pinned.isPresent() && installedChannel(install) == ToolChannel.VERIFIED && !pinned.get().version().equals(version.get())) {
+            writeRefusal(tool, tool.name() + " " + version.get() + " is not the verified version " + pinned.get().version()
+                    + ". Update installs it");
+            return;
+        }
+        try {
+            writeLauncher(tool, source.launcher(), install);
+        } catch (IOException e) {
+            log.warn("Could not write the launcher of {}: {}", tool.id(), e.getClass().getSimpleName());
+            writeRefusal(tool, "The launcher of " + tool.name() + " could not be written. Reinstall it");
+        }
+    }
+
+    private void writeRefusal(ToolDefinition tool, String reason) throws IOException {
+        Files.createDirectories(directory.binDirectory());
+        launchers.writeRefusal(tool.binary(), reason, platform);
+    }
+
+    /** The channel of the newest installed version; VERIFIED when nothing is installed or the install predates channels. */
+    public ToolChannel installedChannel(ToolDefinition tool) {
+        return directory.installedVersion(tool.id())
+                .map(version -> installedChannel(directory.versionDirectory(tool.id(), version))).orElse(ToolChannel.VERIFIED);
     }
 
     private String latestVersion(LatestSource latest) throws IOException, InterruptedException {
         return new LatestVersionResolver(http, properties.metadataTimeout()).resolve(URI.create(latest.url()),
                 Pattern.compile(latest.pattern()), latest.kind() == LatestSource.Kind.REDIRECT);
+    }
+
+    private static void writeChannel(Path install, ToolChannel channel) throws IOException {
+        var folder = install.resolve(CHANNEL_FOLDER);
+        Files.createDirectories(folder);
+        Files.writeString(folder.resolve(CHANNEL_FILE), channel.name());
+    }
+
+    /** The channel an install was made from; a missing or unreadable file (legacy install) is VERIFIED. */
+    static ToolChannel installedChannel(Path install) {
+        try {
+            return ToolChannel.valueOf(Files.readString(install.resolve(CHANNEL_FOLDER).resolve(CHANNEL_FILE)).strip());
+        } catch (IOException | IllegalArgumentException e) {
+            return ToolChannel.VERIFIED;
+        }
     }
 
     private String checksumText(URI uri) throws IOException, InterruptedException {

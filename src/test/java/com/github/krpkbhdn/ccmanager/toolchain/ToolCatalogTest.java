@@ -25,6 +25,12 @@ class ToolCatalogTest {
     }
 
     @Test
+    void readsOptionalPinnedVersionOfDownloadSource() {
+        assertThat(catalog.find("jdtls").orElseThrow().downloadSource("linux").orElseThrow().pinnedVersion()).isPresent();
+        assertThat(catalog.find("kotlin-lsp").orElseThrow().downloadSource("linux").orElseThrow().pinnedVersion()).isEmpty();
+    }
+
+    @Test
     void failsOnMissingResource() {
         assertThatThrownBy(() -> new ToolCatalog("/toolchain/absent.json")).isInstanceOf(IllegalStateException.class);
     }

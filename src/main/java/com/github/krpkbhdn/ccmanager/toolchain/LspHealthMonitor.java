@@ -1,5 +1,7 @@
 package com.github.krpkbhdn.ccmanager.toolchain;
 
+import com.github.krpkbhdn.ccmanager.toolchain.managed.ManagedToolsDirectory;
+import com.github.krpkbhdn.ccmanager.toolchain.managed.ToolChannel;
 import com.github.krpkbhdn.ccmanager.workspace.ScheduledSweep;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -7,6 +9,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -26,6 +29,7 @@ import org.springframework.stereotype.Component;
 public class LspHealthMonitor extends ScheduledSweep {
 
     private static final Logger log = LoggerFactory.getLogger(LspHealthMonitor.class);
+    private static final String JDTLS = "jdtls";
 
     @FunctionalInterface
     interface Pause {
@@ -68,16 +72,20 @@ public class LspHealthMonitor extends ScheduledSweep {
     private final List<Watcher> watchers = new CopyOnWriteArrayList<>();
     private final Map<String, Instant> lastReinstall = new ConcurrentHashMap<>();
     private final Set<String> notRepairedByReinstall = ConcurrentHashMap.newKeySet();
+    private final Map<String, String> details = new ConcurrentHashMap<>();
+    private final ManagedToolsDirectory managedTools;
 
     @Autowired
     public LspHealthMonitor(ProjectToolsService projectTools, ToolProbe probe, ToolInstallService installer,
-                            LspHealthProperties properties) {
-        this(projectTools, probe, installer, properties, Clock.systemUTC(), duration -> Thread.sleep(duration.toMillis()));
+                            LspHealthProperties properties, ManagedToolsDirectory managedTools) {
+        this(projectTools, probe, installer, properties, managedTools, Clock.systemUTC(),
+                duration -> Thread.sleep(duration.toMillis()));
     }
 
     LspHealthMonitor(ProjectToolsService projectTools, ToolProbe probe, ToolInstallService installer,
-                     LspHealthProperties properties, Clock clock, Pause pause) {
+                     LspHealthProperties properties, ManagedToolsDirectory managedTools, Clock clock, Pause pause) {
         super("lsp-health", properties.interval());
+        this.managedTools = managedTools;
         this.projectTools = projectTools;
         this.probe = probe;
         this.installer = installer;
@@ -112,28 +120,53 @@ public class LspHealthMonitor extends ScheduledSweep {
 
     private void check(Path directory, boolean recover) {
         try {
-            var current = projectTools.detected(directory).stream().map(found -> fresh(found, recover)).toList();
+            var current = projectTools.detected(directory).stream().map(found -> fresh(directory, found, recover)).toList();
             watchers.stream().filter(watcher -> watcher.directory.equals(directory)).forEach(watcher -> watcher.deliver(current));
         } catch (RuntimeException e) {
             log.warn("Language server health check of a project failed: {}", e.getClass().getSimpleName());
         }
     }
 
-    private DetectedTechnology fresh(DetectedTechnology found, boolean recover) {
+    /** The reason a server of a project is reported FAILED by this monitor itself rather than by the probe, e.g. a missing Gradle output redirect. */
+    public Optional<String> failureDetail(Path projectDir, String toolId) {
+        return Optional.ofNullable(details.get(detailKey(projectDir, toolId)));
+    }
+
+    private static String detailKey(Path projectDir, String toolId) {
+        return toolId + "@" + projectDir;
+    }
+
+    private DetectedTechnology fresh(Path directory, DetectedTechnology found, boolean recover) {
+        var id = found.tool().id();
+        details.remove(detailKey(directory, id));
         if (found.serverState() == ToolState.MISSING) {
             return found;
         }
-        var id = found.tool().id();
         try {
             var state = probe.probeFresh(id).state();
             if (healthy(state)) {
                 notRepairedByReinstall.remove(id);
+                return new DetectedTechnology(found.tool(), withRedirectCheck(directory, id, state));
             }
             return new DetectedTechnology(found.tool(), recover && state == ToolState.FAILED ? recovered(id) : state);
         } catch (RuntimeException e) {
             log.warn("Probing language server {} failed: {}", id, e.getClass().getSimpleName());
             return found;
         }
+    }
+
+    private ToolState withRedirectCheck(Path directory, String id, ToolState state) {
+        if (!JDTLS.equals(id)) {
+            return state;
+        }
+        var failure = GradleOutputRedirectCheck.failure(managedTools.stateDirectory(id), directory, channelOf(id));
+        failure.ifPresent(detail -> details.put(detailKey(directory, id), detail));
+        return failure.isPresent() ? ToolState.FAILED : state;
+    }
+
+    private ToolChannel channelOf(String id) {
+        var channel = installer.installedChannel(id);
+        return channel == null ? ToolChannel.VERIFIED : channel;
     }
 
     private ToolState recovered(String id) {
@@ -164,7 +197,7 @@ public class LspHealthMonitor extends ScheduledSweep {
     private ToolState reinstalled(String id) {
         var now = clock.instant();
         var previous = lastReinstall.get(id);
-        if (!installer.runsManagedLauncher(id) || notRepairedByReinstall.contains(id)
+        if (!installer.runsManagedLauncher(id) || notRepairedByReinstall.contains(id) || channelOf(id) == ToolChannel.LATEST
                 || previous != null && previous.plus(properties.reinstallCooldown()).isAfter(now)) {
             return ToolState.FAILED;
         }

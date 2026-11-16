@@ -15,6 +15,7 @@ import com.github.krpkbhdn.ccmanager.toolchain.ToolInstallService.InstallPlan
 import com.github.krpkbhdn.ccmanager.toolchain.ToolInstallService.InstallResult
 import com.github.krpkbhdn.ccmanager.toolchain.ToolProbe
 import com.github.krpkbhdn.ccmanager.toolchain.ToolStatus
+import com.github.krpkbhdn.ccmanager.toolchain.managed.ToolChannel
 import java.awt.Desktop
 import java.net.URI
 import kotlinx.coroutines.CancellationException
@@ -63,6 +64,8 @@ class ToolsState(
     private val writtenAt = mutableMapOf<String, Int>()
     val checkingAll: Boolean get() = pendingFullChecks > 0
     private val managed = mutableStateListOf<String>()
+    private val selectedChannels = mutableStateMapOf<String, ToolChannel>()
+    private val installedChannels = mutableStateMapOf<String, ToolChannel>()
     val installRunning: Boolean get() = install.isBusy || backend?.installer?.isInstalling() == true
     var install by mutableStateOf<InstallFlow>(InstallFlow.Idle)
         private set
@@ -144,6 +147,34 @@ class ToolsState(
                 checking -= id
             }
         }
+    }
+
+    /** The channel the next install or update of [id] uses. */
+    fun selectedChannel(id: String): ToolChannel = selectedChannels[id] ?: ToolChannel.VERIFIED
+
+    /** The channel of the installed copy, null when unknown or not installed by the app. */
+    fun installedChannel(id: String): ToolChannel? = installedChannels[id]
+
+    /** Only stores the choice; Install or Update applies it. */
+    fun selectChannel(id: String, channel: ToolChannel) {
+        val tooling = backend ?: return
+        selectedChannels[id] = channel
+        scope.launch {
+            try {
+                io { tooling.installer.selectChannel(id, channel) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                reportError("Could not save the version choice", e.message ?: e.javaClass.simpleName)
+            }
+        }
+    }
+
+    /** Switches to the verified version and opens the install confirm for it. */
+    fun useVerifiedVersion(id: String) {
+        if (install != InstallFlow.Idle || isBlocked()) return
+        selectChannel(id, ToolChannel.VERIFIED)
+        requestInstall(id)
     }
 
     fun requestInstall(id: String) {
@@ -236,6 +267,12 @@ class ToolsState(
         val managedNow = io { all.map { it.id }.filter(tooling.installer::isManaged) }
         managed.retainAll(managedNow.toSet())
         managed += managedNow.filter { it !in managed }
+        val channelTools = all.filter { it.supportsChannels() }.map { it.id }
+        val channels = io { channelTools.associateWith { tooling.installer.selectedChannel(it) } }
+        val installed = io { channelTools.mapNotNull { id -> tooling.installer.installedChannel(id)?.let { id to it } }.toMap() }
+        selectedChannels.putAll(channels)
+        installedChannels.keys.retainAll(installed.keys)
+        installedChannels.putAll(installed)
     }
 
     private suspend fun <T> io(block: () -> T): T = withContext(Dispatchers.IO) { block() }

@@ -39,7 +39,8 @@ class RealToolchainDownloadTest {
         var catalog = new ToolCatalog();
         var lookup = new ExecutableLookup(host, directory);
         var probe = new ToolProbe(catalog, lookup, host, new LspHandshake(), properties, directory);
-        var service = new ToolInstallService(catalog, probe, lookup, host, properties, directory, new LauncherWriter(directory));
+        var service = new ToolInstallService(catalog, probe, lookup, host, properties, directory, new LauncherWriter(directory),
+                new com.github.krpkbhdn.ccmanager.toolchain.managed.ToolChannelStore(directory));
 
         for (var id : TOOL_IDS) {
             var started = System.nanoTime();

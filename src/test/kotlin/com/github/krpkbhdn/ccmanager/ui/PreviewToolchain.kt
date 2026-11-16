@@ -16,6 +16,7 @@ import com.github.krpkbhdn.ccmanager.toolchain.ToolInstallService.Outcome
 import com.github.krpkbhdn.ccmanager.toolchain.ToolProbe
 import com.github.krpkbhdn.ccmanager.toolchain.ToolState
 import com.github.krpkbhdn.ccmanager.toolchain.ToolStatus
+import com.github.krpkbhdn.ccmanager.toolchain.managed.ToolChannel
 import com.github.krpkbhdn.ccmanager.ui.tools.ToolchainBackend
 import java.util.Optional
 import java.util.function.Consumer
@@ -63,6 +64,10 @@ fun previewToolchain(): ToolchainBackend {
         else if (tool.id() == MANAGED_TOOL) Optional.of(InstallPlan(tool, listOf(), "", blocker, "", Optional.of(previewDownload)))
         else Optional.of(InstallPlan(tool, listOf("npm", "install", "-g", tool.binary()), "npm install -g ${tool.binary()}", blocker, "", Optional.empty()))
     }
+    val channels = mutableMapOf<String, ToolChannel>()
+    `when`(installer.selectedChannel(anyString())).thenAnswer { call -> channels[call.getArgument<String>(0)] ?: ToolChannel.VERIFIED }
+    doAnswer { channels[it.getArgument<String>(0)] = it.getArgument<ToolChannel>(1) }.`when`(installer).selectChannel(anyString(), any())
+    `when`(installer.installedChannel(anyString())).thenAnswer { call -> if (call.getArgument<String>(0) == MANAGED_TOOL) ToolChannel.LATEST else null }
     `when`(installer.isManaged(anyString())).thenAnswer { call -> call.getArgument<String>(0) == MANAGED_TOOL }
     `when`(installer.uninstall(anyString())).thenAnswer { call ->
         Thread.sleep(LINE_DELAY_MILLIS)

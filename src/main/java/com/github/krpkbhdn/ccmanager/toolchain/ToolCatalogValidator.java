@@ -128,6 +128,18 @@ final class ToolCatalogValidator {
         }
         checkPattern(where, source.latest().pattern(), problems);
         checkLauncher(where, source.launcher(), problems);
+        source.pinnedVersion().ifPresent(pinned -> checkPinned(where + " pinned", pinned, problems));
+    }
+
+    private static void checkPinned(String where, PinnedVersion pinned, List<String> problems) {
+        checkUrl(where + ".url", pinned.url(), false, problems);
+        if (!pinned.sha256().matches("[0-9a-fA-F]{64}")) {
+            problems.add(where + ".sha256: must be 64 hex characters");
+        }
+        var version = pinned.version();
+        if (version.isEmpty() || version.contains("/") || version.contains("\\") || version.contains("..")) {
+            problems.add(where + ".version: must be non-empty without '/', '\\' or '..'");
+        }
     }
 
     private static String stripVersion(String url) {

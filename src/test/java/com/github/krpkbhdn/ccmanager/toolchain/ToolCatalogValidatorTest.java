@@ -1,5 +1,6 @@
 package com.github.krpkbhdn.ccmanager.toolchain;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -205,6 +206,44 @@ class ToolCatalogValidatorTest {
     void acceptsValidDownload() {
         assertThatCode(() -> ToolCatalogValidator.validate(List.of(download(LATEST, "x-(.+)", ARCHIVE, ArchiveKind.TAR_GZ, JDTLS))))
                 .doesNotThrowAnyException();
+    }
+
+    private static final String SHA = "b1f2abe0b3cccb462cf64fb4a5587c7d09df60cf8be7748b152cbd89d018bdc4";
+    private static final String PINNED_URL = "https://download.eclipse.org/jdtls/milestones/1/x.tar.gz";
+
+    private static ToolDefinition pinned(String version, String url, String sha256) {
+        var source = new DownloadSource(new LatestSource(LatestSource.Kind.TEXT_FILE, LATEST, "x-(.+)"), ARCHIVE, ArchiveKind.TAR_GZ,
+                JDTLS, new PinnedVersion(version, url, sha256));
+        return new ToolDefinition("a", "a", "g", ToolKind.LANGUAGE_SERVER, "a", List.of(), null, null, null, Map.of(), null, null,
+                Map.of("linux", source));
+    }
+
+    @Test
+    void acceptsValidPinnedVersion() {
+        assertThatCode(() -> ToolCatalogValidator.validate(List.of(pinned("1.0-1", PINNED_URL, SHA)))).doesNotThrowAnyException();
+        assertThat(pinned("1.0-1", PINNED_URL, SHA).supportsChannels()).isTrue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "abc", "zz2abe0b3cccb462cf64fb4a5587c7d09df60cf8be7748b152cbd89d018bdc4",
+            "b1f2abe0b3cccb462cf64fb4a5587c7d09df60cf8be7748b152cbd89d018bdc400"})
+    void rejectsBadPinnedSha(String sha) {
+        assertThatThrownBy(() -> ToolCatalogValidator.validate(List.of(pinned("1.0-1", PINNED_URL, sha))))
+                .hasMessageContaining("pinned.sha256");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"http://download.eclipse.org/a.tar.gz", "https://evil.example/a.tar.gz"})
+    void rejectsBadPinnedUrl(String url) {
+        assertThatThrownBy(() -> ToolCatalogValidator.validate(List.of(pinned("1.0-1", url, SHA))))
+                .hasMessageContaining("pinned.url");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "a/b", "a\\b", "1..2"})
+    void rejectsBadPinnedVersion(String version) {
+        assertThatThrownBy(() -> ToolCatalogValidator.validate(List.of(pinned(version, PINNED_URL, SHA))))
+                .hasMessageContaining("pinned.version");
     }
 
     @ParameterizedTest

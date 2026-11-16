@@ -4,6 +4,8 @@ import com.github.krpkbhdn.ccmanager.toolchain.managed.AllowlistedHttp;
 import com.github.krpkbhdn.ccmanager.toolchain.managed.LauncherWriter;
 import com.github.krpkbhdn.ccmanager.toolchain.managed.ManagedToolInstaller;
 import com.github.krpkbhdn.ccmanager.toolchain.managed.ManagedToolsDirectory;
+import com.github.krpkbhdn.ccmanager.toolchain.managed.ToolChannel;
+import com.github.krpkbhdn.ccmanager.toolchain.managed.ToolChannelStore;
 import com.github.krpkbhdn.ccmanager.workspace.CommandRunner;
 import com.github.krpkbhdn.ccmanager.workspace.HostEnvironment;
 import com.github.krpkbhdn.ccmanager.workspace.PtyCommandRunner;
@@ -20,6 +22,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
@@ -29,7 +32,7 @@ import org.springframework.stereotype.Service;
 
 /** Installs catalog tools with their bundled install command, one install at a time. Callers pass a tool id only. */
 @Service
-public class ToolInstallService {
+public class ToolInstallService implements ToolProbe.InstalledChannels {
 
     public enum Outcome { INSTALLED, FAILED, BLOCKED, STILL_MISSING }
 
@@ -68,6 +71,8 @@ public class ToolInstallService {
     private final InstallRunner runner;
     private final ManagedToolsDirectory directory;
     private final ManagedToolInstaller managed;
+    private final ToolChannelStore channels;
+    private final List<Runnable> channelListeners = new CopyOnWriteArrayList<>();
     private final ReentrantLock installing = new ReentrantLock();
     private final Object threadLock = new Object();
     private Thread installThread;
@@ -75,16 +80,17 @@ public class ToolInstallService {
 
     @Autowired
     public ToolInstallService(ToolCatalog catalog, ToolProbe probe, ExecutableLookup lookup, HostEnvironment host,
-                              ToolchainProperties properties, ManagedToolsDirectory directory, LauncherWriter launchers) {
+                              ToolchainProperties properties, ManagedToolsDirectory directory, LauncherWriter launchers,
+                              ToolChannelStore channels) {
         this(catalog, probe, lookup, host, properties, PtyCommandRunner::run, directory,
                 new ManagedToolInstaller(directory, launchers, properties,
                         new AllowlistedHttp(Set.copyOf(ToolCatalogValidator.DOWNLOAD_HOSTS), properties.connectTimeout()),
-                        LauncherWriter.Platform.current()));
+                        LauncherWriter.Platform.current()), channels);
     }
 
     ToolInstallService(ToolCatalog catalog, ToolProbe probe, ExecutableLookup lookup, HostEnvironment host,
                        ToolchainProperties properties, InstallRunner runner, ManagedToolsDirectory directory,
-                       ManagedToolInstaller managed) {
+                       ManagedToolInstaller managed, ToolChannelStore channels) {
         this.catalog = catalog;
         this.probe = probe;
         this.lookup = lookup;
@@ -93,6 +99,7 @@ public class ToolInstallService {
         this.runner = runner;
         this.directory = directory;
         this.managed = managed;
+        this.channels = channels;
     }
 
     /** Brings the launchers of already downloaded tools to the form this app version writes; no download, a failure only keeps the old launcher. */
@@ -100,11 +107,42 @@ public class ToolInstallService {
     void refreshLaunchers() {
         catalog.all().forEach(tool -> tool.downloadSource(osKey()).ifPresent(source -> {
             try {
-                managed.refreshLauncher(tool, source.launcher());
+                managed.refreshLauncher(tool, source);
             } catch (IOException | RuntimeException e) {
                 log.warn("Could not refresh the launcher of {}: {}", tool.id(), e.getClass().getSimpleName());
             }
         }));
+    }
+
+    /** The channel the next install, update or repair uses; always VERIFIED for a tool that has no pinned version. */
+    public ToolChannel selectedChannel(String toolId) {
+        return catalog.find(toolId).filter(ToolDefinition::supportsChannels).map(tool -> channels.selected(toolId))
+                .orElse(ToolChannel.VERIFIED);
+    }
+
+    /** Only remembers the choice; nothing is installed and no launcher is rewritten until the next install or update. */
+    public void selectChannel(String toolId, ToolChannel channel) {
+        var tool = catalog.find(toolId).orElseThrow(() -> new IllegalArgumentException("Unknown tool " + toolId));
+        if (!tool.supportsChannels()) {
+            throw new IllegalArgumentException(tool.name() + " has no channels");
+        }
+        try {
+            channels.select(toolId, channel);
+        } catch (IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
+        channelListeners.forEach(Runnable::run);
+    }
+
+    /** The channel the installed copy came from; VERIFIED when it is not installed or predates channels. */
+    @Override
+    public ToolChannel installedChannel(String toolId) {
+        return catalog.find(toolId).map(managed::installedChannel).orElse(ToolChannel.VERIFIED);
+    }
+
+    /** Called after selectChannel stored a choice, on the calling thread. */
+    public void onChannelChange(Runnable listener) {
+        channelListeners.add(listener);
     }
 
     /** True when this app downloaded the tool, so it can be updated and removed here. */
@@ -227,7 +265,8 @@ public class ToolInstallService {
     private InstallResult runDownload(ToolDefinition tool, DownloadSource source, Consumer<String> onOutput, boolean repair) {
         var toolId = tool.id();
         try {
-            var installed = repair ? managed.reinstall(tool, source, onOutput) : managed.install(tool, source, onOutput);
+            var installed = repair ? managed.reinstall(tool, source, selectedChannel(toolId), onOutput)
+                    : managed.install(tool, source, selectedChannel(toolId), onOutput);
             var status = probe.probeFresh(toolId);
             if (status.state() == ToolState.MISSING) {
                 return new InstallResult(Outcome.STILL_MISSING, 0, status, MANAGED_RESTART_HINT);

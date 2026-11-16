@@ -97,7 +97,7 @@ class ToolProbeTest {
         tools.markComplete(install);
         var tool = new ToolCatalog().find("kotlin-lsp").orElseThrow();
         new ManagedToolInstaller(tools, new LauncherWriter(tools), PROPERTIES, new AllowlistedHttp(Set.of(), Duration.ofSeconds(1)),
-                LauncherWriter.Platform.WINDOWS).refreshLauncher(tool, tool.downloadSource("windows").orElseThrow().launcher());
+                LauncherWriter.Platform.WINDOWS).refreshLauncher(tool, tool.downloadSource("windows").orElseThrow());
         var otherCopy = Path.of("other-bin");
         var windows = new FakeHostEnvironment(WINDOWS, Path.of("home")).withPath(otherCopy).withPath(tools.binDirectory())
                 .withFile(otherCopy.resolve("kotlin-lsp.cmd")).withFile(tools.binDirectory().resolve("kotlin-lsp.cmd"));
@@ -166,6 +166,27 @@ class ToolProbeTest {
         assertThat(server.state()).isEqualTo(ToolState.RESPONDING);
         assertThat(server.version()).isEmpty();
         verify(handshake, times(1)).perform(anyList(), any(), anyMap());
+    }
+
+    private ToolStatus failedJdtls(com.github.krpkbhdn.ccmanager.toolchain.managed.ToolChannel channel) {
+        host = host.withFile(BIN.resolve("jdtls"));
+        when(handshake.perform(anyList(), any(), anyMap())).thenReturn(new LspHandshake.Result(LspHandshake.Outcome.FAILED, "exit 13"));
+        var probe = new ToolProbe(new ToolCatalog(), lookup(host), host, handshake, PROPERTIES, managedTools(),
+                (c, t, env) -> { throw new AssertionError("version command must not run"); }, clock, id -> channel);
+        return probe.probe("jdtls");
+    }
+
+    @Test
+    void latestChannelHandshakeFailureNamesTheUnverifiedVersion() {
+        var status = failedJdtls(com.github.krpkbhdn.ccmanager.toolchain.managed.ToolChannel.LATEST);
+
+        assertThat(status.state()).isEqualTo(ToolState.FAILED);
+        assertThat(status.detail()).isEqualTo("Latest jdtls " + status.version() + " (not verified with the output-redirect bundle): exit 13");
+    }
+
+    @Test
+    void verifiedChannelHandshakeFailureKeepsTheDetail() {
+        assertThat(failedJdtls(com.github.krpkbhdn.ccmanager.toolchain.managed.ToolChannel.VERIFIED).detail()).isEqualTo("exit 13");
     }
 
     @Test

@@ -23,11 +23,17 @@ class LauncherWriterTest {
     @BeforeEach
     void setUp() {
         tools = new ManagedToolsDirectory(new AppProperties(dataDir));
-        writer = new LauncherWriter(tools);
+        writer = new LauncherWriter(tools, () -> bundleBytes);
     }
+
+    byte[] bundleBytes = {1, 2, 3};
 
     private Path jdtlsInstall() throws IOException {
         var install = tools.versionDirectory("jdtls", "1.0");
+        for (var config : new String[] {"config_win", "config_linux", "config_mac"}) {
+            Files.createDirectories(install.resolve(config));
+            Files.writeString(install.resolve(config).resolve("config.ini"), "osgi.bundles=a@1:start,b@2\nother=1\n");
+        }
         Files.createDirectories(install.resolve("plugins"));
         Files.writeString(install.resolve("plugins").resolve("org.eclipse.equinox.launcher_1.7.0.jar"), "");
         Files.writeString(install.resolve("plugins").resolve("org.eclipse.equinox.launcher_1.6.0.jar"), "");
@@ -107,14 +113,18 @@ class LauncherWriterTest {
 
         var text = Files.readString(writer.writeJdtls("jdtls", install, state, Platform.WINDOWS));
 
-        assertThat(text).isEqualTo("@echo off\r\nsetlocal\r\nset \"WS=%CD%\"\r\nset \"WS=%WS:\\=_%\"\r\nset \"WS=%WS:/=_%\"\r\nset \"WS=%WS::=_%\"\r\n"
-                + "java -Djdk.xml.maxGeneralEntitySizeLimit=0 -Djdk.xml.totalEntitySizeLimit=0 -Declipse.application=org.eclipse.jdt.ls.core.id1 -Dosgi.bundles.defaultStartLevel=4"
+        var guard = ">&2 echo jdtls output bundle or its configuration is missing, reinstall jdtls & exit /b 1\r\n";
+        assertThat(text).isEqualTo("@echo off\r\nsetlocal\r\n"
+                + "if not exist \"" + install.resolve(".ccm").resolve("dev.ccm.jdtls.output.jar") + "\" " + guard
+                + "if not exist \"" + install.resolve(".ccm").resolve("config").resolve("config.ini") + "\" " + guard
+                + "set \"WS=%CD%\"\r\nset \"WS=%WS:\\=_%\"\r\nset \"WS=%WS:/=_%\"\r\nset \"WS=%WS::=_%\"\r\n"
+                + "java -Djdk.xml.maxGeneralEntitySizeLimit=0 -Djdk.xml.totalEntitySizeLimit=0 -Declipse.application=dev.ccm.jdtls.output.app -Dosgi.bundles.defaultStartLevel=4"
                 + " -Declipse.product=org.eclipse.jdt.ls.core.product -Dosgi.checkConfiguration=true"
                 + " \"-Dosgi.sharedConfiguration.area=" + install.resolve("config_win") + "\""
-                + " -Dosgi.sharedConfiguration.area.readOnly=true -Dosgi.configuration.cascaded=false -Xms1G --add-modules=ALL-SYSTEM"
+                + " -Dosgi.sharedConfiguration.area.readOnly=true -Dosgi.configuration.cascaded=false -Djava.import.generatesMetadataFilesAtProjectRoot=false -Xms1G --add-modules=ALL-SYSTEM"
                 + " --add-opens java.base/java.util=ALL-UNNAMED --add-opens java.base/java.lang=ALL-UNNAMED"
                 + " -jar \"" + install.resolve("plugins").resolve("org.eclipse.equinox.launcher_1.7.0.jar") + "\""
-                + " -configuration \"" + state.resolve("config") + "\""
+                + " -configuration \"" + install.resolve(".ccm").resolve("config") + "\""
                 + " -data \"" + state.resolve("workspaces") + "\\%WS%\" %*\r\n");
     }
 
@@ -126,8 +136,12 @@ class LauncherWriterTest {
         var linux = Files.readString(writer.writeJdtls("jdtls", install, state, Platform.LINUX));
         var mac = Files.readString(writer.writeJdtls("jdtls", install, state, Platform.MAC));
 
-        assertThat(linux).startsWith("#!/bin/sh\nWS=$(pwd | tr '/' '_')\nexec java -Djdk.xml.maxGeneralEntitySizeLimit=0 -Djdk.xml.totalEntitySizeLimit=0 -Declipse.application=org.eclipse.jdt.ls.core.id1 ")
+        assertThat(linux).startsWith("#!/bin/sh\n[ -f '" + install.resolve(".ccm").resolve("dev.ccm.jdtls.output.jar") + "' ] && [ -f '"
+                        + install.resolve(".ccm").resolve("config").resolve("config.ini") + "' ] || "
+                        + "{ echo 'jdtls output bundle or its configuration is missing, reinstall jdtls' >&2; exit 1; }\n"
+                        + "WS=$(pwd | tr '/' '_')\nexec java -Djdk.xml.maxGeneralEntitySizeLimit=0 -Djdk.xml.totalEntitySizeLimit=0 -Declipse.application=dev.ccm.jdtls.output.app ")
                 .contains("'-Dosgi.sharedConfiguration.area=" + install.resolve("config_linux") + "'")
+                .contains(" -Djava.import.generatesMetadataFilesAtProjectRoot=false -Xms1G")
                 .contains(" -jar '" + install.resolve("plugins").resolve("org.eclipse.equinox.launcher_1.7.0.jar") + "'")
                 .endsWith(" -data '" + state.resolve("workspaces") + "/'\"$WS\" \"$@\"\n");
         assertThat(mac).contains("config_mac").doesNotContain("config_linux");
@@ -153,6 +167,57 @@ class LauncherWriterTest {
         var text = Files.readString(writer.writeJdtls("jdtls", install, tools.stateDirectory("jdtls"), Platform.LINUX));
 
         assertThat(text).contains("org.eclipse.equinox.launcher_1.10.0.jar");
+    }
+
+    @Test
+    void configIniGetsOurBundleRightAfterOsgiBundlesWithForwardSlashes() throws IOException {
+        var install = jdtlsInstall();
+
+        writer.writeJdtls("jdtls", install, tools.stateDirectory("jdtls"), Platform.WINDOWS);
+
+        var jar = install.resolve(".ccm").resolve("dev.ccm.jdtls.output.jar");
+        var reference = "reference:file:" + jar.toAbsolutePath().toString().replace('\\', '/') + "@4:start,";
+        assertThat(reference).doesNotContain("\\");
+        assertThat(Files.readString(install.resolve(".ccm").resolve("config").resolve("config.ini")))
+                .isEqualTo("osgi.bundles=" + reference + "a@1:start,b@2\nother=1\n");
+        assertThat(Files.readAllBytes(jar)).containsExactly(1, 2, 3);
+    }
+
+    @Test
+    void configIniWithoutOsgiBundlesLineFails() throws IOException {
+        var install = jdtlsInstall();
+        Files.writeString(install.resolve("config_linux").resolve("config.ini"), "x=1\n");
+
+        assertThatThrownBy(() -> writer.writeJdtls("jdtls", install, tools.stateDirectory("jdtls"), Platform.LINUX))
+                .isInstanceOf(IOException.class).hasMessageContaining("osgi.bundles");
+    }
+
+    @Test
+    void bundleJarIsRewrittenOnlyWhenTheBytesDiffer() throws IOException {
+        var install = jdtlsInstall();
+        var jar = install.resolve(".ccm").resolve("dev.ccm.jdtls.output.jar");
+        writer.writeJdtls("jdtls", install, tools.stateDirectory("jdtls"), Platform.LINUX);
+        var firstWrite = Files.getLastModifiedTime(jar);
+        Files.setLastModifiedTime(jar, java.nio.file.attribute.FileTime.fromMillis(1000));
+
+        writer.writeJdtls("jdtls", install, tools.stateDirectory("jdtls"), Platform.LINUX);
+        assertThat(Files.getLastModifiedTime(jar).toMillis()).isEqualTo(1000);
+
+        bundleBytes = new byte[] {9};
+        writer.writeJdtls("jdtls", install, tools.stateDirectory("jdtls"), Platform.LINUX);
+        assertThat(Files.readAllBytes(jar)).containsExactly(9);
+        assertThat(firstWrite).isNotNull();
+    }
+
+    @Test
+    void refusalLauncherPrintsTheSanitisedReasonAndExitsOne() throws IOException {
+        var reason = "Version 1.2 is not allowed & \"bad\" %PATH% 'x'";
+
+        var windows = Files.readString(writer.writeRefusal("jdtls", reason, Platform.WINDOWS));
+        var posix = Files.readString(writer.writeRefusal("jdtls", reason, Platform.LINUX));
+
+        assertThat(windows).isEqualTo("@echo off\r\n>&2 echo Version 1.2 is not allowed    bad   PATH   x \r\nexit /b 1\r\n");
+        assertThat(posix).isEqualTo("#!/bin/sh\necho 'Version 1.2 is not allowed    bad   PATH   x ' >&2\nexit 1\n");
     }
 
     @Test

@@ -9,6 +9,7 @@ import com.github.krpkbhdn.ccmanager.toolchain.ToolInstallService.Outcome
 import com.github.krpkbhdn.ccmanager.toolchain.ToolKind
 import com.github.krpkbhdn.ccmanager.toolchain.ToolState
 import com.github.krpkbhdn.ccmanager.toolchain.ToolStatus
+import com.github.krpkbhdn.ccmanager.toolchain.managed.ToolChannel
 
 const val PREREQUISITES_GROUP = "Prerequisites"
 const val LOG_LINE_LIMIT = 500
@@ -99,6 +100,42 @@ fun downloadFactsOf(plan: InstallPlan): List<DownloadFact> {
         DownloadFact("Installs to", download.installDirectory().toString()),
         DownloadFact("Launcher", "${plan.tool().binary()} ($launcher)"),
     )
+}
+
+data class ChannelItem(val channel: ToolChannel, val label: String, val detail: String)
+
+val CHANNEL_ITEMS = listOf(
+    ChannelItem(ToolChannel.VERIFIED, "Verified", "recommended, tested with cc-manager"),
+    ChannelItem(ToolChannel.LATEST, "Latest", "newest upstream, not verified"),
+)
+
+fun channelItemOf(channel: ToolChannel): ChannelItem = CHANNEL_ITEMS.first { it.channel == channel }
+
+/** Only a tool with a pinned verified version has the channel dropdown. */
+fun showsChannelPicker(tool: ToolDefinition): Boolean = tool.supportsChannels()
+
+/** Offered when the newest upstream version is installed and does not work. */
+fun offersVerifiedVersion(tool: ToolDefinition, installed: ToolChannel?, status: ToolStatus?): Boolean =
+    tool.supportsChannels() && installed == ToolChannel.LATEST && status?.state == ToolState.FAILED
+
+private const val VERIFIED_BUNDLE = "the output-redirect bundle"
+
+/** The confirm facts of a download install for the selected [channel]; a tool without channels shows the plain facts. */
+fun downloadFactsOf(plan: InstallPlan, channel: ToolChannel): List<DownloadFact> {
+    val facts = downloadFactsOf(plan)
+    if (!plan.tool().supportsChannels()) return facts
+    val pinned = plan.tool().download().values.firstNotNullOfOrNull { it.pinnedVersion().orElse(null) }
+    val unchanged = facts.filter { it.label == "Source host" || it.label == "Installs to" || it.label == "Launcher" }
+    val host = unchanged.filter { it.label == "Source host" }
+    val rest = unchanged - host.toSet()
+    val release = if (channel == ToolChannel.VERIFIED && pinned != null) listOf(
+        DownloadFact("Archive", pinned.url),
+        DownloadFact("Verified version", "Version ${pinned.version}, verified with $VERIFIED_BUNDLE, SHA-256 from the catalog ${pinned.sha256}"),
+    ) else listOf(
+        facts.first { it.label == "Archive" },
+        DownloadFact("Latest version", "Newest version, resolved at install, SHA-256 from <archive URL>.sha256; not verified with $VERIFIED_BUNDLE; if the bundle does not load, jdtls will not start and you can switch to Verified"),
+    )
+    return host + release + rest
 }
 
 /** The managed launchers sit in `bin` next to the per-tool folders. */

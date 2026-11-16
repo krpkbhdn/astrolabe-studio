@@ -1,6 +1,11 @@
 package com.github.krpkbhdn.ccmanager.ui.tools
 
+import com.github.krpkbhdn.ccmanager.toolchain.ArchiveKind
+import com.github.krpkbhdn.ccmanager.toolchain.DownloadSource
+import com.github.krpkbhdn.ccmanager.toolchain.LatestSource
+import com.github.krpkbhdn.ccmanager.toolchain.PinnedVersion
 import com.github.krpkbhdn.ccmanager.toolchain.ToolDefinition
+import com.github.krpkbhdn.ccmanager.toolchain.managed.ToolChannel
 import com.github.krpkbhdn.ccmanager.toolchain.ToolInstallService.InstallPlan
 import com.github.krpkbhdn.ccmanager.toolchain.ToolInstallService.InstallResult
 import com.github.krpkbhdn.ccmanager.toolchain.ToolInstallService.Outcome
@@ -105,6 +110,66 @@ class ToolsModelTest {
         assertThat(facts["Integrity"]).contains("same host").contains("corruption")
         assertThat(facts["Launcher"]).isEqualTo("a (runs bin/a)")
         assertThat(downloadFactsOf(plan(t))).isEmpty()
+    }
+
+    private fun channelTool(): ToolDefinition {
+        val source = DownloadSource(
+            LatestSource(LatestSource.Kind.TEXT_FILE, "https://h/latest.txt", "(.*)"), "https://h/x-{version}.tar.gz", ArchiveKind.TAR_GZ,
+            LauncherSpec(LauncherSpec.Kind.JDTLS, ""), PinnedVersion("1.2.3", "https://h/x-1.2.3.tar.gz", "abc123"),
+        )
+        return ToolDefinition("jdtls", "Java", "Java", ToolKind.LANGUAGE_SERVER, "jdtls", listOf(), "", "", listOf(), mapOf(), "", mapOf(), mapOf("windows" to source))
+    }
+
+    private fun channelPlan(t: ToolDefinition) = InstallPlan(t, listOf(), "", Optional.empty(), "", Optional.of(download))
+
+    @Test
+    fun `only a tool with a pinned version shows the channel picker`() {
+        assertThat(showsChannelPicker(channelTool())).isTrue()
+        assertThat(showsChannelPicker(tool("a", ToolKind.LANGUAGE_SERVER, "G"))).isFalse()
+    }
+
+    @Test
+    fun `channel items label verified and latest with their detail`() {
+        assertThat(CHANNEL_ITEMS.map { it.label to it.detail }).containsExactly(
+            "Verified" to "recommended, tested with cc-manager",
+            "Latest" to "newest upstream, not verified",
+        )
+        assertThat(channelItemOf(ToolChannel.LATEST).label).isEqualTo("Latest")
+    }
+
+    @Test
+    fun `verified facts show the pinned version and catalog hash`() {
+        val facts = downloadFactsOf(channelPlan(channelTool()), ToolChannel.VERIFIED).associate { it.label to it.value }
+
+        assertThat(facts["Verified version"]).isEqualTo("Version 1.2.3, verified with the output-redirect bundle, SHA-256 from the catalog abc123")
+        assertThat(facts["Archive"]).isEqualTo("https://h/x-1.2.3.tar.gz")
+    }
+
+    @Test
+    fun `latest facts say the version is resolved at install and unverified`() {
+        val facts = downloadFactsOf(channelPlan(channelTool()), ToolChannel.LATEST).associate { it.label to it.value }
+
+        assertThat(facts["Latest version"]).contains("resolved at install").contains(".sha256").contains("not verified").contains("switch to Verified")
+        assertThat(facts["Archive"]).contains("{version}")
+    }
+
+    @Test
+    fun `a tool without channels keeps the plain facts for any channel`() {
+        val t = tool("a", ToolKind.LANGUAGE_SERVER, "G")
+
+        assertThat(downloadFactsOf(downloadPlan(t), ToolChannel.LATEST)).isEqualTo(downloadFactsOf(downloadPlan(t)))
+    }
+
+    @Test
+    fun `use verified version is offered only for a failed latest install`() {
+        val t = channelTool()
+        val failed = status("jdtls", ToolState.FAILED)
+
+        assertThat(offersVerifiedVersion(t, ToolChannel.LATEST, failed)).isTrue()
+        assertThat(offersVerifiedVersion(t, ToolChannel.VERIFIED, failed)).isFalse()
+        assertThat(offersVerifiedVersion(t, null, failed)).isFalse()
+        assertThat(offersVerifiedVersion(t, ToolChannel.LATEST, status("jdtls", ToolState.RESPONDING))).isFalse()
+        assertThat(offersVerifiedVersion(tool("a", ToolKind.LANGUAGE_SERVER, "G"), ToolChannel.LATEST, failed)).isFalse()
     }
 
     @Test
