@@ -184,7 +184,7 @@
       "title": "Dev team",
       "description": "The author's agent team: a lead plus specialist roles such as researcher and debater, with a model and effort per role. Useful for splitting larger tasks across subagents.",
       "kind": "TEAM",
-      "version": 3,
+      "version": 4,
       "requires": [],
       "template": "teams/dev-team.json",
       "name": "Dev team",
@@ -194,6 +194,9 @@
         ],
         "3": [
           "Teams snapshot from the author's current setup"
+        ],
+        "4": [
+          "Added LSP to the tools of the roles that read or write code"
         ]
       }
     }

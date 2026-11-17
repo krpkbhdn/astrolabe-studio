@@ -60,7 +60,8 @@ class AuthorCatalogServiceTest {
         var team = entry(entries, "team.dev-team");
         assertThat(team.status()).isEqualTo(AuthorStatus.UPDATE_AVAILABLE);
         assertThat(team.installedVersion()).isEqualTo(1);
-        assertThat(team.changes()).containsExactly("Added researcher and debater roles", "Teams snapshot from the author's current setup");
+        assertThat(team.changes()).containsExactly("Added researcher and debater roles", "Teams snapshot from the author's current setup",
+                "Added LSP to the tools of the roles that read or write code");
     }
 
     @Test
@@ -119,7 +120,7 @@ class AuthorCatalogServiceTest {
 
         service.install(List.of("team.dev-team"));
 
-        verify(decisions).record("team.dev-team", AuthorChoice.INSTALLED, 3);
+        verify(decisions).record("team.dev-team", AuthorChoice.INSTALLED, 4);
     }
 
     @Test
@@ -137,7 +138,7 @@ class AuthorCatalogServiceTest {
     void declineRecordsTheItemsAtTheirVersion() {
         service.decline(List.of("team.dev-team", "plugin.ponytail"));
 
-        verify(decisions).record("team.dev-team", AuthorChoice.DECLINED, 3);
+        verify(decisions).record("team.dev-team", AuthorChoice.DECLINED, 4);
         verify(decisions).record("plugin.ponytail", AuthorChoice.DECLINED, 1);
     }
 
