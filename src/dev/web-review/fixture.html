@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>CCM review fixture</title>
+<title>Astrolabe review fixture</title>
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; padding-top: 56px; font: 14px/1.4 system-ui, sans-serif; color: #222; background: #f6f7f9; }
@@ -41,7 +41,7 @@
     if (e.target.closest && e.target.closest('#page-click-btn')) window.__pageClicks++;
   });
 
-  class CcmCard extends HTMLElement {
+  class AstrolabeCard extends HTMLElement {
     connectedCallback() {
       if (this.shadowRoot) return;
       const root = this.attachShadow({ mode: 'open' });
@@ -49,7 +49,7 @@
         '<div class="box"><span class="label">Shadow label</span> <button class="inner">Shadow button</button></div>';
     }
   }
-  customElements.define('ccm-card', CcmCard);
+  customElements.define('astrolabe-card', AstrolabeCard);
 
   function render(route) {
     const items = [1, 2, 3, 4].map(function (i) { return '<li>Item ' + i + '</li>'; }).join('');
@@ -60,7 +60,7 @@
       '<div class="card"><h3>Card B</h3><button class="btn">Buy B</button></div>' +
       '<div class="card"><h3>Card C</h3><button class="btn">Buy C</button></div></div>' +
       '<ul class="items">' + items + '</ul>' +
-      '<ccm-card></ccm-card>' +
+      '<astrolabe-card></astrolabe-card>' +
       '<iframe srcdoc="&lt;body style=&quot;margin:8px&quot;&gt;&lt;p id=&quot;inframe&quot;&gt;Inside iframe&lt;/p&gt;&lt;/body&gt;"></iframe>' +
       '<div class="scroller">' + rows + '</div>' +
       '<div class="tilt">Transformed box</div>' +

@@ -1,0 +1,25 @@
+package com.github.krpkbhdn.astrolabe.ui.git.model
+
+import com.github.krpkbhdn.astrolabe.git.GitBranch
+import com.github.krpkbhdn.astrolabe.git.Worktree
+import com.github.krpkbhdn.astrolabe.ui.state.ConfirmRequest
+
+/** A modal the Git tab is showing; [GitState] owns at most one at a time. */
+sealed interface GitDialog {
+    data class NewBranch(val startPoint: String?) : GitDialog
+    data class RenameBranch(val name: String) : GitDialog
+    data class DeleteBranch(val branch: GitBranch) : GitDialog
+    data class Merge(val branch: String) : GitDialog
+    data class SaveStash(val message: String = "") : GitDialog
+    data class NewTag(val commit: String?) : GitDialog
+    data class Reset(val commit: String, val label: String) : GitDialog
+    data class DirtyCheckout(val branch: String) : GitDialog
+    data object CreateWorktree : GitDialog
+    data class RemoveWorktree(val worktree: Worktree) : GitDialog
+    data class Confirm(val request: ConfirmRequest) : GitDialog
+    /** Waiting for the drafted pull request or merge text; closing the dialog cancels [job]. */
+    data class Drafting(val title: String, val job: kotlinx.coroutines.Job) : GitDialog
+    data class PullRequest(val form: PullRequestForm) : GitDialog
+    data class MergeTask(val form: TaskMergeForm) : GitDialog
+    data class Output(val title: String, val text: String) : GitDialog
+}

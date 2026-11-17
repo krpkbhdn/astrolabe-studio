@@ -1,14 +1,14 @@
 <div align="center">
 
-<img src="packaging/icon.png" alt="Claude Code Manager" width="96" />
+<img src="packaging/icon.png" alt="Astrolabe Studio" width="96" />
 
-# Claude Code Manager
+# Astrolabe Studio
 
 **One desktop app to run, watch and steer many local Claude Code sessions.**
 
 Visual review of what Claude builds (screenshots and live websites), agent teams, notifications, and one-click approval of everything Claude asks for.
 
-[![Release](https://img.shields.io/github/v/release/krpkbhdn/cc-manager?label=release)](https://github.com/krpkbhdn/cc-manager/releases)
+[![Release](https://img.shields.io/github/v/release/krpkbhdn/astrolabe-studio?label=release)](https://github.com/krpkbhdn/astrolabe-studio/releases)
 ![Windows](https://img.shields.io/badge/Windows-installer-informational)
 ![Linux and macOS](https://img.shields.io/badge/Linux%20%7C%20macOS-build%20from%20source-lightgrey)
 ![Java](https://img.shields.io/badge/Java-25%20(JBR)-orange)
@@ -27,7 +27,7 @@ Visual review of what Claude builds (screenshots and live websites), agent teams
 ## Why
 
 Working with several Claude Code sessions means a pile of terminals, and you never know which one is waiting for you.
-Claude Code Manager puts them in one window: every session shows its status, and every question, plan or permission request
+Astrolabe Studio puts them in one window: every session shows its status, and every question, plan or permission request
 becomes a dialog you can answer without hunting for the right terminal.
 
 The feature no other Claude Code tool has is **Visual review**: when Claude changes a UI, you mark up its screenshots and send the marks straight back.
@@ -55,7 +55,7 @@ the annotated images go back into the session. No more describing "the third but
 3. You mark problems with **Rectangle**, **Ellipse**, **Pin** or **Freeform** (a polygon placed point by point, closed by a click on the first point). Marks can be moved, resized by 8 handles, and polygon vertices dragged. Marks are numbered on every image and each has its own comment.
 4. **Send** hands the annotated images plus a `review.md` with all comments to the bound or a chosen session through its prompt queue, or starts a new session. **Approve** closes the review.
 
-Reviews older than 7 days are deleted automatically (`cc-manager.review.retention`).
+Reviews older than 7 days are deleted automatically (`astrolabe.review.retention`).
 
 Bonus: the bundled plugin skill `visual-review` teaches Claude to take and submit screenshots on its own.
 
@@ -79,7 +79,7 @@ The Web tab needs the JCEF flavour of JetBrains Runtime (`jbrsdk_jcef`); the bui
 ## Quick start
 
 1. Install and log in to [Claude Code](https://code.claude.com/docs/en/overview).
-2. Install Claude Code Manager (Windows: the `.msi` from [Releases](https://github.com/krpkbhdn/cc-manager/releases); Linux and macOS: [build the installer](#build-and-run-from-source)).
+2. Install Astrolabe Studio (Windows: the `.msi` from [Releases](https://github.com/krpkbhdn/astrolabe-studio/releases); Linux and macOS: [build the installer](#build-and-run-from-source)).
 3. Start the app, press `Ctrl+Shift+O` to add a project folder, then `Ctrl+Shift+T` to start a Claude session in it.
 
 When any session needs you, it turns red on the Overview and in the status bar; press `Ctrl+Shift+N` to answer the next one.
@@ -150,7 +150,7 @@ To build from source:
 
 ### Windows
 
-Download the `.msi` from the [Releases](https://github.com/krpkbhdn/cc-manager/releases) page, check it against the
+Download the `.msi` from the [Releases](https://github.com/krpkbhdn/astrolabe-studio/releases) page, check it against the
 published `.sha256` (`(Get-FileHash .\<installer>.msi).Hash`), and run it. It installs per user with a Start menu entry and a desktop shortcut.
 
 > The installer is not code-signed, so Windows SmartScreen may warn. Choose *More info*, then *Run anyway*, after checking the hash.
@@ -170,8 +170,8 @@ Build the `.dmg` yourself (see below), open it and drag the app to Applications.
 ## Build and run from source
 
 ```sh
-git clone https://github.com/krpkbhdn/cc-manager.git
-cd cc-manager
+git clone https://github.com/krpkbhdn/astrolabe-studio.git
+cd astrolabe-studio
 ```
 
 | Task | Windows (PowerShell) | Linux / macOS / Git Bash |
@@ -183,7 +183,7 @@ cd cc-manager
 
 Installers are written to `build/compose/binaries/main/<format>/`.
 
-The first build needs internet: it downloads Gradle and JBR 25, so it takes a while. Without JBR the app falls back to the plain OS window frame; `-Dccm.nativeFrame=true` forces the native OS frame even on JBR.
+The first build needs internet: it downloads Gradle and JBR 25, so it takes a while. Without JBR the app falls back to the plain OS window frame; `-Dastrolabe.nativeFrame=true` forces the native OS frame even on JBR.
 
 ## Keyboard shortcuts
 
@@ -215,9 +215,9 @@ Plain `Ctrl+letter` chords go to the terminal, which is why the app uses `Ctrl+S
 
 ## Configuration
 
-Data lives in `~/.cc-manager` (SQLite database `cc-manager.db`); change the location with the `cc-manager.data-dir` property (or the `CC_MANAGER_DATA_DIR` environment variable).
-`./gradlew run` from a git worktree uses `<tmp>/cc-manager-worktrees/<worktree folder>` instead, unless `CC_MANAGER_DATA_DIR` is set.
-Settings are `cc-manager.*` properties, see [`application.properties`](src/main/resources/application.properties).
+Data lives in `~/.astrolabe-studio` (SQLite database `astrolabe-studio.db`); change the location with the `astrolabe.data-dir` property (or the `ASTROLABE_DATA_DIR` environment variable).
+`./gradlew run` from a git worktree uses `<tmp>/astrolabe-studio-worktrees/<worktree folder>` instead, unless `ASTROLABE_DATA_DIR` is set.
+Settings are `astrolabe.*` properties, see [`application.properties`](src/main/resources/application.properties).
 The hooks and protocol reference is in [docs/claude-code-protocol.md](docs/claude-code-protocol.md).
 
 ## License
@@ -228,6 +228,6 @@ Copyright 2026 Bohdan Krupko
 
 ## Support the project
 
-Claude Code Manager is free and built in spare time. If it saves you time and you want to support the project and its author, you can buy me a coffee. Thank you!
+Astrolabe Studio is free and built in spare time. If it saves you time and you want to support the project and its author, you can buy me a coffee. Thank you!
 
 [![Support me on Ko-fi](https://storage.ko-fi.com/cdn/kofi3.png?v=3)](https://ko-fi.com/krpkbhdn)

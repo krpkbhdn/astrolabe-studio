@@ -1,6 +1,6 @@
-/* Claude Code Manager web-review inspector, module 00: core. Shared closure object C (see InspectorBridge.bootstrapScript). */
+/* Astrolabe Studio web-review inspector, module 00: core. Shared closure object C (see InspectorBridge.bootstrapScript). */
 var VERSION = '1.1.0';
-var HOST_ID = '__ccm-root';
+var HOST_ID = '__astrolabe-root';
 var MAX_VISITED = 12000;
 
 var MAX_ERROR_REPORTS = 10, REFILL_MS = 10000, errorBudget = MAX_ERROR_REPORTS, lastRefill = Date.now();
@@ -34,12 +34,12 @@ function hasLongSelector(msg) {
 function send(msg) {
   try {
     if (hasLongSelector(msg)) return;   // fail closed: no message beats one that points at another element
-    if (typeof W.__ccmHost !== 'function') {
+    if (typeof W.__astrolabeHost !== 'function') {
       if (queue.length < 50) queue.push(msg);
       return;
     }
-    while (queue.length) W.__ccmHost(JSON.stringify(queue.shift()));
-    W.__ccmHost(JSON.stringify(msg));
+    while (queue.length) W.__astrolabeHost(JSON.stringify(queue.shift()));
+    W.__astrolabeHost(JSON.stringify(msg));
   } catch (e) { /* host must never break the page */ }
 }
 
@@ -50,7 +50,7 @@ var state = { hoverEl: null };
 var layers = {};      // name -> {draw, canvas, raf}
 var tipFns = [];      // fn(el, rect) -> string | null
 var optionFns = [];   // fn(opts)
-var apis = {};        // name -> fn, merged into W.__ccm by 99-api
+var apis = {};        // name -> fn, merged into W.__astrolabe by 99-api
 
 // ---------- shadow root UI ----------
 var host = document.createElement('div');
@@ -155,7 +155,7 @@ function paint(name, l) {
 function layer(name, drawFn, noCanvas) {
   layers[name] = { draw: drawFn, canvas: null, raf: 0, bare: !!noCanvas };
 }
-var stats = {};       // layer -> {draws, ms}, read through __ccm.stats()
+var stats = {};       // layer -> {draws, ms}, read through __astrolabe.stats()
 function schedule(name) {
   Object.keys(layers).forEach(function (n) {
     var l = layers[n];

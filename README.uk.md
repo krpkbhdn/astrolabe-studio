@@ -1,14 +1,14 @@
 <div align="center">
 
-<img src="packaging/icon.png" alt="Claude Code Manager" width="96" />
+<img src="packaging/icon.png" alt="Astrolabe Studio" width="96" />
 
-# Claude Code Manager
+# Astrolabe Studio
 
 **Один десктопний застосунок, щоб запускати, відстежувати й керувати багатьма локальними сесіями Claude Code.**
 
 Візуальне рев'ю того, що будує Claude (скріншоти й живі сайти), команди агентів, сповіщення та підтвердження всього, про що просить Claude, в один клік.
 
-[![Release](https://img.shields.io/github/v/release/krpkbhdn/cc-manager?label=release)](https://github.com/krpkbhdn/cc-manager/releases)
+[![Release](https://img.shields.io/github/v/release/krpkbhdn/astrolabe-studio?label=release)](https://github.com/krpkbhdn/astrolabe-studio/releases)
 ![Windows](https://img.shields.io/badge/Windows-installer-informational)
 ![Linux and macOS](https://img.shields.io/badge/Linux%20%7C%20macOS-build%20from%20source-lightgrey)
 ![Java](https://img.shields.io/badge/Java-25%20(JBR)-orange)
@@ -27,7 +27,7 @@
 ## Навіщо
 
 Коли працюєш із кількома сесіями Claude Code, маєш купу терміналів і не знаєш, у якому з них на тебе чекають.
-Claude Code Manager збирає їх в одному вікні: кожна сесія показує свій стан, а кожне запитання, план чи запит на дозвіл
+Astrolabe Studio збирає їх в одному вікні: кожна сесія показує свій стан, а кожне запитання, план чи запит на дозвіл
 стає діалогом, на який можна відповісти, не шукаючи потрібний термінал.
 
 Те, чого немає в жодному іншому інструменті для Claude Code, це **візуальне рев'ю**: коли Claude змінює інтерфейс, ви позначаєте проблеми на його скріншотах і одразу надсилаєте позначки назад.
@@ -55,7 +55,7 @@ Claude змінює інтерфейс, робить скріншоти й пе�
 3. Ви позначаєте проблеми інструментами **Rectangle**, **Ellipse**, **Pin** або **Freeform** (багатокутник, що ставиться точка за точкою й замикається кліком на першій точці). Позначки можна переміщати, змінювати за 8 ручками, а вершини багатокутника перетягувати. Позначки нумеруються на кожному зображенні, до кожної є власний коментар.
 4. **Send** передає анотовані зображення разом із `review.md` з усіма коментарями у прив'язану або обрану сесію через її чергу промптів чи запускає нову. **Approve** закриває рев'ю.
 
-Рев'ю старші за 7 днів видаляються автоматично (`cc-manager.review.retention`).
+Рев'ю старші за 7 днів видаляються автоматично (`astrolabe.review.retention`).
 
 Бонус: вбудований skill плагіна `visual-review` навчає Claude самому робити й надсилати скріншоти.
 
@@ -79,7 +79,7 @@ Claude будує вебсайт, а ви переглядаєте саму за
 ## Швидкий старт
 
 1. Встановіть [Claude Code](https://code.claude.com/docs/en/overview) і увійдіть в акаунт.
-2. Встановіть Claude Code Manager (Windows: `.msi` зі сторінки [Releases](https://github.com/krpkbhdn/cc-manager/releases); Linux і macOS: [зберіть інсталятор](#збірка-і-запуск-із-коду)).
+2. Встановіть Astrolabe Studio (Windows: `.msi` зі сторінки [Releases](https://github.com/krpkbhdn/astrolabe-studio/releases); Linux і macOS: [зберіть інсталятор](#збірка-і-запуск-із-коду)).
 3. Запустіть застосунок, натисніть `Ctrl+Shift+O`, щоб додати теку проєкту, потім `Ctrl+Shift+T`, щоб запустити в ній сесію Claude.
 
 Коли сесії потрібна ваша увага, вона червоніє в «Огляді» та в рядку стану; `Ctrl+Shift+N` відповідає на наступну.
@@ -150,7 +150,7 @@ Claude будує вебсайт, а ви переглядаєте саму за
 
 ### Windows
 
-Завантажте `.msi` зі сторінки [Releases](https://github.com/krpkbhdn/cc-manager/releases), звірте його з опублікованим
+Завантажте `.msi` зі сторінки [Releases](https://github.com/krpkbhdn/astrolabe-studio/releases), звірте його з опублікованим
 `.sha256` (`(Get-FileHash .\<installer>.msi).Hash`) і запустіть. Установка йде для поточного користувача, з пунктом у меню «Пуск» і ярликом на робочому столі.
 
 > Інсталятор не підписаний, тому Windows SmartScreen може попередити. Після перевірки хешу оберіть *Докладніше*, потім *Усе одно виконати*.
@@ -170,8 +170,8 @@ sudo apt install ./build/compose/binaries/main/deb/*.deb
 ## Збірка і запуск із коду
 
 ```sh
-git clone https://github.com/krpkbhdn/cc-manager.git
-cd cc-manager
+git clone https://github.com/krpkbhdn/astrolabe-studio.git
+cd astrolabe-studio
 ```
 
 | Завдання | Windows (PowerShell) | Linux / macOS / Git Bash |
@@ -183,7 +183,7 @@ cd cc-manager
 
 Інсталятори з'являються в `build/compose/binaries/main/<формат>/`.
 
-Перша збірка потребує інтернету: вона завантажує Gradle і JBR 25, тож триває довго. Без JBR застосунок повертається до звичайної рамки вікна ОС; `-Dccm.nativeFrame=true` примусово вмикає нативну рамку ОС, навіть на JBR.
+Перша збірка потребує інтернету: вона завантажує Gradle і JBR 25, тож триває довго. Без JBR застосунок повертається до звичайної рамки вікна ОС; `-Dastrolabe.nativeFrame=true` примусово вмикає нативну рамку ОС, навіть на JBR.
 
 ## Гарячі клавіші
 
@@ -215,8 +215,8 @@ cd cc-manager
 
 ## Конфігурація
 
-Дані зберігаються в `~/.cc-manager` (база SQLite `cc-manager.db`); розташування змінює властивість `cc-manager.data-dir`.
-Налаштування це властивості `cc-manager.*`, див. [`application.properties`](src/main/resources/application.properties).
+Дані зберігаються в `~/.astrolabe-studio` (база SQLite `astrolabe-studio.db`); розташування змінює властивість `astrolabe.data-dir`.
+Налаштування це властивості `astrolabe.*`, див. [`application.properties`](src/main/resources/application.properties).
 Довідник про хуки та протокол: [docs/claude-code-protocol.md](docs/claude-code-protocol.md).
 
 ## Ліцензія
@@ -227,6 +227,6 @@ Copyright 2026 Bohdan Krupko
 
 ## Підтримати проєкт
 
-Claude Code Manager безкоштовний і створюється у вільний час. Якщо він заощаджує вам час і ви хочете підтримати проєкт та його автора, можете пригостити мене кавою. Дякую!
+Astrolabe Studio безкоштовний і створюється у вільний час. Якщо він заощаджує вам час і ви хочете підтримати проєкт та його автора, можете пригостити мене кавою. Дякую!
 
 [![Support me on Ko-fi](https://storage.ko-fi.com/cdn/kofi3.png?v=3)](https://ko-fi.com/krpkbhdn)

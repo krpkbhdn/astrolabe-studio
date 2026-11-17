@@ -1,0 +1,24 @@
+package com.github.krpkbhdn.astrolabe.app.mcp;
+
+import com.github.krpkbhdn.astrolabe.claude.mcp.McpToolDescriptor;
+import tools.jackson.databind.JsonNode;
+
+/** One tool of the {@code astrolabe-app} MCP server that controls the app; deliberately not a McpTool, so project sessions can never get it. */
+public interface AssistantMcpTool extends McpToolDescriptor {
+
+    /**
+     * @return text for Claude
+     * @throws IllegalArgumentException or IllegalStateException with a message Claude can act on
+     */
+    String call(JsonNode arguments);
+
+    /** @return true when the Assistant may call the tool without a permission dialog (read-only or easily undone) */
+    default boolean autoApproved() {
+        return false;
+    }
+
+    /** @return what the permission dialog shows for this call; override when the raw arguments do not tell the user what will happen */
+    default JsonNode approvalInput(JsonNode arguments) {
+        return arguments;
+    }
+}

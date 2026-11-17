@@ -1,0 +1,403 @@
+package com.github.krpkbhdn.astrolabe.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.github.krpkbhdn.astrolabe.claude.hook.ActivityEntry
+import com.github.krpkbhdn.astrolabe.claude.hook.HookEventStore
+import com.github.krpkbhdn.astrolabe.claude.event.HookEventType
+import com.github.krpkbhdn.astrolabe.claude.install.ClaudeInstallation
+import com.github.krpkbhdn.astrolabe.claude.install.ClaudeInstallationService
+import com.github.krpkbhdn.astrolabe.claude.install.LoginState
+import com.github.krpkbhdn.astrolabe.claude.launch.BackgroundAgent
+import com.github.krpkbhdn.astrolabe.claude.launch.BackgroundAgentService
+import com.github.krpkbhdn.astrolabe.claude.launch.ClaudeLauncher
+import com.github.krpkbhdn.astrolabe.claude.launch.LaunchedSession
+import com.github.krpkbhdn.astrolabe.claude.session.AgentStatus
+import com.github.krpkbhdn.astrolabe.claude.session.SessionRegistry
+import com.github.krpkbhdn.astrolabe.usage.ContextWindow
+import com.github.krpkbhdn.astrolabe.usage.context.ContextBreakdown
+import com.github.krpkbhdn.astrolabe.usage.context.ContextBreakdown.Category
+import com.github.krpkbhdn.astrolabe.usage.context.ContextBreakdown.Item
+import com.github.krpkbhdn.astrolabe.usage.context.ContextBreakdownResult
+import com.github.krpkbhdn.astrolabe.usage.context.ContextBreakdownService
+import com.github.krpkbhdn.astrolabe.usage.RateLimitService
+import com.github.krpkbhdn.astrolabe.usage.RateLimitSnapshot
+import com.github.krpkbhdn.astrolabe.usage.RateLimitWindow
+import com.github.krpkbhdn.astrolabe.usage.SessionUsage
+import com.github.krpkbhdn.astrolabe.usage.SessionUsageService
+import com.github.krpkbhdn.astrolabe.claude.session.SessionProperties
+import com.github.krpkbhdn.astrolabe.claude.session.SessionSnapshot
+import com.github.krpkbhdn.astrolabe.claude.session.SubagentSnapshot
+import com.github.krpkbhdn.astrolabe.claude.session.SubagentState
+import java.nio.file.Files
+import com.github.krpkbhdn.astrolabe.claude.session.TranscriptService
+import tools.jackson.databind.json.JsonMapper
+import com.github.krpkbhdn.astrolabe.notification.AppNotification
+import com.github.krpkbhdn.astrolabe.notification.NotificationKind
+import com.github.krpkbhdn.astrolabe.notification.NotificationService
+import com.github.krpkbhdn.astrolabe.prompt.PromptTemplateService
+import com.github.krpkbhdn.astrolabe.project.ModelSelection
+import com.github.krpkbhdn.astrolabe.project.Project
+import com.github.krpkbhdn.astrolabe.project.ProjectGroupService
+import com.github.krpkbhdn.astrolabe.project.ProjectService
+import com.github.krpkbhdn.astrolabe.run.ActiveRun
+import com.github.krpkbhdn.astrolabe.run.RunConfiguration
+import com.github.krpkbhdn.astrolabe.run.RunConfigurationService
+import com.github.krpkbhdn.astrolabe.run.RunService
+import com.github.krpkbhdn.astrolabe.ui.git.FakeGit
+import com.github.krpkbhdn.astrolabe.ui.git.FakeRepoData
+import com.github.krpkbhdn.astrolabe.ui.git.SampleRepos
+import com.github.krpkbhdn.astrolabe.ui.state.Backend
+import com.github.krpkbhdn.astrolabe.ui.state.TerminalPort
+import com.github.krpkbhdn.astrolabe.shell.ShellDetector
+import com.github.krpkbhdn.astrolabe.shell.ShellLauncher
+import com.github.krpkbhdn.astrolabe.shell.ShellProfile
+import com.github.krpkbhdn.astrolabe.workspace.DirectoryOpener
+import com.github.krpkbhdn.astrolabe.workspace.CustomIdeService
+import com.github.krpkbhdn.astrolabe.workspace.IdeDetector
+import com.github.krpkbhdn.astrolabe.workspace.InstalledIde
+import com.github.krpkbhdn.astrolabe.workspace.IdeLauncher
+import java.nio.file.Path
+import java.time.Duration
+import java.time.Instant
+import java.util.Optional
+import java.util.OptionalInt
+import java.util.concurrent.ConcurrentHashMap
+import java.util.function.Consumer
+import com.github.krpkbhdn.astrolabe.ui.theme.colors
+import org.jetbrains.jewel.ui.component.Text
+import org.mockito.ArgumentMatchers.any
+import org.mockito.ArgumentMatchers.anyBoolean
+import org.mockito.ArgumentMatchers.anyInt
+import org.mockito.ArgumentMatchers.anyLong
+import org.mockito.ArgumentMatchers.anyString
+import org.mockito.Mockito.mock
+import org.mockito.Mockito.`when`
+
+private fun previewBreakdown() = ContextBreakdown(
+    "claude-opus-4-7", 148_000, 200_000,
+    listOf(
+        Category("System prompt", 3_800, 1.9), Category("System tools", 9_200, 4.6), Category("MCP tools", 14_600, 7.3),
+        Category("Custom agents", 2_400, 1.2), Category("Memory files", 12_300, 6.2), Category("Skills", 8_300, 4.2),
+        Category("Messages", 97_400, 48.7), Category("Free space", 52_000, 26.0),
+    ),
+    listOf(Item("C:/Users/dev/.claude/CLAUDE.md", "User", 4_900, false), Item("C:/work/app/CLAUDE.md", "Project", 7_400, false)),
+    listOf(Item("mcp__playwright__browser_click", "playwright", 333, false), Item("mcp__playwright__browser_evaluate", "playwright", 320, false), Item("mcp__docs__query", "docs", 779, false)),
+    listOf(Item("reviewer", "Project", 2_400, false)),
+    listOf(Item("dry-refactoring", "Plugin", 1_900, false), Item("graphify", "User", 6_400, false)),
+    false, Instant.now(), listOf(), "",
+)
+
+private fun ago(seconds: Long): Instant = Instant.now().minusSeconds(seconds)
+
+private val previewTranscriptDir: java.nio.file.Path by lazy { Files.createTempDirectory("astrolabe-projects") }
+
+/** A real folder so the run configurations of the first preview project do not show as missing. */
+private val previewProjectDir: Path by lazy {
+    Files.createTempDirectory("astrolabe-preview").resolve("astrolabe").also { Files.createDirectories(it.resolve(".claude/worktrees/feature-x")) }
+}
+
+private val previewTranscript: String by lazy {
+    Files.createTempFile(previewTranscriptDir, "astrolabe-agent", ".jsonl").also {
+        Files.writeString(it, listOf(
+            """{"type":"user","message":{"role":"user","content":"Run the StatusReducer tests and report failures."}}""",
+            """{"type":"assistant","message":{"content":[{"type":"text","text":"Running the reducer tests first."},{"type":"tool_use","name":"Bash","input":{"command":"./gradlew test --tests '*StatusReducerTest'"}}]}}""",
+            """{"type":"user","message":{"content":[{"type":"tool_result","content":"BUILD SUCCESSFUL in 14s\n9 tests completed, 0 failed"}]}}""",
+            """{"type":"assistant","message":{"content":[{"type":"text","text":"All 9 tests pass."}]}}""",
+        ).joinToString("\n"))
+    }.toString()
+}
+
+private fun previewAgent(
+    id: String, type: String, state: SubagentState, startedAgo: Long, activity: String = "", ended: Long? = null,
+    calls: Int = 0, message: String = "", background: Boolean = false, stale: Boolean = false,
+) = SubagentSnapshot(id, type, activity, state, background, calls, state == SubagentState.FAILED, message, previewTranscript, ago(startedAgo), ago(ended ?: if (stale) STALE_SECONDS else 4), ended?.let { ago(it) }, stale)
+
+internal const val PREVIEW_GROUP_ID = 100L
+private const val STALE_SECONDS = 1_320L
+
+private const val FIVE_HOUR_RESET_SECONDS = 8_040L
+private const val SEVEN_DAY_RESET_SECONDS = 3 * 86_400L + 4 * 3_600L
+
+/** Usage limits as Claude would report them right now, for previews. */
+fun limitsAt(fiveHourPercent: Double, sevenDayPercent: Double) = RateLimitSnapshot(
+    RateLimitWindow(fiveHourPercent, Instant.now().plusSeconds(FIVE_HOUR_RESET_SECONDS)),
+    RateLimitWindow(sevenDayPercent, Instant.now().plusSeconds(SEVEN_DAY_RESET_SECONDS)),
+    Instant.now(),
+)
+
+/** In-memory backend data for the dev preview; Mockito keeps it independent of the real services' constructors. */
+class PreviewWorld(many: Boolean = false, empty: Boolean = false, val git: FakeRepoData = SampleRepos.busy(), val rateLimits: RateLimitSnapshot? = limitsAt(23.5, 41.2), selection: ModelSelection = ModelSelection("opus", "high"), val hookUnavailable: String? = null, val hookShellNote: String? = null) {
+    init { git.notRepositories.add(Path.of("C:/Users/dev/Work/docs-site")) }
+    val fakeMcp = FakeMcp()
+    val proposals = PreviewProposals()
+    val voice = PreviewVoice()
+    val sessionUsage = mapOf(
+        "s-working" to SessionUsage("s-working", "Opus 4.7", "xhigh", 62.0, 4.38, 2_400_000L, Instant.now(),
+            ContextWindow(200_000L, 3_000L, 9_000L, 112_000L, 1_850L, 640_000L, 48_000L)),
+        "s-needs" to SessionUsage("s-needs", "Sonnet 5.5", "medium", 18.5, 0.42, 1_200_000L, Instant.now(),
+            ContextWindow(200_000L, null, null, null, null, 120_000L, 9_000L)),
+        "s-idle" to SessionUsage("s-idle", "Opus 4.7", null, 91.0, 12.07, 5_000_000L, Instant.now(),
+            ContextWindow(200_000L, 2_000L, 14_000L, 166_000L, 2_400L, 1_900_000L, 160_000L)),
+    )
+    @Volatile var claudeInstalled = true
+    private val changeListeners = mutableListOf<Runnable>()
+    private val notificationListeners = mutableListOf<Consumer<AppNotification>>()
+
+    private val extraNames = listOf(
+        "customer-portal-frontend-with-a-really-long-name", "ml-pipeline", "mobile-ios", "mobile-android",
+        "data-warehouse", "auth-service", "marketing-site", "design-system",
+    )
+
+    @Volatile var projects: List<Project> = if (empty) emptyList() else listOf(
+        Project(1, "astrolabe", previewProjectDir, ago(9000), selection),
+        Project(2, "billing-api", Path.of("C:/Users/dev/Work/billing-api"), ago(8000)),
+        Project(3, "docs-site", Path.of("C:/Users/dev/Work/docs-site"), ago(7000)),
+        Project(4, "infra-terraform", Path.of("C:/Users/dev/Work/infra-terraform"), ago(6000)),
+    ) + if (many) extraNames.mapIndexed { index, name -> Project(5L + index, name, Path.of("C:/Users/dev/Work/clients/$name"), ago(5000L - index)) } else emptyList()
+    private val projectListeners = mutableListOf<Runnable>()
+
+    init {
+        if (projects.isNotEmpty()) projects = projects.map { if (it.id in 2L..3L) projectRow(it, groupId = PREVIEW_GROUP_ID) else it } + projectRow(Project(PREVIEW_GROUP_ID, "billing-suite", previewProjectDir, ago(4000)), group = true)
+    }
+
+    private fun projectRow(p: Project, group: Boolean = p.group, groupId: Long? = p.groupId) = Project(p.id, p.name, p.path, p.createdAt, p.modelSelection, group, groupId)
+
+    private fun changeProjects(change: (List<Project>) -> List<Project>) {
+        projects = change(projects)
+        projectListeners.toList().forEach { it.run() }
+    }
+
+    private fun fakeGroupService(): ProjectGroupService {
+        val service = mock(ProjectGroupService::class.java)
+        fun assign(groupId: Long, memberIds: List<Long>) {
+            require(memberIds.isNotEmpty()) { "A group needs at least one project" }
+            changeProjects { all -> all.map { if (it.id in memberIds) projectRow(it, groupId = groupId) else if (it.groupId == groupId) projectRow(it, groupId = null) else it } }
+        }
+        `when`(service.create(anyString(), any())).thenAnswer {
+            val id = projects.maxOf { p -> p.id } + 1
+            require(it.getArgument<String>(0).isNotBlank()) { "Group name must not be empty" }
+            changeProjects { all -> all + Project(id, it.getArgument<String>(0).trim(), previewProjectDir, Instant.now(), ModelSelection.DEFAULT, true, null) }
+            assign(id, it.getArgument<List<Long>>(1))
+            projects.first { p -> p.id == id }
+        }
+        `when`(service.setMembers(anyLong(), any())).thenAnswer { assign(it.getArgument(0), it.getArgument(1)); projects.first { p -> p.id == it.getArgument<Long>(0) } }
+        `when`(service.members(anyLong())).thenAnswer { projects.filter { p -> p.groupId == it.getArgument<Long>(0) } }
+        return service
+    }
+
+    private val extraSessions = if (!many || empty) emptyList() else extraNames.indices.filter { it % 2 == 0 }.map { index ->
+        val status = listOf(AgentStatus.WORKING, AgentStatus.IDLE, AgentStatus.NEEDS_ACTION, AgentStatus.IDLE)[index / 2 % 4]
+        SessionSnapshot(
+            "s-extra-$index", 5L + index, "cx$index", status, "Running Bash: npm run build", "default", "claude-opus-4-7",
+            "Session $index", ago(900), ago(5L + index * 7), emptyList(), 0, null,
+        )
+    }
+
+    private val crowdedSessions = if (!many || empty) emptyList() else (1..8).map { n ->
+        SessionSnapshot("s-crowd-$n", 1, "cc$n", if (n % 3 == 0) AgentStatus.NEEDS_ACTION else AgentStatus.IDLE, "Finished", "default", "claude-opus-4-7", "Crowded tab number $n with a long topic", ago(600), ago(30L * n), emptyList(), 0, null)
+    }
+
+    val sessions: List<SessionSnapshot> = (if (empty) emptyList() else baseSessions()) + extraSessions + crowdedSessions
+
+    private fun baseSessions() = listOf(
+        SessionSnapshot(
+            "s-agents", 1, "c5", AgentStatus.NEEDS_ACTION, "Delegating to developer and tester", "acceptEdits", "claude-opus-4-7",
+            "Build the agents rail", ago(1800), ago(3),
+            listOf(
+                previewAgent("g1", "developer", SubagentState.WORKING, 754, "Bash: ./gradlew test --tests '*StatusReducerTest'", calls = 41, background = true),
+                previewAgent("g6", "Explore", SubagentState.WORKING, 2400, "Grep: SubagentStop", calls = 18, background = true, stale = true),
+                previewAgent("g2", "tester", SubagentState.NEEDS_ACTION, 95, "Waiting for permission: Bash", calls = 6),
+                previewAgent("g3", "Explore", SubagentState.DONE, 900, ended = 840, calls = 12, message = "The rail lives in AgentsPanel.kt; subagents come from SessionRegistry."),
+                previewAgent("g4", "code-reviewer", SubagentState.FAILED, 600, ended = 520, calls = 9, message = "API Error: overloaded, gave up after 3 retries."),
+                previewAgent("g5", "developer", SubagentState.INTERRUPTED, 500, ended = 470, calls = 3, message = ""),
+            ),
+            0, null,
+        ),
+        SessionSnapshot(
+            "s-working", 1, "c1", AgentStatus.WORKING, "Running Bash: ./gradlew test", "acceptEdits", "claude-opus-4-7",
+            "Refactor the session registry to read titles from the transcript", ago(2400), ago(4),
+            listOf(
+                previewAgent("a1", "code-reviewer", SubagentState.WORKING, 60, "Read: SessionRegistry.java", calls = 7),
+                previewAgent("a2", "Explore", SubagentState.DONE, 300, ended = 240, message = "Found 12 usages of AgentStatus"),
+            ),
+            1, null,
+        ),
+        SessionSnapshot(
+            "s-needs", 1, "c2", AgentStatus.NEEDS_ACTION, "Permission needed: Edit NotificationServiceTest.java", "default",
+            "claude-sonnet-5-5", "Fix flaky notification test", ago(1200), ago(95), emptyList(), 0, null,
+        ),
+        SessionSnapshot(
+            "s-idle", 2, "c3", AgentStatus.IDLE, "Finished: invoice export endpoint added", "plan", "claude-opus-4-7",
+            "Add invoice export", ago(5000), ago(310), emptyList(), 0, null,
+        ),
+        SessionSnapshot(
+            "s-infra", 4, "c4", AgentStatus.NEEDS_ACTION, "Plan approval: migrate state backend to S3", "plan", "claude-opus-4-7",
+            null, ago(800), ago(20), emptyList(), 0, null,
+        ),
+        SessionSnapshot(
+            "s-silent", 2, "c6", AgentStatus.WORKING, "Running Bash: npm run docs:build && npm run docs:lint && npm run docs:link-check && npm run docs:deploy -- --environment=staging --verbose --retries=3", "default", "claude-opus-4-7",
+            "Rebuild the docs site", ago(2400), ago(1500), emptyList(), 0, null,
+        ),
+    )
+
+    val notifications = listOf(
+        AppNotification(1, ago(3600), NotificationKind.FINISHED, 2, "s-idle", "Finished", "Invoice export endpoint added and tests pass."),
+        AppNotification(2, ago(900), NotificationKind.INFO, 3, null, "Claude signed in", "Session restored for docs-site."),
+        AppNotification(3, ago(120), NotificationKind.NEEDS_ACTION, 1, "s-needs", "Needs your action", "Permission needed: Edit NotificationServiceTest.java"),
+        AppNotification(4, ago(30), NotificationKind.NEEDS_ACTION, 4, "s-infra", "Plan approval", "Claude proposes to migrate the state backend to S3."),
+        AppNotification(5, ago(15), NotificationKind.ERROR, 1, "s-working", "API error", "Rate limited, retrying in 20s."),
+    )
+
+    private val activity = listOf(
+        ActivityEntry(ago(300), HookEventType.USER_PROMPT_SUBMIT, null, "Refactor the session registry to use immutable snapshots"),
+        ActivityEntry(ago(280), HookEventType.PRE_TOOL_USE, null, "Read src/main/java/.../SessionRegistry.java"),
+        ActivityEntry(ago(260), HookEventType.POST_TOOL_USE, null, "Read finished (212 lines)"),
+        ActivityEntry(ago(200), HookEventType.SUBAGENT_START, "a1", "code-reviewer started"),
+        ActivityEntry(ago(190), HookEventType.PRE_TOOL_USE, "a1", "Grep AgentStatus"),
+        ActivityEntry(ago(120), HookEventType.PERMISSION_REQUEST, null, "Edit SessionRegistry.java"),
+        ActivityEntry(ago(100), HookEventType.POST_TOOL_USE, null, "Edit applied"),
+        ActivityEntry(ago(60), HookEventType.SUBAGENT_STOP, "a1", "code-reviewer finished"),
+        ActivityEntry(ago(30), HookEventType.PRE_TOOL_USE, null, "Bash ./gradlew test"),
+        ActivityEntry(ago(10), HookEventType.STOP_FAILURE, null, "Rate limited (retryable)"),
+        ActivityEntry(ago(4), HookEventType.STOP, null, "Turn finished"),
+    )
+
+    private val runConfigurations = if (empty) emptyList() else listOf(
+        RunConfiguration(1, 1, "dev server", "npm run dev", previewProjectDir),
+        RunConfiguration(2, 1, "feature-x tests", "./gradlew test --continuous", previewProjectDir.resolve(".claude/worktrees/feature-x")),
+        RunConfiguration(3, 1, "old experiment", "make serve", previewProjectDir.resolve(".claude/worktrees/gone")),
+    )
+    private val activeRuns = ConcurrentHashMap<Long, ActiveRun>().apply {
+        if (!empty) {
+            put(1, ActiveRun(1, "run-1-1", "dev server", null, OptionalInt.empty()))
+            put(2, ActiveRun(2, "run-2-1", "feature-x tests", null, OptionalInt.of(1)))
+        }
+    }
+    private val runListeners = mutableListOf<Runnable>()
+
+    fun fire() = changeListeners.toList().forEach { it.run() }
+
+    private fun runConfigurationService(): RunConfigurationService {
+        val service = mock(RunConfigurationService::class.java)
+        `when`(service.list(anyLong())).thenAnswer { runConfigurations.filter { c -> c.projectId() == it.getArgument<Long>(0) } }
+        `when`(service.subscribe(any())).thenAnswer { Runnable { } }
+        return service
+    }
+
+    private fun runService(): RunService {
+        val service = mock(RunService::class.java)
+        `when`(service.current(anyLong())).thenAnswer { Optional.ofNullable(activeRuns[it.getArgument<Long>(0)]) }
+        `when`(service.subscribe(any())).thenAnswer { runListeners += it.getArgument<Runnable>(0); Runnable { } }
+        `when`(service.start(anyLong())).thenAnswer {
+            val config = runConfigurations.first { c -> c.id() == it.getArgument<Long>(0) }
+            val runId = "run-${config.id()}-${System.nanoTime()}"
+            activeRuns[config.id()] = ActiveRun(config.id(), runId, config.name(), null, OptionalInt.empty())
+            runListeners.toList().forEach { listener -> listener.run() }
+            LaunchedSession(runId, config.projectId(), config.name(), null)
+        }
+        return service
+    }
+
+    fun backend(terminal: TerminalPort): Backend {
+        val projectService = mock(ProjectService::class.java)
+        `when`(projectService.find(anyLong())).thenAnswer { Optional.ofNullable(projects.firstOrNull { p -> p.id == it.getArgument<Long>(0) }) }
+        `when`(projectService.subscribe(any())).thenAnswer { projectListeners += it.getArgument<Runnable>(0); Runnable { } }
+        `when`(projectService.list()).thenAnswer { projects }
+        `when`(projectService.rename(anyLong(), anyString())).thenAnswer { id ->
+            changeProjects { all -> all.map { if (it.id == id.getArgument<Long>(0)) Project(it.id, id.getArgument(1), it.path, it.createdAt, it.modelSelection, it.group, it.groupId) else it } }
+            projects.first { it.id == id.getArgument<Long>(0) }
+        }
+        `when`(projectService.selectModel(anyLong(), any())).thenAnswer { projects.first { p -> p.id == it.getArgument<Long>(0) } }
+        `when`(projectService.selectTrust(anyLong(), any())).thenAnswer { projects.first { p -> p.id == it.getArgument<Long>(0) } }
+
+        val registry = mock(SessionRegistry::class.java)
+        `when`(registry.sessions()).thenAnswer { sessions }
+        `when`(registry.sessions(anyLong())).thenAnswer { sessions.filter { s -> s.projectId == it.getArgument<Long>(0) } }
+        `when`(registry.projectStatus(anyLong())).thenAnswer {
+            sessions.filter { s -> s.projectId == it.getArgument<Long>(0) }.maxOfOrNull { s -> s.status } ?: AgentStatus.OFFLINE
+        }
+        `when`(registry.subscribe(any())).thenAnswer { changeListeners += it.getArgument<Runnable>(0); Runnable { } }
+
+        val notificationService = mock(NotificationService::class.java)
+        `when`(notificationService.history()).thenReturn(notifications)
+        `when`(notificationService.subscribe(any())).thenAnswer { notificationListeners += it.getArgument<Consumer<AppNotification>>(0); Runnable { } }
+
+        val installation = mock(ClaudeInstallationService::class.java)
+        `when`(installation.current()).thenAnswer { installationNow() }
+        `when`(installation.recheck()).thenAnswer { installationNow() }
+
+        val launcher = mock(ClaudeLauncher::class.java)
+        `when`(launcher.launch(anyLong(), any())).thenThrow(IllegalStateException("Preview mode: Claude cannot be launched here."))
+        `when`(launcher.launchTeam(anyLong(), any(), anyString())).thenThrow(IllegalStateException("Preview mode: Claude cannot be launched here."))
+        `when`(launcher.launchIn(anyLong(), any(), any(), any())).thenThrow(IllegalStateException("Preview mode: Claude cannot be launched here."))
+        `when`(launcher.launchTaskIn(anyLong(), any(), any(), anyString())).thenThrow(IllegalStateException("Preview mode: Claude cannot be launched here."))
+        `when`(launcher.attach(anyLong(), anyString())).thenThrow(IllegalStateException("Preview mode: nothing to attach to."))
+
+        val background = mock(BackgroundAgentService::class.java)
+        `when`(background.list(any())).thenReturn(listOf(BackgroundAgent("bg-1", "nightly-lint", "running", "Linting 340 files")))
+
+        val hooks = mock(HookEventStore::class.java)
+        `when`(hooks.recent(anyString(), anyInt())).thenReturn(activity)
+
+        val ide = mock(IdeLauncher::class.java)
+        `when`(ide.available()).thenReturn(true)
+        `when`(ide.list()).thenReturn(listOf(InstalledIde("idea", "IntelliJ IDEA", listOf("idea"))))
+
+        val limits = mock(RateLimitService::class.java)
+        `when`(limits.current()).thenAnswer { Optional.ofNullable(rateLimits) }
+        `when`(limits.subscribe(any())).thenAnswer { Runnable { } }
+
+        val hookHelper = mock(com.github.krpkbhdn.astrolabe.claude.hook.HookHelperCommand::class.java)
+        `when`(hookHelper.unavailableReason()).thenReturn(Optional.ofNullable(hookUnavailable))
+        `when`(hookHelper.shellFormNote()).thenReturn(Optional.ofNullable(hookShellNote))
+
+        val usage = mock(SessionUsageService::class.java)
+        `when`(usage.all()).thenAnswer { sessionUsage }
+        `when`(usage.subscribe(any())).thenAnswer { Runnable { } }
+
+        val contextBreakdown = mock(ContextBreakdownService::class.java)
+        `when`(contextBreakdown.measure(any(), any(), anyBoolean())).thenAnswer { ContextBreakdownResult.success(previewBreakdown()) }
+
+        val shellDetector = mock(ShellDetector::class.java)
+        `when`(shellDetector.detect()).thenReturn(listOf(ShellProfile("PowerShell", Path.of("pwsh.exe"), emptyList()), ShellProfile("Git Bash", Path.of("bash.exe"), listOf("--login", "-i"))))
+        val shellLauncher = mock(ShellLauncher::class.java)
+        `when`(shellLauncher.launch(anyLong(), any())).thenThrow(IllegalStateException("Preview mode: shells cannot be started here."))
+        `when`(shellLauncher.launch(anyLong(), any(), any())).thenThrow(IllegalStateException("Preview mode: shells cannot be started here."))
+
+        return Backend(projectService, fakeGroupService(), installation, registry, notificationService, launcher, background, hooks, mock(DirectoryOpener::class.java), ide, mock(IdeDetector::class.java), customIdes(), FakeGit(git).backend, limits, usage, previewTeamService(), FakePlugins(), fakeMcp.service, FakeSkills(), TranscriptService(JsonMapper.builder().build(), previewTranscriptDir, com.github.krpkbhdn.astrolabe.claude.session.TranscriptProperties(300, 1048576, 65536, 524288)), runConfigurationService(), runService(), shellDetector, shellLauncher, previewAuthorCatalog(), proposals.service(), mock(PromptTemplateService::class.java), previewSessionSearch(), previewPresetService(), previewPresetApply(), mock(com.github.krpkbhdn.astrolabe.preset.PresetRecommendation::class.java), com.github.krpkbhdn.astrolabe.preset.BundledPresetLoader(), previewPresetApplications(), ReviewPreviewData.service(), WebPreviewData.service(), dataDir = WebPreviewData.dataDir, terminal = terminal, sessionProperties = SessionProperties(Duration.ofMinutes(10), Duration.ofMinutes(10)), contextBreakdown = contextBreakdown, voice = voice.backend, hookHelper = hookHelper, toolchain = previewToolchain(), projectCodeMode = previewProjectCodeMode(), codeMode = previewCodeModeBackend())
+    }
+
+    private fun customIdes() = mock(CustomIdeService::class.java).also { `when`(it.subscribe(any())).thenReturn(Runnable { }) }
+
+    private fun installationNow() = if (claudeInstalled) {
+        ClaudeInstallation(true, Path.of("claude"), "2.1.143 (Claude Code)", LoginState.LOGGED_IN, null)
+    } else {
+        ClaudeInstallation(false, null, null, LoginState.UNKNOWN, "The claude command was not found in PATH or in ~/.local/bin.")
+    }
+
+    fun emit(notification: AppNotification) = notificationListeners.toList().forEach { it.accept(notification) }
+}
+
+/** Stand-in for the real terminal widget so layouts can be judged without a PTY. */
+object PreviewTerminal : TerminalPort {
+    override fun open(session: LaunchedSession) = Unit
+    override fun send(astrolabeSessionId: String, text: String) = Unit
+    override fun close(astrolabeSessionId: String) = Unit
+
+    @Composable
+    override fun View(astrolabeSessionId: String, modifier: Modifier) {
+        Column(modifier.fillMaxSize().background(colors.terminal).padding(16.dp)) {
+            listOf("> claude", "", "  Claude Code v2.1.143", "  Opus 4.7 - ~/Work/astrolabe-studio", "", "> Refactor the session registry to use immutable snapshots", "", "  Reading SessionRegistry.java ...", "  Edit src/main/java/.../SessionRegistry.java")
+                .forEach { Text(it, color = colors.textPrimary, fontFamily = FontFamily.Monospace, fontSize = 13.sp) }
+        }
+    }
+}

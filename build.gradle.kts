@@ -14,7 +14,7 @@ plugins {
 }
 
 group = "com.github.krpkbhdn"
-version = "2.3.20"
+version = "2.3.21"
 
 java {
     toolchain {
@@ -97,27 +97,27 @@ tasks.matching { it.name == "compileKotlin" || it.name == "compileTestKotlin" }.
 
 // A linked worktree has a .git file (a clone has a directory); its runs must not touch the main installation's data.
 val isLinkedWorktree = layout.projectDirectory.file(".git").asFile.isFile
-val worktreeDataDir = File(System.getProperty("java.io.tmpdir"), "cc-manager-worktrees/${projectDir.name}").absolutePath
+val worktreeDataDir = File(System.getProperty("java.io.tmpdir"), "astrolabe-studio-worktrees/${projectDir.name}").absolutePath
 
 tasks.withType<JavaExec>().matching { it.name == "run" }.configureEach {
-    if (isLinkedWorktree && System.getenv("CC_MANAGER_DATA_DIR") == null) {
-        environment("CC_MANAGER_DATA_DIR", worktreeDataDir)
+    if (isLinkedWorktree && System.getenv("ASTROLABE_DATA_DIR") == null) {
+        environment("ASTROLABE_DATA_DIR", worktreeDataDir)
         logger.lifecycle("Worktree detected: data dir $worktreeDataDir")
     }
 }
 
-// Tests, previews and shots get their own home, data dir and Claude config dir under build/, so they never touch ~/.cc-manager or ~/.claude.
-// Opt out with CCM_UNSANDBOXED, CCM_REAL_CLAUDE or CCM_SMOKE (those need the real claude login); runPreview --real keeps the real
+// Tests, previews and shots get their own home, data dir and Claude config dir under build/, so they never touch ~/.astrolabe-studio or ~/.claude.
+// Opt out with ASTROLABE_UNSANDBOXED, ASTROLABE_REAL_CLAUDE or ASTROLABE_SMOKE (those need the real claude login); runPreview --real keeps the real
 // claude config but gets a fresh data dir under build/.
 val sandboxHome = layout.buildDirectory.dir("sandbox-home").get().asFile.absolutePath
-val sandboxOptOuts = listOf("CCM_UNSANDBOXED", "CCM_REAL_CLAUDE", "CCM_SMOKE")
+val sandboxOptOuts = listOf("ASTROLABE_UNSANDBOXED", "ASTROLABE_REAL_CLAUDE", "ASTROLABE_SMOKE")
 val sandboxed = provider { sandboxOptOuts.none { providers.environmentVariable(it).isPresent } }
 val sandboxedTasks = setOf("runPreview", "gitShots", "reviewShots", "webShots", "ideShots", "activityShots")
 
 tasks.withType<Test>().configureEach {
     if (sandboxed.get()) {
         systemProperty("user.home", sandboxHome)
-        environment("CC_MANAGER_DATA_DIR", "$sandboxHome/.cc-manager")
+        environment("ASTROLABE_DATA_DIR", "$sandboxHome/.astrolabe-studio")
         environment("CLAUDE_CONFIG_DIR", "$sandboxHome/.claude")
     }
 }
@@ -125,7 +125,7 @@ tasks.withType<Test>().configureEach {
 tasks.register<JavaExec>("runPreview") {
     group = "application"
     description = "Boots the UI with fake services (flags: --light, --shots, --out=<dir>, --review sample visual review, --web real browser on the demo page)"
-    mainClass = "com.github.krpkbhdn.ccmanager.ui.PreviewMainKt"
+    mainClass = "com.github.krpkbhdn.astrolabe.ui.PreviewMainKt"
     environment(claudeFullscreen)
     classpath = sourceSets["test"].runtimeClasspath
     javaLauncher = javaToolchains.launcherFor(java.toolchain)
@@ -135,7 +135,7 @@ tasks.register<JavaExec>("runPreview") {
 tasks.register<JavaExec>("gitShots") {
     group = "application"
     description = "Renders the Git tab offscreen to PNGs (flags: --out=<dir> --only=<names> --dark|--light --size=WxH)"
-    mainClass = "com.github.krpkbhdn.ccmanager.ui.git.GitShotsKt"
+    mainClass = "com.github.krpkbhdn.astrolabe.ui.git.GitShotsKt"
     classpath = sourceSets["test"].runtimeClasspath
     javaLauncher = javaToolchains.launcherFor(java.toolchain)
     jvmArgs("--enable-native-access=ALL-UNNAMED", *awtOpens.toTypedArray())
@@ -144,7 +144,7 @@ tasks.register<JavaExec>("gitShots") {
 tasks.register<JavaExec>("reviewShots") {
     group = "application"
     description = "Renders the Review screen offscreen to PNGs (flags: --out=<dir> --dark|--light --size=WxH)"
-    mainClass = "com.github.krpkbhdn.ccmanager.ui.review.ReviewShotsKt"
+    mainClass = "com.github.krpkbhdn.astrolabe.ui.review.ReviewShotsKt"
     classpath = sourceSets["test"].runtimeClasspath
     javaLauncher = javaToolchains.launcherFor(java.toolchain)
     jvmArgs("--enable-native-access=ALL-UNNAMED", *awtOpens.toTypedArray())
@@ -153,7 +153,7 @@ tasks.register<JavaExec>("reviewShots") {
 tasks.register<JavaExec>("ideShots") {
     group = "application"
     description = "Renders the IDE split button and its menu offscreen to PNGs (flags: --out=<dir> --dark|--light)"
-    mainClass = "com.github.krpkbhdn.ccmanager.ui.ide.IdeShotsKt"
+    mainClass = "com.github.krpkbhdn.astrolabe.ui.ide.IdeShotsKt"
     classpath = sourceSets["test"].runtimeClasspath
     javaLauncher = javaToolchains.launcherFor(java.toolchain)
     jvmArgs("--enable-native-access=ALL-UNNAMED", *awtOpens.toTypedArray())
@@ -162,7 +162,7 @@ tasks.register<JavaExec>("ideShots") {
 tasks.register<JavaExec>("activityShots") {
     group = "application"
     description = "Renders the Activity empty state offscreen to PNGs (flags: --out=<dir> --dark|--light)"
-    mainClass = "com.github.krpkbhdn.ccmanager.ui.screens.ActivityShotsKt"
+    mainClass = "com.github.krpkbhdn.astrolabe.ui.screens.ActivityShotsKt"
     classpath = sourceSets["test"].runtimeClasspath
     javaLauncher = javaToolchains.launcherFor(java.toolchain)
     jvmArgs("--enable-native-access=ALL-UNNAMED", *awtOpens.toTypedArray())
@@ -171,7 +171,7 @@ tasks.register<JavaExec>("activityShots") {
 tasks.register<JavaExec>("webShots") {
     group = "application"
     description = "Renders the Web review screen offscreen to PNGs (flags: --out=<dir> --dark|--light --size=WxH)"
-    mainClass = "com.github.krpkbhdn.ccmanager.ui.web.WebShotsKt"
+    mainClass = "com.github.krpkbhdn.astrolabe.ui.web.WebShotsKt"
     classpath = sourceSets["test"].runtimeClasspath
     javaLauncher = javaToolchains.launcherFor(java.toolchain)
     jvmArgs("--enable-native-access=ALL-UNNAMED", *awtOpens.toTypedArray())
@@ -180,7 +180,7 @@ tasks.register<JavaExec>("webShots") {
 tasks.withType<JavaExec>().matching { it.name in sandboxedTasks }.configureEach {
     if (sandboxed.get()) {
         systemProperty("user.home", sandboxHome)
-        environment("CC_MANAGER_DATA_DIR", "$sandboxHome/.cc-manager")
+        environment("ASTROLABE_DATA_DIR", "$sandboxHome/.astrolabe-studio")
         environment("CLAUDE_CONFIG_DIR", "$sandboxHome/.claude")
     }
 }
@@ -191,7 +191,7 @@ tasks.named<JavaExec>("runPreview") {
             systemProperties.remove("user.home")
             val ownConfigDir = System.getenv("CLAUDE_CONFIG_DIR")
             if (ownConfigDir != null) environment("CLAUDE_CONFIG_DIR", ownConfigDir) else environment.remove("CLAUDE_CONFIG_DIR")
-            environment("CC_MANAGER_DATA_DIR", layout.buildDirectory.dir("preview-real-data").get().asFile.absolutePath)
+            environment("ASTROLABE_DATA_DIR", layout.buildDirectory.dir("preview-real-data").get().asFile.absolutePath)
         }
     }
 }
@@ -210,7 +210,7 @@ val jdtlsPinned: Map<String, String> by lazy {
     check(pinned["url"] == other["url"] && pinned["sha256"] == other["sha256"]) { "tools.json: jdtls pinned differs between windows and linux" }
     mapOf("url" to pinned["url"] as String, "sha256" to (pinned["sha256"] as String).lowercase())
 }
-val jdtlsArchiveCache = gradle.gradleUserHomeDir.resolve("ccm-jdtls")
+val jdtlsArchiveCache = gradle.gradleUserHomeDir.resolve("astrolabe-jdtls")
 
 val downloadJdtlsArchive = tasks.register("downloadJdtlsArchive") {
     val toolsJson = file("src/main/resources/toolchain/tools.json")
@@ -259,7 +259,7 @@ tasks.named<JavaCompile>("compileJdtlsBundleJava") {
 val jdtlsBundleJar = tasks.register<Jar>("jdtlsBundleJar") {
     from(jdtlsBundle.output) { exclude("META-INF/MANIFEST.MF", "composeResources/**") }
     manifest { from(file("src/jdtlsBundle/resources/META-INF/MANIFEST.MF")) }
-    archiveFileName = "dev.ccm.jdtls.output.jar"
+    archiveFileName = "dev.astrolabe.jdtls.output.jar"
     destinationDirectory = layout.buildDirectory.dir("jdtls-bundle")
 }
 
@@ -269,12 +269,12 @@ tasks.processResources {
 
 compose.desktop {
     application {
-        mainClass = "com.github.krpkbhdn.ccmanager.ui.MainKt"
+        mainClass = "com.github.krpkbhdn.astrolabe.ui.MainKt"
         javaHome = javaToolchains.launcherFor(java.toolchain).get().metadata.installationPath.asFile.absolutePath
-        jvmArgs += graalJsArgs + "-Dcc-manager.update.version=$version" + awtOpens
+        jvmArgs += graalJsArgs + "-Dastrolabe.update.version=$version" + awtOpens
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe, TargetFormat.Deb, TargetFormat.Dmg)
-            packageName = "Claude Code Manager"
+            packageName = "Astrolabe Studio"
             packageVersion = version.toString()
             vendor = "krpkbhdn"
             // Spring reflects over many JDK modules; a trimmed jlink image breaks it at runtime.
@@ -287,8 +287,8 @@ compose.desktop {
                 shortcut = true
                 dirChooser = true
                 perUserInstall = true
-                menuGroup = "Claude Code Manager"
-                upgradeUuid = "5b0f6a3e-7c1d-4e8a-9a52-3c1f0d2b7e41"
+                menuGroup = "Astrolabe Studio"
+                upgradeUuid = "490ea982-606a-4d2e-9037-6d74c6b2c0b1"
             }
         }
     }
@@ -297,7 +297,7 @@ compose.desktop {
 tasks.register<JavaExec>("generateIcons") {
     group = "application"
     description = "Renders the app icon into packaging/icon.ico, icon.icns and icon.png used by the installers"
-    mainClass = "com.github.krpkbhdn.ccmanager.ui.GenerateIconsKt"
+    mainClass = "com.github.krpkbhdn.astrolabe.ui.GenerateIconsKt"
     classpath = sourceSets["test"].runtimeClasspath
     javaLauncher = javaToolchains.launcherFor(java.toolchain)
     systemProperty("java.awt.headless", "true")

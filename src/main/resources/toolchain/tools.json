@@ -27,7 +27,7 @@
               "macos":["npm","install","-g","typescript-language-server","typescript@6"]},
    "docsUrl":"https://github.com/typescript-language-server/typescript-language-server"},
   {"id":"css","name":"CSS / SCSS / Less","group":"CSS / SCSS / Less","kind":"LANGUAGE_SERVER","binary":"vscode-css-language-server","versionArgs":[],
-   "lspPlugin":"css-lsp@cc-manager-lsp","prerequisite":"node","markers":["*.css","*.scss","*.less"],
+   "lspPlugin":"css-lsp@astrolabe-lsp","prerequisite":"node","markers":["*.css","*.scss","*.less"],
    "install":{"windows":["npm","install","-g","vscode-langservers-extracted"],
               "linux":["npm","install","-g","vscode-langservers-extracted"],
               "macos":["npm","install","-g","vscode-langservers-extracted"]},

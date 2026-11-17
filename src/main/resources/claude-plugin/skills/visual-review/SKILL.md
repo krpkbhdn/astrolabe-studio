@@ -1,18 +1,18 @@
 ---
 name: visual-review
-description: Hand screenshots of your UI work to the user for visual review in Claude Code Manager. Use after UI changes the user wants to check visually, or when the user asks for a visual review or screenshots.
+description: Hand screenshots of your UI work to the user for visual review in Astrolabe Studio. Use after UI changes the user wants to check visually, or when the user asks for a visual review or screenshots.
 ---
 
-# Visual review in cc-manager
+# Visual review in astrolabe
 
-This session runs inside Claude Code Manager. Its `cc-manager` MCP server has the tool `submit_screenshots`; the user looks at the images in the Review tab and marks what is wrong.
+This session runs inside Astrolabe Studio. Its `astrolabe` MCP server has the tool `submit_screenshots`; the user looks at the images in the Review tab and marks what is wrong.
 
 ## Produce the screenshots
 
 The user chooses how. If the request does not say, use offscreen mode and say so in your reply.
 
-- Offscreen: render the UI to PNG without a window. In the cc-manager repo: `./gradlew gitShots --args="--out=<dir> --only=<names> --dark --size=1280x820"` and the preview shot tooling. In other projects use that project's screenshot or preview tooling, or Playwright.
-- Real app: launch the app and capture its window. In the cc-manager repo: `./gradlew runPreview --args="--shots --out=<dir>"`.
+- Offscreen: render the UI to PNG without a window. In the astrolabe repo: `./gradlew gitShots --args="--out=<dir> --only=<names> --dark --size=1280x820"` and the preview shot tooling. In other projects use that project's screenshot or preview tooling, or Playwright.
+- Real app: launch the app and capture its window. In the astrolabe repo: `./gradlew runPreview --args="--shots --out=<dir>"`.
 
 Save the PNGs into a fresh temp folder and use ABSOLUTE paths. Never paste image data into the chat.
 

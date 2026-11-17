@@ -3,12 +3,12 @@
 <plugin>
    <extension id="app" point="org.eclipse.core.runtime.applications">
       <application cardinality="singleton-global" thread="main" visible="true">
-         <run class="dev.ccm.jdtls.output.DelegatingApplication"/>
+         <run class="dev.astrolabe.jdtls.output.DelegatingApplication"/>
       </application>
    </extension>
    <extension point="org.eclipse.buildship.core.projectconfigurators">
-      <configurator id="dev.ccm.jdtls.output.configurator"
-            class="dev.ccm.jdtls.output.OutputConfigurator"
+      <configurator id="dev.astrolabe.jdtls.output.configurator"
+            class="dev.astrolabe.jdtls.output.OutputConfigurator"
             runsAfter="org.eclipse.buildship.configurators.base"/>
    </extension>
 </plugin>

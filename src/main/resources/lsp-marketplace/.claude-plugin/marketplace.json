@@ -1,6 +1,6 @@
 {
-  "name": "cc-manager-lsp",
-  "owner": { "name": "Claude Code Manager" },
+  "name": "astrolabe-lsp",
+  "owner": { "name": "Astrolabe Studio" },
   "plugins": [
     {
       "name": "css-lsp",

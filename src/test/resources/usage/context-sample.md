@@ -74,8 +74,8 @@
 | Type | Path | Tokens |
 |------|------|--------|
 | User | C:\Users\Bohdan\.claude\CLAUDE.md | 708 |
-| Project | C:\Users\Bohdan\Work\Code\Personal\cc-manager\.claude\worktrees\context-usage\CLAUDE.md | 11.4k |
-| AutoMem | C:\Users\Bohdan\.claude\projects\C--Users-Bohdan-Work-Code-Personal-cc-manager\memory\MEMORY.md | 152 |
+| Project | C:\Users\Bohdan\Work\Code\Personal\astrolabe\.claude\worktrees\context-usage\CLAUDE.md | 11.4k |
+| AutoMem | C:\Users\Bohdan\.claude\projects\C--Users-Bohdan-Work-Code-Personal-astrolabe\memory\MEMORY.md | 152 |
 
 ### Skills
 

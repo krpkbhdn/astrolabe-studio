@@ -1,0 +1,124 @@
+package com.github.krpkbhdn.astrolabe.ui.state
+
+import com.github.krpkbhdn.astrolabe.claude.session.AgentStatus
+import com.github.krpkbhdn.astrolabe.claude.session.SessionSnapshot
+import java.time.Instant
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
+
+class ProjectViewTest {
+    private fun session(id: String, status: AgentStatus, projectId: Long = 1) =
+        SessionSnapshot(id, projectId, null, status, null, null, null, null, Instant.EPOCH, Instant.EPOCH, emptyList(), 0, null)
+
+    @Test
+    fun `opening a session selects and focuses it once`() {
+        val view = ProjectView().openSession("a").openSession("b").openSession("a")
+
+        assertThat(view.openSessions).containsExactly("a", "b")
+        assertThat(view.selected).isEqualTo(ProjectTab.Session("a"))
+        assertThat(view.focusedSession).isEqualTo("a")
+    }
+
+    @Test
+    fun `selecting diff keeps open sessions`() {
+        val view = ProjectView().openSession("a").select(ProjectTab.Git)
+
+        assertThat(view.selected).isEqualTo(ProjectTab.Git)
+        assertThat(view.openSessions).containsExactly("a")
+    }
+
+    @Test
+    fun `tabs and cycling skip the web tab when it is disabled`() {
+        val view = ProjectView().select(ProjectTab.Review)
+
+        assertThat(view.tabs(withWeb = false)).doesNotContain(ProjectTab.Web).contains(ProjectTab.Review, ProjectTab.Activity)
+        assertThat(view.cycle(1, withWeb = false).selected).isEqualTo(ProjectTab.Activity)
+    }
+
+    @Test
+    fun `cycling walks sessions then diff and activity and wraps`() {
+        val view = ProjectView().openSession("a").openSession("b")
+
+        assertThat(view.tabs()).containsExactly(ProjectTab.Session("a"), ProjectTab.Session("b"), ProjectTab.Git, ProjectTab.Run, ProjectTab.Review, ProjectTab.Web, ProjectTab.Activity)
+        assertThat(view.cycle(1).selected).isEqualTo(ProjectTab.Git)
+        assertThat(view.cycle(-1).selected).isEqualTo(ProjectTab.Session("a"))
+        assertThat(view.select(ProjectTab.Activity).cycle(1).selected).isEqualTo(ProjectTab.Session("a"))
+    }
+
+    @Test
+    fun `closing the selected tab selects its neighbour`() {
+        val view = ProjectView().openSession("a").openSession("b").openSession("c").select(ProjectTab.Session("b")).closeSession("b")
+
+        assertThat(view.openSessions).containsExactly("a", "c")
+        assertThat(view.selected).isEqualTo(ProjectTab.Session("c"))
+    }
+
+    @Test
+    fun `closing the last session falls back to activity`() {
+        val view = ProjectView().openSession("a").closeSession("a")
+
+        assertThat(view.selected).isEqualTo(ProjectTab.Activity)
+        assertThat(view.focusedSession).isNull()
+    }
+
+    @Test
+    fun `closing an unselected tab keeps the selection`() {
+        val view = ProjectView().openSession("a").openSession("b").closeSession("a")
+
+        assertThat(view.selected).isEqualTo(ProjectTab.Session("b"))
+    }
+
+    @Test
+    fun `shell tabs sit between sessions and git and close to their neighbour`() {
+        val view = ProjectView().openSession("a").openShell("s1").openShell("s2")
+
+        assertThat(view.tabs()).containsExactly(ProjectTab.Session("a"), ProjectTab.Shell("s1"), ProjectTab.Shell("s2"), ProjectTab.Git, ProjectTab.Run, ProjectTab.Review, ProjectTab.Web, ProjectTab.Activity)
+        assertThat(view.closeShell("s2").selected).isEqualTo(ProjectTab.Shell("s1"))
+        assertThat(view.closeShell("s2").closeShell("s1").selected).isEqualTo(ProjectTab.Session("a"))
+    }
+
+    @Test
+    fun `further tabs of the same shell are numbered`() {
+        assertThat(uniqueLabel("Git Bash", emptyList())).isEqualTo("Git Bash")
+        assertThat(uniqueLabel("Git Bash", listOf("Git Bash"))).isEqualTo("Git Bash 2")
+        assertThat(uniqueLabel("Git Bash", listOf("Git Bash", "Git Bash 2"))).isEqualTo("Git Bash 3")
+    }
+
+    @Test
+    fun `sessions are ordered by urgency`() {
+        val sessions = listOf(session("idle", AgentStatus.IDLE), session("needs", AgentStatus.NEEDS_ACTION), session("work", AgentStatus.WORKING))
+
+        assertThat(byUrgency(sessions).map { it.astrolabeSessionId }).containsExactly("needs", "work", "idle")
+        assertThat(mostUrgent(sessions)?.astrolabeSessionId).isEqualTo("needs")
+        assertThat(needingAttention(sessions).map { it.astrolabeSessionId }).containsExactly("needs")
+        assertThat(mostUrgent(emptyList())).isNull()
+    }
+
+    @Test
+    fun `projects become idle only on a transition from busy`() {
+        val previous = mapOf("a" to AgentStatus.WORKING, "b" to AgentStatus.IDLE, "c" to AgentStatus.NEEDS_ACTION)
+        val current = listOf(session("a", AgentStatus.IDLE, 1), session("b", AgentStatus.IDLE, 2), session("c", AgentStatus.IDLE, 3), session("d", AgentStatus.IDLE, 4))
+
+        assertThat(projectsBecameIdle(previous, current)).containsExactlyInAnyOrder(1L, 3L)
+    }
+
+    @Test
+    fun `review tab sits after run and before activity and is reached by cycling`() {
+        val view = ProjectView().select(ProjectTab.Run)
+
+        assertThat(view.tabs().takeLast(4)).containsExactly(ProjectTab.Run, ProjectTab.Review, ProjectTab.Web, ProjectTab.Activity)
+        assertThat(view.cycle(1).selected).isEqualTo(ProjectTab.Review)
+        assertThat(view.cycle(1).cycle(1).selected).isEqualTo(ProjectTab.Web)
+        assertThat(view.cycle(1).cycle(-1).selected).isEqualTo(ProjectTab.Run)
+        assertThat(ProjectView().select(ProjectTab.Review).selected).isEqualTo(ProjectTab.Review)
+    }
+
+    @Test
+    fun `web tab sits after review and before activity and is reached by cycling`() {
+        val view = ProjectView().select(ProjectTab.Review)
+
+        assertThat(view.cycle(1).selected).isEqualTo(ProjectTab.Web)
+        assertThat(view.cycle(2).selected).isEqualTo(ProjectTab.Activity)
+        assertThat(ProjectView().select(ProjectTab.Web).selected).isEqualTo(ProjectTab.Web)
+    }
+}

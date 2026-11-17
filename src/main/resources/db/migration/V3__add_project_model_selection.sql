@@ -1,2 +1,0 @@
-ALTER TABLE project ADD COLUMN model TEXT;
-ALTER TABLE project ADD COLUMN effort TEXT;

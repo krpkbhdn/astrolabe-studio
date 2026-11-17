@@ -1,7 +1,7 @@
 Manifest-Version: 1.0
 Bundle-ManifestVersion: 2
-Bundle-Name: ccm jdtls output
-Bundle-SymbolicName: dev.ccm.jdtls.output;singleton:=true
+Bundle-Name: astrolabe jdtls output
+Bundle-SymbolicName: dev.astrolabe.jdtls.output;singleton:=true
 Bundle-Version: 1.0.0
 Bundle-RequiredExecutionEnvironment: JavaSE-21
 Bundle-ActivationPolicy: lazy

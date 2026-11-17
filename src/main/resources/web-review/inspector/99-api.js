@@ -1,4 +1,4 @@
-/* Module 99: style preview, public W.__ccm and page lifecycle. Runs last so every module has registered its api. */
+/* Module 99: style preview, public W.__astrolabe and page lifecycle. Runs last so every module has registered its api. */
 var safe = C.safe, send = C.send, schedule = C.schedule;
 var preview = new Map();  // element -> {prop: {value, priority}}
 
@@ -31,7 +31,7 @@ C.api('describeAt', function (x, y) {
   var el = C.deepElementAt(x, y);
   return el ? C.describe(el) : null;
 });
-// Used while Kotlin does not forward real input (page locked), so no :hover fires; kind is validated here because the page can call __ccm too.
+// Used while Kotlin does not forward real input (page locked), so no :hover fires; kind is validated here because the page can call __astrolabe too.
 C.api('pointer', function (kind, x, y) {
   x = Number(x); y = Number(y);
   if (!isFinite(x) || !isFinite(y)) return;
@@ -67,9 +67,9 @@ C.api('stats', function () { return JSON.parse(JSON.stringify(C.stats)); });
 C.api('resolveSelector', C.resolveSelector);   // additive: lets the host/tests resolve a selector string
 
 var FALLBACKS = { focusAnnotation: false, previewStyle: false, describeAt: null, stats: null, resolveSelector: null };
-W.__ccm = { version: C.VERSION };
+W.__astrolabe = { version: C.VERSION };
 Object.keys(C.apis).forEach(function (name) {
-  W.__ccm[name] = safe(C.apis[name], FALLBACKS[name]);
+  W.__astrolabe[name] = safe(C.apis[name], FALLBACKS[name]);
 });
 
 // ---------- page lifecycle ----------

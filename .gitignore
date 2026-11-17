@@ -55,4 +55,4 @@ jscpd-report/
 local.properties
 
 .playwright-mcp/
-ccm-shots/
+astrolabe-shots/
