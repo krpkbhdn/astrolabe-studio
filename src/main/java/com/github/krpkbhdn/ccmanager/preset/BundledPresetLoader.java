@@ -3,7 +3,10 @@ package com.github.krpkbhdn.ccmanager.preset;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.TreeMap;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
@@ -25,7 +28,8 @@ public class BundledPresetLoader {
     private record Document(List<RawPreset> presets) {
     }
 
-    private record RawPreset(String key, int version, String name, String description, List<RawComponent> components) {
+    private record RawPreset(String key, int version, String name, String description, List<RawComponent> components,
+                             List<String> includes, List<String> match) {
     }
 
     /** @param source classpath file (INSTRUCTION markdown, FILE content) or folder (SKILL files) holding the text of the component */
@@ -35,10 +39,14 @@ public class BundledPresetLoader {
     private final List<BundledPreset> presets;
 
     public BundledPresetLoader() {
-        try (var in = new ClassPathResource(RESOURCE).getInputStream()) {
-            this.presets = MAPPER.readValue(in, Document.class).presets().stream().map(BundledPresetLoader::resolve).toList();
+        this(RESOURCE);
+    }
+
+    BundledPresetLoader(String resource) {
+        try (var in = new ClassPathResource(resource).getInputStream()) {
+            this.presets = flatten(MAPPER.readValue(in, Document.class).presets());
         } catch (IOException | RuntimeException e) {
-            throw new IllegalStateException("Bundled presets cannot be loaded from " + RESOURCE + ": " + e.getMessage(), e);
+            throw new IllegalStateException("Bundled presets cannot be loaded from " + resource + ": " + e.getMessage(), e);
         }
     }
 
@@ -50,19 +58,62 @@ public class BundledPresetLoader {
         return presets;
     }
 
-    private static BundledPreset resolve(RawPreset raw) {
-        var components = raw.components().stream().map(BundledPresetLoader::resolve).toList();
-        return new BundledPreset(raw.key(), raw.version(), raw.name(), raw.description(), components);
+    private static List<BundledPreset> flatten(List<RawPreset> raws) {
+        var byKey = new LinkedHashMap<String, RawPreset>();
+        for (var raw : raws) {
+            if (byKey.put(raw.key(), raw) != null) {
+                throw new IllegalStateException("Bundled preset key is used twice: " + raw.key());
+            }
+        }
+        return raws.stream().map(raw -> {
+            var components = new LinkedHashMap<String, PresetComponentSpec>();
+            collect(raw, byKey, new ArrayList<>(), components);
+            var match = raw.match() == null ? List.<String>of() : raw.match();
+            if (match.stream().anyMatch(trait -> trait == null || trait.isBlank())) {
+                throw new IllegalStateException("Bundled preset '" + raw.key() + "' has a blank match trait");
+            }
+            return new BundledPreset(raw.key(), raw.version(), raw.name(), raw.description(), List.copyOf(components.values()), List.copyOf(match));
+        }).toList();
+    }
+
+    /** Included presets first (first occurrence wins among them), then the preset's own components override by kind and name. */
+    private static void collect(RawPreset raw, Map<String, RawPreset> byKey, List<String> path, Map<String, PresetComponentSpec> out) {
+        if (path.contains(raw.key())) {
+            throw new IllegalStateException("Bundled presets include each other in a cycle: " + String.join(" -> ", path) + " -> " + raw.key());
+        }
+        path.add(raw.key());
+        for (var key : raw.includes() == null ? List.<String>of() : raw.includes()) {
+            var included = byKey.get(key);
+            if (included == null) {
+                throw new IllegalStateException("Bundled preset '" + raw.key() + "' includes unknown preset '" + key + "'");
+            }
+            var inherited = new LinkedHashMap<String, PresetComponentSpec>();
+            collect(included, byKey, path, inherited);
+            inherited.forEach(out::putIfAbsent);
+        }
+        path.removeLast();
+        for (var component : raw.components() == null ? List.<RawComponent>of() : raw.components()) {
+            var spec = resolve(component);
+            out.put(spec.kind() + ":" + spec.name(), spec);
+        }
     }
 
     private static PresetComponentSpec resolve(RawComponent raw) {
         var payload = switch (raw.kind()) {
-            case INSTRUCTION -> MAPPER.createObjectNode().put("markdown", text(raw.source()));
+            case INSTRUCTION -> instruction(raw);
             case SKILL -> MAPPER.createObjectNode().set("files", MAPPER.valueToTree(folder(raw.source())));
             case FILE -> MAPPER.createObjectNode().setAll((ObjectNode) raw.payload()).put("content", text(raw.source()));
             default -> raw.payload();
         };
         return new PresetComponentSpec(raw.kind(), raw.name(), payload);
+    }
+
+    private static ObjectNode instruction(RawComponent raw) {
+        var node = MAPPER.createObjectNode().put("markdown", text(raw.source()));
+        if (raw.payload() != null && raw.payload().has("scope")) {
+            node.set("scope", raw.payload().get("scope"));
+        }
+        return node;
     }
 
     private static String text(String path) {

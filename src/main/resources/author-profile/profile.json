@@ -58,19 +58,6 @@
       "name": "context7@claude-plugins-official"
     },
     {
-      "id": "plugin.playwright",
-      "area": "CLAUDE_TOOLS",
-      "group": "Plugins",
-      "title": "Playwright",
-      "description": "Lets Claude drive a real browser to test and inspect web pages. Useful for web development and UI verification.",
-      "kind": "PLUGIN",
-      "version": 1,
-      "requires": [
-        "marketplace.claude-plugins-official"
-      ],
-      "name": "playwright@claude-plugins-official"
-    },
-    {
       "id": "plugin.claude-md-management",
       "area": "CLAUDE_TOOLS",
       "group": "Plugins",

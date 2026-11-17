@@ -108,4 +108,31 @@ class ClaudeMdSectionsTest {
         assertThat(ClaudeMdSections.plan(plan.text(), "Style", "a\nb").action()).isEqualTo(ChangeAction.PRESENT);
         assertThat(ClaudeMdSections.plan(plan.text(), "Style", "c").text()).doesNotContainPattern("[^\\r]\\n");
     }
+
+    @Test
+    void removeDeletesOnlyTheOwnBlockAndItsBlankLine() {
+        var file = "# Mine\n\n" + ClaudeMdSections.block("Style", "x") + "\n\n" + ClaudeMdSections.block("Other", "y") + "\n\ntail\n";
+
+        assertThat(ClaudeMdSections.remove(file, "Style")).isEqualTo("# Mine\n\n" + ClaudeMdSections.block("Other", "y") + "\n\ntail\n");
+    }
+
+    @Test
+    void removingTheLastBlockLeavesNoTrailingBlankMess() {
+        assertThat(ClaudeMdSections.remove("# Mine\n\n" + ClaudeMdSections.block("Style", "x") + "\n", "Style")).isEqualTo("# Mine\n");
+        assertThat(ClaudeMdSections.remove(ClaudeMdSections.block("Style", "x") + "\n", "Style")).isEmpty();
+    }
+
+    @Test
+    void removeWithoutABlockOrWithUnclosedMarkersChangesNothing() {
+        assertThat(ClaudeMdSections.remove("# Mine\n", "Style")).isEqualTo("# Mine\n");
+        var unclosed = "<!-- cc-manager:begin style -->\nstuff\n";
+        assertThat(ClaudeMdSections.remove(unclosed, "Style")).isEqualTo(unclosed);
+    }
+
+    @Test
+    void removeIgnoresAFencedLookalike() {
+        var file = "```\n" + ClaudeMdSections.block("Style", "x") + "\n```\n";
+
+        assertThat(ClaudeMdSections.remove(file, "Style")).isEqualTo(file);
+    }
 }

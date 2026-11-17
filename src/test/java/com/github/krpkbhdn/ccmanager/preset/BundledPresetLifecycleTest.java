@@ -40,7 +40,7 @@ class BundledPresetLifecycleTest {
         start();
         var service = start();
 
-        assertThat(service.list()).hasSize(1);
+        assertThat(service.list()).extracting(ProjectPreset::name).containsExactly("General", "Frontend", "Angular");
         var general = service.list().getFirst();
         assertThat(general.id()).isEqualTo(first.id());
         assertThat(general.revision()).isEqualTo(first.revision());
@@ -56,10 +56,10 @@ class BundledPresetLifecycleTest {
 
         start();
         service = start();
-        assertThat(service.list()).extracting(ProjectPreset::name).containsExactly("Aaa mine");
+        assertThat(service.list()).extracting(ProjectPreset::name).containsExactly("Frontend", "Angular", "Aaa mine");
 
         service.restoreAll();
-        assertThat(service.list()).extracting(ProjectPreset::name).containsExactly("General", "Aaa mine");
+        assertThat(service.list()).extracting(ProjectPreset::name).containsExactly("General", "Frontend", "Angular", "Aaa mine");
         assertThat(service.list().getFirst().components()).hasSize(7);
     }
 

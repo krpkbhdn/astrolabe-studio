@@ -2,11 +2,14 @@ package com.github.krpkbhdn.ccmanager.preset.apply;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 
 import com.github.krpkbhdn.ccmanager.preset.PresetComponent;
 import com.github.krpkbhdn.ccmanager.preset.PresetComponentKind;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import com.github.krpkbhdn.ccmanager.git.GitLocalExclude;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -21,7 +24,8 @@ class SettingsApplierTest {
     @TempDir
     Path dir;
 
-    private final SettingsApplier applier = new SettingsApplier();
+    private final GitLocalExclude exclude = mock(GitLocalExclude.class);
+    private final SettingsApplier applier = new SettingsApplier(exclude);
 
     private static PresetComponent settings(String fragmentJson) {
         return new PresetComponent(1, PresetComponentKind.SETTINGS, "s", JSON.createObjectNode().set("fragment", JSON.readTree(fragmentJson)));
@@ -102,5 +106,39 @@ class SettingsApplierTest {
 
         assertThatThrownBy(() -> applier.plan(settings("{\"a\":1}"), dir)).isInstanceOf(RuntimeException.class);
         assertThat(Files.readString(dir.resolve(".claude/settings.json"))).isEqualTo("{ not json");
+    }
+
+    private static PresetComponent localSettings(String fragmentJson) {
+        return new PresetComponent(1, PresetComponentKind.SETTINGS, "s",
+                JSON.createObjectNode().set("fragment", JSON.readTree(fragmentJson)).put("scope", "local"));
+    }
+
+    @Test
+    void localSettingsGoToTheLocalFileAndAreExcluded() throws Exception {
+        var component = localSettings("{\"model\":\"opus\"}");
+
+        assertThat(applier.plan(component, dir).detail()).contains(".claude/settings.local.json");
+        applier.apply(component, dir);
+
+        assertThat(JSON.readTree(Files.readString(dir.resolve(".claude/settings.local.json"))).path("model").asString()).isEqualTo("opus");
+        assertThat(dir.resolve(".claude/settings.json")).doesNotExist();
+        verify(exclude).ensureExcluded(dir, ".claude/settings.local.json");
+    }
+
+    @Test
+    void executableLocalSettingsWarnThatOnlyTheUserIsAffected() throws Exception {
+        var change = applier.plan(localSettings("{\"hooks\":{}}"), dir);
+
+        assertThat(change.action()).isEqualTo(ChangeAction.NEEDS_CONFIRMATION);
+        assertThat(change.detail()).contains("for you in this project").doesNotContain("everyone");
+    }
+
+    @Test
+    void invalidLocalSettingsJsonIsReportedAndLeftUntouched() throws Exception {
+        Files.createDirectories(dir.resolve(".claude"));
+        Files.writeString(dir.resolve(".claude/settings.local.json"), "{ not json");
+
+        assertThatThrownBy(() -> applier.plan(localSettings("{\"a\":1}"), dir)).isInstanceOf(RuntimeException.class);
+        assertThat(Files.readString(dir.resolve(".claude/settings.local.json"))).isEqualTo("{ not json");
     }
 }

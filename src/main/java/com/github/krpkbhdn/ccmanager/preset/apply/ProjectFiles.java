@@ -1,5 +1,6 @@
 package com.github.krpkbhdn.ccmanager.preset.apply;
 
+import com.github.krpkbhdn.ccmanager.preset.PresetComponent;
 import com.github.krpkbhdn.ccmanager.preset.ProjectPathRules;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -97,6 +98,11 @@ final class ProjectFiles {
         } finally {
             Files.deleteIfExists(temp);
         }
+    }
+
+    /** True for a component whose payload asks for the user-only ("local") target. */
+    static boolean isLocal(PresetComponent component) {
+        return LocalConfigFiles.SCOPE.equals(component.payload().path("scope").asString(""));
     }
 
     static String lineEnding(String text) {

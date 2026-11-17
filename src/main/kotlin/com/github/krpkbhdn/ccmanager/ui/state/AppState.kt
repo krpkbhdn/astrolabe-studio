@@ -177,12 +177,18 @@ class AppState(
     val waitingCount: Int get() = live.sessions.count { it.status == AgentStatus.NEEDS_ACTION }
     val teams = TeamsState(backend.teams, scope, { confirm = it }, notifications::reportError)
     val presets = PresetsState(backend.presets, backend.plugins, backend.skills, scope, { confirm = it }, notifications::reportError)
-    val applyPreset: ApplyPresetState = ApplyPresetState(backend.presetApply, backend.presetApplications, { presets.presets }, projects::find, scope, notifications::reportError)
+    private fun recommendedPresetKeys(dir: Path): Set<String> = backend.presetRecommendation.recommendFor(dir, backend.bundledPresets.presets()).toSet()
+    val applyPreset: ApplyPresetState = ApplyPresetState(
+        backend.presetApply, backend.presetApplications, { presets.presets }, projects::find, scope, notifications::reportError,
+        recommendedKeys = ::recommendedPresetKeys,
+        startTidySession = { project, prompt, onStarted -> sessions.launchTask(project.id, teams.defaultTeamOf(project.id), prompt, onStarted = { onStarted() }) },
+    )
     val presetOffer: PresetOfferState = PresetOfferState(
         backend.presetApplications, { presets.presets }, projects::find, scope,
         blocked = ::dialogBlocksOffer,
-        review = { projectId, presetId -> applyPreset.open(projectId, presetId) },
+        review = { projectId, presetIds -> applyPreset.open(projectId, *presetIds.toLongArray()) },
         reportError = notifications::reportError,
+        recommendedKeys = ::recommendedPresetKeys,
     )
     val prompts = PromptsState(backend.promptTemplates, scope, { confirm = it }, notifications::reportError, listOf(backend.projects::subscribe, backend.teams::subscribe))
     val sessionSearch = SessionSearchState(backend.sessionSearch, backend.transcripts, scope, { confirm = it }, notifications::reportError)

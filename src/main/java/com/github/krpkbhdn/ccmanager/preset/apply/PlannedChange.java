@@ -15,6 +15,10 @@ public record PlannedChange(long componentId, PresetComponentKind kind, String t
         return new PlannedChange(component.id(), component.kind(), component.name(), action, detail, null);
     }
 
+    PlannedChange withDetail(String text) {
+        return new PlannedChange(componentId, kind, title, action, text, preview);
+    }
+
     PlannedChange withPreview(String text) {
         return new PlannedChange(componentId, kind, title, action, detail, text);
     }

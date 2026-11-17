@@ -23,17 +23,22 @@ class PluginApplier implements PresetComponentApplier {
 
     @Override
     public PlannedChange plan(PresetComponent component, Path projectDir) {
-        var present = plugins.installed().stream()
-                .anyMatch(plugin -> plugin.isInstallationOf(component.name(), ExtensionScope.PROJECT, projectDir));
-        return present ? PlannedChange.of(component, ChangeAction.PRESENT, "Plugin already installed for this project")
-                : PlannedChange.of(component, ChangeAction.INSTALL, "Install the plugin for this project");
+        var scope = scopeOf(component);
+        var present = plugins.installed().stream().anyMatch(plugin -> plugin.isInstallationOf(component.name(), scope, projectDir));
+        var audience = ProjectFiles.isLocal(component) ? "only for you in this project" : "for this project";
+        return present ? PlannedChange.of(component, ChangeAction.PRESENT, "Plugin already installed " + audience)
+                : PlannedChange.of(component, ChangeAction.INSTALL, "Install the plugin " + audience);
     }
 
     @Override
     public ComponentOutcome apply(PresetComponent component, Path projectDir) {
-        var result = plugins.install(component.name(), ExtensionScope.PROJECT, projectDir);
+        var result = plugins.install(component.name(), scopeOf(component), projectDir);
         return result.needsConfirmation()
                 ? ComponentOutcome.of(component, OutcomeStatus.NEEDS_CONFIRMATION, "The plugin runs a command that needs your confirmation, install it on the Plugins page")
                 : ComponentOutcome.of(component, OutcomeStatus.APPLIED, "Plugin installed");
+    }
+
+    private static ExtensionScope scopeOf(PresetComponent component) {
+        return ProjectFiles.isLocal(component) ? ExtensionScope.LOCAL : ExtensionScope.PROJECT;
     }
 }

@@ -24,6 +24,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
+import com.github.krpkbhdn.ccmanager.git.GitLocalExclude;
+import com.github.krpkbhdn.ccmanager.git.GitRunner;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -59,7 +61,7 @@ class GeneralPresetEndToEndTest {
         var plugins = mock(PluginService.class);
         when(plugins.install(anyString(), any(), any())).thenReturn(new PluginInstallResult(true, "", null));
         service = new PresetApplyService(presets, new PresetApplicationService(jdbc), List.of(new MarketplaceApplier(plugins), new PluginApplier(plugins),
-                new McpServerApplier(mock(McpService.class)), new SkillApplier(), new AgentApplier(), new FileApplier(), new InstructionApplier(), new SettingsApplier()));
+                new McpServerApplier(mock(McpService.class)), new SkillApplier(), new AgentApplier(), new FileApplier(), new InstructionApplier(new GitLocalExclude(new GitRunner())), new SettingsApplier(new GitLocalExclude(new GitRunner()))));
         general = presets.list().getFirst();
         all = general.components().stream().map(PresetComponent::id).collect(Collectors.toSet());
     }
@@ -82,6 +84,17 @@ class GeneralPresetEndToEndTest {
         assertThat(project.resolve(".jscpd.json")).isNotEmptyFile();
         assertThat(Files.readAllLines(project.resolve(".gitignore"))).containsOnlyOnce("jscpd-report/");
         assertThat(new PresetApplicationService(jdbc).applications(5)).containsEntry(general.id(), general.revision());
+    }
+
+    @Test
+    void frontendToolsInstructionGoesIntoClaudeLocalMd() throws IOException {
+        var frontend = presets.list().stream().filter(p -> p.name().equals("Frontend")).findFirst().orElseThrow();
+        var instructions = frontend.components().stream().filter(c -> c.kind() == PresetComponentKind.INSTRUCTION).map(PresetComponent::id).collect(Collectors.toSet());
+
+        service.apply(5, frontend.id(), project, instructions);
+
+        assertThat(Files.readString(project.resolve("CLAUDE.local.md"))).contains("## Frontend tools").doesNotContain("## Clean code");
+        assertThat(Files.readString(project.resolve("CLAUDE.md"))).contains("## Clean code").doesNotContain("Frontend tools");
     }
 
     @Test

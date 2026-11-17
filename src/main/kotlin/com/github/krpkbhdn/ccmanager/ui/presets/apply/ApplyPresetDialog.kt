@@ -94,14 +94,17 @@ private fun ApplyFooter(state: ApplyPresetState) {
         when (state.step) {
             ApplyStep.CHOOSE -> {
                 AppButton("Cancel", state::close)
-                AppButton("Review changes", state::review, variant = ButtonVariant.PRIMARY, enabled = state.presetId != null)
+                AppButton("Review changes", state::review, variant = ButtonVariant.PRIMARY, enabled = state.chosen.isNotEmpty())
             }
             ApplyStep.REVIEW -> {
                 AppButton("Back", state::back, enabled = !state.running)
                 AppButton("Cancel", state::close, enabled = !state.running)
                 AppButton(applyLabel(state.selection.size), state::apply, variant = ButtonVariant.PRIMARY, enabled = canApply(state.plan, state.selection), loading = state.running)
             }
-            ApplyStep.RESULT -> AppButton("Close", state::close, variant = ButtonVariant.PRIMARY)
+            ApplyStep.RESULT -> {
+                if (state.tidyOffered) AppButton("Tidy with Claude", state::tidy)
+                AppButton("Close", state::close, variant = ButtonVariant.PRIMARY)
+            }
         }
     }
 }

@@ -31,6 +31,8 @@ import com.github.krpkbhdn.ccmanager.usage.history.UsageHistoryRepository
 import com.github.krpkbhdn.ccmanager.usage.history.UsageThresholds
 import com.github.krpkbhdn.ccmanager.preset.PresetApplicationService
 import com.github.krpkbhdn.ccmanager.preset.ProjectPresetService
+import com.github.krpkbhdn.ccmanager.preset.BundledPresetLoader
+import com.github.krpkbhdn.ccmanager.preset.PresetRecommendation
 import com.github.krpkbhdn.ccmanager.preset.apply.PresetApplyService
 import com.github.krpkbhdn.ccmanager.project.ProjectGroupService
 import com.github.krpkbhdn.ccmanager.project.ProjectService
@@ -103,6 +105,8 @@ class Backend(
     val sessionSearch: SessionSearchService,
     val presets: ProjectPresetService,
     val presetApply: PresetApplyService,
+    val presetRecommendation: PresetRecommendation,
+    val bundledPresets: BundledPresetLoader,
     val presetApplications: PresetApplicationService,
     val review: ReviewService,
     val web: WebReviewService,
@@ -160,6 +164,8 @@ class Backend(
             sessionSearch = context.getBean(SessionSearchService::class.java),
             presets = context.getBean(ProjectPresetService::class.java),
             presetApply = context.getBean(PresetApplyService::class.java),
+            presetRecommendation = context.getBean(PresetRecommendation::class.java),
+            bundledPresets = context.getBean(BundledPresetLoader::class.java),
             presetApplications = context.getBean(PresetApplicationService::class.java),
             review = context.getBean(ReviewService::class.java),
             web = context.getBean(WebReviewService::class.java),

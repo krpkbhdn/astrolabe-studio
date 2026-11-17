@@ -1,23 +1,26 @@
 package com.github.krpkbhdn.ccmanager.preset.apply;
 
 import com.github.krpkbhdn.ccmanager.extension.ExtensionScope;
+import com.github.krpkbhdn.ccmanager.extension.mcp.McpHealth;
 import com.github.krpkbhdn.ccmanager.extension.mcp.McpServerConfig;
 import com.github.krpkbhdn.ccmanager.extension.mcp.McpService;
 import com.github.krpkbhdn.ccmanager.extension.mcp.McpStatus;
+import com.github.krpkbhdn.ccmanager.extension.mcp.McpTargetRedaction;
 import com.github.krpkbhdn.ccmanager.preset.PresetComponent;
 import com.github.krpkbhdn.ccmanager.preset.PresetComponentKind;
-import com.github.krpkbhdn.ccmanager.extension.mcp.McpHealth;
-import com.github.krpkbhdn.ccmanager.extension.mcp.McpTargetRedaction;
 import java.nio.file.Path;
 import java.util.List;
-import tools.jackson.core.JacksonException;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.json.JsonMapper;
+import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 @Component
 class McpServerApplier implements PresetComponentApplier {
@@ -27,9 +30,16 @@ class McpServerApplier implements PresetComponentApplier {
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final McpService mcp;
+    private final boolean windows;
 
+    @Autowired
     McpServerApplier(McpService mcp) {
+        this(mcp, System.getProperty("os.name", "").toLowerCase(Locale.ROOT).startsWith("windows"));
+    }
+
+    McpServerApplier(McpService mcp, boolean windows) {
         this.mcp = mcp;
+        this.windows = windows;
     }
 
     @Override
@@ -43,11 +53,11 @@ class McpServerApplier implements PresetComponentApplier {
         if (known) {
             return PlannedChange.of(component, ChangeAction.PRESENT, "MCP server already configured");
         }
-        var config = config(component);
+        var config = effectiveConfig(component);
         var stdio = !config.isObject() || config.hasNonNull("command");
-        var detail = stdio ? CodeExecutingPaths.runsCode("MCP server " + component.name() + " (starts a local command)")
-                : "Written to .mcp.json in the project, which is usually committed: check it contains no secrets. Server: " + component.name();
-        return PlannedChange.of(component, stdio ? ChangeAction.NEEDS_CONFIRMATION : ChangeAction.INSTALL, detail).withPreview(describe(config));
+        var detail = "Written to .mcp.json in the project, which is usually committed: check it contains no secrets. Server: " + component.name()
+                + (stdio ? ". Starts a local command; Claude Code asks to approve it when a session starts." : "");
+        return PlannedChange.of(component, ChangeAction.INSTALL, detail).withPreview(describe(config));
     }
 
     private static JsonNode config(PresetComponent component) {
@@ -85,9 +95,21 @@ class McpServerApplier implements PresetComponentApplier {
 
     @Override
     public ComponentOutcome apply(PresetComponent component, Path projectDir) {
-        var config = component.payload().path("config");
+        var config = effectiveConfig(component);
         mcp.add(component.name(), config.isString() ? config.asString() : config.toString(), ExtensionScope.PROJECT, projectDir);
         return ComponentOutcome.of(component, OutcomeStatus.APPLIED, "MCP server added");
+    }
+
+    /** What is written and shown: Claude Code on native Windows cannot start npx directly as a stdio server, so it is wrapped; the stored preset stays platform neutral. */
+    private JsonNode effectiveConfig(PresetComponent component) {
+        var config = config(component);
+        if (windows && config instanceof ObjectNode object && "npx".equals(object.path("command").asString())) {
+            var copy = object.deepCopy();
+            var args = copy.arrayNode().add("/c").add("npx");
+            object.path("args").forEach(args::add);
+            return copy.put("command", "cmd").set("args", args);
+        }
+        return config;
     }
 
     /** One health check for all added servers; it checks every server of the project, so it is slow and must never fail an already written component. */

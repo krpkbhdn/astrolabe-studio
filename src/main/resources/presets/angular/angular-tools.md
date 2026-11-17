@@ -1,0 +1,2 @@
+- Use the angular-cli MCP (best practices, documentation search, project list) and the angular-developer skill when working on Angular code.
+- Prefer standalone components and signals as described by get_best_practices, not from memory.

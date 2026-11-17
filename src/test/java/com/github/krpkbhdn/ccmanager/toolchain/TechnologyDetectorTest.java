@@ -50,7 +50,17 @@ class TechnologyDetectorTest {
     }
 
     @Test
-    void brokenPackageJsonIsIgnored() throws IOException {
+    void callerTableFindsNestedMarkersAndSkipsNodeModules() throws IOException {
+        write("angular.json", "{}");
+        write("web/package.json", "{\"dependencies\":{\"react\":\"19\"}}");
+        write("node_modules/x/package.json", "{\"dependencies\":{\"vue\":\"3\"}}");
+        var table = Map.of("angular", List.of("angular.json"), "react", List.of("package.json#react"),
+                "vue", List.of("package.json#vue"), "none", List.<String>of());
+        assertThat(detector.detectMarked(dir, table)).containsExactlyInAnyOrder("angular", "react");
+    }
+
+    @Test
+    void brokenPackageJsonIsIgnored()throws IOException {
         write("package.json", "{nope");
         assertThat(detect()).isEmpty();
     }

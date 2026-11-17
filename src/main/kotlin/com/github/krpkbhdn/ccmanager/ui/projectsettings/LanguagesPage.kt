@@ -63,6 +63,9 @@ fun LanguagesPage(languages: LanguagesState, tools: ToolsState, setup: LspSetupS
             setup.loadPlan(project)
         }
     }
+    LaunchedEffect(languages.busy) {
+        if (!languages.busy) detectedTech.refresh(project)
+    }
     val groups = remember(languages.rows) { languageGroups(languages.rows) }
     var othersOpen by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(pagePadding), verticalArrangement = Arrangement.spacedBy(Spacing.lg)) {

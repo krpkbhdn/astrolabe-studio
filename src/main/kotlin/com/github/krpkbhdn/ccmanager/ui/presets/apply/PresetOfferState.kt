@@ -10,13 +10,12 @@ import com.github.krpkbhdn.ccmanager.ui.state.io
 import com.github.krpkbhdn.ccmanager.ui.state.runGuarded
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import java.nio.file.Path
 
 private const val GENERAL_KEY = "general"
 
-/** The question "Set up this project?"; [presetId] is the preset the dropdown currently names. */
-class PresetOffer(val project: Project, presetId: Long) {
-    var presetId by mutableStateOf(presetId)
-}
+/** The question "Set up this project?"; [presetIds] are the layers recommended for it, in layer order. */
+class PresetOffer(val project: Project, val presetIds: List<Long>)
 
 /**
  * Offers a preset when a project without any applied preset is opened: once per run and project, never while another dialog is in the way
@@ -28,8 +27,9 @@ class PresetOfferState(
     private val projectOf: (Long) -> Project?,
     private val scope: CoroutineScope,
     private val blocked: () -> Boolean,
-    private val review: (projectId: Long, presetId: Long) -> Unit,
+    private val review: (projectId: Long, presetIds: List<Long>) -> Unit,
     private val reportError: (String) -> Unit,
+    private val recommendedKeys: (Path) -> Set<String>,
 ) {
     var offer by mutableStateOf<PresetOffer?>(null)
         private set
@@ -41,27 +41,26 @@ class PresetOfferState(
         if (project == null || blocked() || projectId in asked) return
         scope.launch {
             runGuarded(reportError) {
-                val wanted = io { applications.applications(projectId).isEmpty() && !applications.offerDeclined(projectId) }
+                val (wanted, keys) = io { (applications.applications(projectId).isEmpty() && !applications.offerDeclined(projectId)) to runCatching { recommendedKeys(project.path) }.getOrDefault(emptySet()) }
                 val all = presets()
                 if (!wanted) {
                     asked += projectId
                 } else if (!blocked() && offer == null && all.isNotEmpty()) {
                     asked += projectId
-                    offer = PresetOffer(project, (all.firstOrNull { it.bundledKey() == GENERAL_KEY } ?: all.first()).id())
+                    offer = PresetOffer(project, offeredIds(all, keys))
                 }
             }
         }
     }
 
-    fun choose(presetId: Long) {
-        offer?.presetId = presetId
-    }
-
     fun reviewAndApply() {
         val shown = offer ?: return
         offer = null
-        review(shown.project.id, shown.presetId)
+        review(shown.project.id, shown.presetIds)
     }
+
+    private fun offeredIds(all: List<ProjectPreset>, keys: Set<String>): List<Long> =
+        orderedChoice(all, recommendedIds(all, keys)).ifEmpty { listOf((all.firstOrNull { it.bundledKey() == GENERAL_KEY } ?: all.first()).id()) }
 
     fun decline() {
         val shown = offer ?: return

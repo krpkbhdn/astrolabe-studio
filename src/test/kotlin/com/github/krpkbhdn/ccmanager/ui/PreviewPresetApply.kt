@@ -10,6 +10,7 @@ import com.github.krpkbhdn.ccmanager.preset.apply.PresetApplyResult
 import com.github.krpkbhdn.ccmanager.preset.apply.PresetApplyService
 import java.nio.file.Path
 import org.mockito.ArgumentMatchers.any
+import org.mockito.ArgumentMatchers.anyList
 import org.mockito.ArgumentMatchers.anyLong
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.`when`
@@ -69,11 +70,11 @@ fun sampleOutcomes(): List<ComponentOutcome> = listOf(
 
 fun previewPresetApply(): PresetApplyService {
     val service = mock(PresetApplyService::class.java)
-    `when`(service.plan(anyLong(), any(Path::class.java))).thenAnswer {
+    `when`(service.plan(anyList<Long>(), any(Path::class.java))).thenAnswer {
         if (PreviewApply.planDelayMillis > 0) Thread.sleep(PreviewApply.planDelayMillis)
         PreviewApply.plan
     }
-    `when`(service.apply(anyLong(), anyLong(), any(Path::class.java), any())).thenAnswer { PresetApplyResult(PreviewApply.outcomes, true) }
+    `when`(service.apply(anyLong(), anyList<Long>(), any(Path::class.java), any())).thenAnswer { PresetApplyResult(PreviewApply.outcomes, true) }
     return service
 }
 

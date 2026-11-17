@@ -19,6 +19,7 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.mockito.ArgumentMatchers.any
+import org.mockito.ArgumentMatchers.anyList
 import org.mockito.ArgumentMatchers.anyLong
 import org.mockito.Mockito.never
 import org.mockito.Mockito.verify
@@ -31,7 +32,9 @@ class ApplyPresetStateTest {
     private val presets = listOf(ProjectPreset(1, "General", "", "general", false, false, 2, emptyList()), ProjectPreset(2, "Spring", "", null, false, false, 1, emptyList()))
     private val service: PresetApplyService = previewPresetApply()
     private val applications: PresetApplicationService = previewPresetApplications()
-    private val state = ApplyPresetState(service, applications, { presets }, { id -> project.takeIf { it.id == id } }, scope, { errors += it })
+    private var recommendedKeys: Set<String> = emptySet()
+    private val tidyStarted = mutableListOf<Pair<Project, String>>()
+    private val state = ApplyPresetState(service, applications, { presets }, { id -> project.takeIf { it.id == id } }, scope, { errors += it }, { recommendedKeys }, { p, prompt, started -> tidyStarted += p to prompt; started() })
 
     @BeforeEach
     fun reset() {
@@ -48,7 +51,7 @@ class ApplyPresetStateTest {
         state.open(7)
 
         assertThat(state.step).isEqualTo(ApplyStep.CHOOSE)
-        assertThat(state.presetId).isEqualTo(1)
+        assertThat(state.chosen).containsExactly(1L)
         assertThat(state.isOpen).isTrue()
     }
 
@@ -108,14 +111,14 @@ class ApplyPresetStateTest {
         state.apply()
         await { state.step == ApplyStep.RESULT }
 
-        verify(service).apply(7, 1, project.path, defaultSelection(state.plan!!) - 2L)
+        verify(service).apply(7, listOf(1L), project.path, defaultSelection(state.plan!!) - 2L)
         assertThat(state.result!!.outcomes()).hasSize(9)
         assertThat(state.running).isFalse()
     }
 
     @Test
     fun `apply failure stays on the review with the message`() {
-        `when`(service.apply(anyLong(), anyLong(), any(Path::class.java), any())).thenThrow(IllegalStateException("disk full"))
+        `when`(service.apply(anyLong(), anyList<Long>(), any(Path::class.java), any())).thenThrow(IllegalStateException("disk full"))
         state.open(7, 1)
         await { state.plan != null }
 
@@ -128,7 +131,7 @@ class ApplyPresetStateTest {
 
     @Test
     fun `plan failure shows the message and an empty plan`() {
-        `when`(service.plan(anyLong(), any(Path::class.java))).thenThrow(IllegalArgumentException("Unknown preset 1"))
+        `when`(service.plan(anyList<Long>(), any(Path::class.java))).thenThrow(IllegalArgumentException("Unknown preset 1"))
 
         state.open(7, 1)
         await { state.error != null }
@@ -145,7 +148,7 @@ class ApplyPresetStateTest {
         state.back()
 
         assertThat(state.step).isEqualTo(ApplyStep.CHOOSE)
-        verify(service, never()).apply(anyLong(), anyLong(), any(Path::class.java), any())
+        verify(service, never()).apply(anyLong(), anyList<Long>(), any(Path::class.java), any())
     }
 
     @Test
@@ -163,5 +166,45 @@ class ApplyPresetStateTest {
         state.open(99)
 
         assertThat(state.pickingProject).isTrue()
+    }
+
+    @Test
+    fun `recommended layers are preselected and flagged`() {
+        recommendedKeys = setOf("general")
+
+        state.open(7)
+        await { state.recommended.isNotEmpty() }
+
+        assertThat(state.chosen).containsExactly(1L)
+        assertThat(state.isRecommended(presets[0])).isTrue()
+        assertThat(state.isRecommended(presets[1])).isFalse()
+    }
+
+    @Test
+    fun `several checked presets are planned together in list order`() {
+        state.open(7)
+        state.toggleChosen(2)
+        state.review()
+        await { state.plan != null }
+
+        verify(service).plan(listOf(1L, 2L), project.path)
+    }
+
+    @Test
+    fun `tidy is offered after an apply only when a claude file exists`() {
+        val dir = java.nio.file.Files.createTempDirectory("tidy")
+        java.nio.file.Files.writeString(dir.resolve("CLAUDE.md"), "x")
+        val withFile = Project(7, "demo", dir, Instant.EPOCH)
+        val tidyState = ApplyPresetState(service, applications, { presets }, { withFile }, scope, {}, { emptySet() }, { p, prompt, started -> tidyStarted += p to prompt; started() })
+        tidyState.open(7, 1)
+        await { tidyState.plan != null }
+
+        tidyState.apply()
+        await { tidyState.step == ApplyStep.RESULT && tidyState.tidyOffered }
+        tidyState.tidy()
+
+        assertThat(tidyStarted).hasSize(1)
+        assertThat(tidyStarted.single().second).contains("Show me the plan first")
+        assertThat(tidyState.isOpen).isFalse()
     }
 }

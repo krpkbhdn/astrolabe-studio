@@ -23,7 +23,7 @@ class McpServerApplierTest {
     private static final Path DIR = Path.of("project");
 
     private final McpService mcp = mock(McpService.class);
-    private final McpServerApplier applier = new McpServerApplier(mcp);
+    private final McpServerApplier applier = new McpServerApplier(mcp, false);
 
     private static PresetComponent server(long id, String name) {
         return new PresetComponent(id, PresetComponentKind.MCP_SERVER, name, JsonMapper.builder().build().readTree("{\"config\":{\"command\":\"x\"}}"));
@@ -38,7 +38,7 @@ class McpServerApplierTest {
     }
 
     @Test
-    void stdioServerNeedsConfirmationAndPreviewHidesEnvAndHeaderValues() {
+    void stdioServerIsInstallAndPreviewHidesEnvAndHeaderValues() {
         var json = JsonMapper.builder().build();
         var stdio = new PresetComponent(1, PresetComponentKind.MCP_SERVER, "s",
                 json.readTree("{\"config\":{\"command\":\"npx\",\"args\":[\"-y\",\"pkg\"],\"env\":{\"TOKEN\":\"sekret\"}}}"));
@@ -48,10 +48,35 @@ class McpServerApplierTest {
         var stdioPlan = applier.plan(stdio, DIR);
         var remotePlan = applier.plan(remote, DIR);
 
-        assertThat(stdioPlan.action()).isEqualTo(ChangeAction.NEEDS_CONFIRMATION);
+        assertThat(stdioPlan.action()).isEqualTo(ChangeAction.INSTALL);
         assertThat(stdioPlan.preview()).contains("command: npx", "args: -y pkg", "env keys: TOKEN").doesNotContain("sekret");
         assertThat(remotePlan.action()).isEqualTo(ChangeAction.INSTALL);
         assertThat(remotePlan.preview()).contains("headers keys: Authorization").doesNotContain("sekret");
+    }
+
+    @Test
+    void npxIsWrappedInCmdOnWindowsOnly() throws Exception {
+        var npx = new PresetComponent(1, PresetComponentKind.MCP_SERVER, "ng",
+                JsonMapper.builder().build().readTree("{\"config\":{\"command\":\"npx\",\"args\":[\"-y\",\"@angular/cli\",\"mcp\"]}}"));
+
+        new McpServerApplier(mcp, true).apply(npx, DIR);
+        new McpServerApplier(mcp, false).apply(npx, DIR);
+
+        var json = JsonMapper.builder().build();
+        var added = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(mcp, times(2)).add(any(), added.capture(), any(), any());
+        assertThat(json.readTree(added.getAllValues().get(0)).path("command").asString()).isEqualTo("cmd");
+        assertThat(json.readTree(added.getAllValues().get(0)).path("args").valueStream().map(node -> node.asString()).toList()).containsExactly("/c", "npx", "-y", "@angular/cli", "mcp");
+        assertThat(json.readTree(added.getAllValues().get(1)).path("command").asString()).isEqualTo("npx");
+    }
+
+    @Test
+    void planPreviewShowsTheWrappedCommandThatIsWritten() throws Exception {
+        var npx = new PresetComponent(1, PresetComponentKind.MCP_SERVER, "ng",
+                JsonMapper.builder().build().readTree("{\"config\":{\"command\":\"npx\",\"args\":[\"-y\",\"pkg\"]}}"));
+
+        assertThat(new McpServerApplier(mcp, true).plan(npx, DIR).preview()).contains("command: cmd", "args: /c npx -y pkg");
+        assertThat(new McpServerApplier(mcp, false).plan(npx, DIR).preview()).contains("command: npx", "args: -y pkg");
     }
 
     @Test

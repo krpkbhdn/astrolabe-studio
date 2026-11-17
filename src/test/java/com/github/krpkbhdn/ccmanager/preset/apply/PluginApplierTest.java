@@ -68,4 +68,25 @@ class PluginApplierTest {
 
         assertThat(applier.apply(plugin(), dir).status()).isEqualTo(OutcomeStatus.APPLIED);
     }
+
+    private static PresetComponent localPlugin() {
+        return new PresetComponent(1, PresetComponentKind.PLUGIN, "demo@market", JsonMapper.builder().build().createObjectNode().put("scope", "local"));
+    }
+
+    @Test
+    void localPluginIsPresentOnlyAsALocalInstallation() {
+        when(plugins.installed()).thenReturn(List.of(new InstalledPlugin("demo@market", "1", ExtensionScope.PROJECT, true, null, dir)));
+        assertThat(applier.plan(localPlugin(), dir).action()).isEqualTo(ChangeAction.INSTALL);
+
+        when(plugins.installed()).thenReturn(List.of(new InstalledPlugin("demo@market", "1", ExtensionScope.LOCAL, true, null, dir)));
+        assertThat(applier.plan(localPlugin(), dir).action()).isEqualTo(ChangeAction.PRESENT);
+    }
+
+    @Test
+    void localPluginIsInstalledAtLocalScope() {
+        when(plugins.install("demo@market", ExtensionScope.LOCAL, dir)).thenReturn(new PluginInstallResult(true, "ok", null));
+
+        assertThat(applier.apply(localPlugin(), dir).status()).isEqualTo(OutcomeStatus.APPLIED);
+        verify(plugins).install("demo@market", ExtensionScope.LOCAL, dir);
+    }
 }

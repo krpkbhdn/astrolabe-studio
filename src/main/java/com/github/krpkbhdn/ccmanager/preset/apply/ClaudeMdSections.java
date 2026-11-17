@@ -10,6 +10,7 @@ import java.util.regex.Pattern;
  */
 final class ClaudeMdSections {
 
+    private static final String CLAUDE_MD = "CLAUDE.md";
     private static final Pattern ANY_BLOCK = Pattern.compile("<!-- cc-manager:begin (\\S+) -->.*?<!-- cc-manager:end \\1 -->", Pattern.DOTALL);
     private static final Pattern FENCE = Pattern.compile("^ {0,3}(`{3,}|~{3,})");
 
@@ -29,6 +30,10 @@ final class ClaudeMdSections {
     }
 
     static Plan plan(String file, String title, String body) {
+        return plan(CLAUDE_MD, file, title, body);
+    }
+
+    static Plan plan(String fileName, String file, String title, String body) {
         var wanted = heading(title, body);
         if (wanted.contains("cc-manager:begin") || wanted.contains("cc-manager:end")) {
             return new Plan(ChangeAction.CONFLICT, null, "The instruction contains block markers and is not written");
@@ -41,28 +46,48 @@ final class ClaudeMdSections {
         var ends = count(end);
         if (begins > 0 || ends > 0) {
             return begins == 1 && ends == 1 && begin.find(0) && end.find(0) && begin.end() <= end.start()
-                    ? existing(file, begin.end(), end.start(), wanted)
-                    : new Plan(ChangeAction.CONFLICT, null, "The markers of this section in CLAUDE.md are unclosed or repeated, fix them by hand");
+                    ? existing(fileName, file, begin.end(), end.start(), wanted)
+                    : new Plan(ChangeAction.CONFLICT, null, "The markers of this section in " + fileName + " are unclosed or repeated, fix them by hand");
         }
         var eol = ProjectFiles.lineEnding(file);
         if (Pattern.compile("(?m)^## " + Pattern.quote(title) + "[ \\t]*\\r?$").matcher(ANY_BLOCK.matcher(visible).replaceAll("")).find()) {
-            return new Plan(ChangeAction.CONFLICT, null, "'## " + title + "' is already written by hand in CLAUDE.md");
+            return new Plan(ChangeAction.CONFLICT, null, "'## " + title + "' is already written by hand in " + fileName);
         }
         var text = new StringBuilder(file);
         if (!file.isEmpty()) {
             text.append(file.endsWith("\n") ? "" : eol).append(eol);
         }
         text.append(block(title, body).replace("\n", eol)).append(eol);
-        return new Plan(ChangeAction.CREATE, text.toString(), "Add a section to CLAUDE.md");
+        return new Plan(ChangeAction.CREATE, text.toString(), "Add a section to " + fileName);
     }
 
-    private static Plan existing(String file, int innerStart, int innerEnd, String wanted) {
+    private static Plan existing(String fileName, String file, int innerStart, int innerEnd, String wanted) {
         if (ProjectFiles.lf(file.substring(innerStart, innerEnd)).strip().equals(wanted)) {
-            return new Plan(ChangeAction.PRESENT, null, "Already in CLAUDE.md");
+            return new Plan(ChangeAction.PRESENT, null, "Already in " + fileName);
         }
         var eol = ProjectFiles.lineEnding(file);
         var inner = eol + wanted.replace("\n", eol) + eol;
-        return new Plan(ChangeAction.UPDATE, file.substring(0, innerStart) + inner + file.substring(innerEnd), "Replace the managed section in CLAUDE.md");
+        return new Plan(ChangeAction.UPDATE, file.substring(0, innerStart) + inner + file.substring(innerEnd), "Replace the managed section in " + fileName);
+    }
+
+    /** @return the file without the managed block of {@code title}, or unchanged when that block is missing, unclosed or repeated */
+    static String remove(String file, String title) {
+        var visible = withoutFences(file);
+        var slug = Pattern.quote(slug(title));
+        var begin = Pattern.compile("<!-- cc-manager:begin " + slug + " -->").matcher(visible);
+        var end = Pattern.compile("<!-- cc-manager:end " + slug + " -->").matcher(visible);
+        if (count(begin) != 1 || count(end) != 1 || !begin.find(0) || !end.find(0) || begin.start() > end.start()) {
+            return file;
+        }
+        var before = file.substring(0, begin.start());
+        var after = file.substring(end.end()).replaceFirst("^[ \t]*\r?\n", "");
+        if (after.isBlank()) {
+            return before.isBlank() ? "" : before.stripTrailing() + ProjectFiles.lineEnding(file);
+        }
+        if (before.isBlank()) {
+            return after.stripLeading();
+        }
+        return before.matches("(?s).*\n[ \t]*\r?\n") ? before + after.stripLeading() : before + after;
     }
 
     private static int count(Matcher matcher) {

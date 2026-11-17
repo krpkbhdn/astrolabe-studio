@@ -66,7 +66,7 @@ private fun PlanList(state: ApplyPresetState, plan: List<PlannedChange>) {
     val groups = groupChanges(plan)
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.xl, vertical = Spacing.md), verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
-            Label(state.preset?.name().orEmpty(), style = Type.bodyMedium, tooltipWhenTruncated = true)
+            Label(state.chosenNames, style = Type.bodyMedium, tooltipWhenTruncated = true)
             Label(planSummary(plan).line(), color = colors.textSecondary, style = Type.small)
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {

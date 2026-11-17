@@ -86,6 +86,17 @@ fun applyLabel(selected: Int): String = when (selected) {
 /** Applying needs a checked change, except when the project already has everything: then it only records the preset as applied. */
 fun canApply(plan: List<PlannedChange>?, selection: Set<Long>): Boolean = plan != null && (selection.isNotEmpty() || planSummary(plan).onlyPresent)
 
+/** The checked presets in the order of the preset list, which is the layer order. */
+fun orderedChoice(presets: List<ProjectPreset>, chosen: Set<Long>): List<Long> = presets.map { it.id() }.filter { it in chosen }
+
+/** Presets whose bundled key the detector recommended; presets the user made have no key and never match. */
+fun recommendedIds(presets: List<ProjectPreset>, keys: Set<String>): Set<Long> = presets.filter { it.bundledKey() in keys }.map { it.id() }.toSet()
+
+private val tidyWorthy = setOf(OutcomeStatus.APPLIED, OutcomeStatus.SIGN_IN_NEEDED, OutcomeStatus.SKIPPED)
+
+/** Merging duplicates is worth offering after something was written, or when something was skipped (a hand-written section may overlap). */
+fun offersTidy(outcomes: List<ComponentOutcome>): Boolean = outcomes.any { it.status() in tidyWorthy }
+
 enum class PresetStatus(val label: String) { APPLIED("Applied"), OUTDATED("Outdated") }
 
 /** [appliedRevision] is the revision the project applied, null when it never did. */

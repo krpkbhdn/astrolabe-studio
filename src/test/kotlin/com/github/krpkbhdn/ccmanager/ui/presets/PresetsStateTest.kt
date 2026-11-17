@@ -95,7 +95,7 @@ class PresetsStateTest {
     @Test
     fun `search narrows the visible presets`() {
         service.create("Spring service", "")
-        await { state.presets.size == 2 }
+        await { state.presets.size == 4 }
 
         state.query.edit { replace(0, length, "spring") }
 

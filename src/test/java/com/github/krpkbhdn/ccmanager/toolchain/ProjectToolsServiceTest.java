@@ -17,6 +17,9 @@ import com.github.krpkbhdn.ccmanager.extension.plugin.Marketplace;
 import com.github.krpkbhdn.ccmanager.extension.plugin.PluginInstallResult;
 import com.github.krpkbhdn.ccmanager.extension.plugin.PluginService;
 import com.github.krpkbhdn.ccmanager.extension.ExtensionException;
+import com.github.krpkbhdn.ccmanager.git.GitLocalExclude;
+import com.github.krpkbhdn.ccmanager.preset.apply.LocalClaudeMdNote;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -37,6 +40,11 @@ class ProjectToolsServiceTest {
     private static final String CSS_PLUGIN = "css-lsp@cc-manager-lsp";
     private static final String TS_PLUGIN = "typescript-lsp@claude-plugins-official";
 
+    private static final ToolchainProperties PROPERTIES = new ToolchainProperties(java.time.Duration.ofSeconds(5), java.time.Duration.ofSeconds(10),
+            java.time.Duration.ofMinutes(10), java.time.Duration.ofSeconds(30), java.time.Duration.ofSeconds(1), java.time.Duration.ofSeconds(1),
+            org.springframework.util.unit.DataSize.ofMegabytes(1), org.springframework.util.unit.DataSize.ofMegabytes(1), 1, java.time.Duration.ofSeconds(1), 5, 2000, 500);
+    private static final String GO_PLUGIN = "gopls-lsp@claude-plugins-official";
+
     private final ToolDefinition typescript = tool("typescript", "TS", ToolKind.LANGUAGE_SERVER, TS_PLUGIN);
     private final ToolDefinition pyright = tool("pyright", "TS", ToolKind.LANGUAGE_SERVER, "");
     private final ToolDefinition go = tool("go", "Go", ToolKind.LANGUAGE_SERVER, "gopls-lsp@claude-plugins-official");
@@ -48,10 +56,13 @@ class ProjectToolsServiceTest {
     private final TechnologyDetector detector = mock(TechnologyDetector.class);
     private final PluginService plugins = mock(PluginService.class);
     private final ClaudePluginWriter pluginWriter = mock(ClaudePluginWriter.class);
-    private final ProjectToolsService service = new ProjectToolsService(catalog, probe, detector, plugins, pluginWriter);
+    private final GitLocalExclude localExclude = mock(GitLocalExclude.class);
+    private final ProjectToolsService service = new ProjectToolsService(catalog, probe, detector, plugins, pluginWriter,
+            new LocalClaudeMdNote(localExclude), localExclude, PROPERTIES);
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
+        Files.deleteIfExists(DIR.resolve("CLAUDE.local.md"));
         when(catalog.all()).thenReturn(List.of(node, go, pyright, typescript));
         when(catalog.find(any())).thenAnswer(call -> List.of(node, go, pyright, typescript, css).stream()
                 .filter(tool -> tool.id().equals(call.getArgument(0))).findFirst());
@@ -102,9 +113,9 @@ class ProjectToolsServiceTest {
 
     @Test
     void enablingAnInstalledPluginTurnsItOn() {
-        when(plugins.installed(DIR)).thenReturn(List.of(installed(TS_PLUGIN, false, DIR)));
+        when(plugins.installed(DIR)).thenReturn(List.of(localInstalled(TS_PLUGIN, false)));
         service.enableLsp(DIR, "typescript");
-        verify(plugins).setEnabled(TS_PLUGIN, ExtensionScope.PROJECT, DIR, true);
+        verify(plugins).setEnabled(TS_PLUGIN, ExtensionScope.LOCAL, DIR, true);
         verify(plugins, never()).install(any(), any(), any());
     }
 
@@ -212,9 +223,9 @@ class ProjectToolsServiceTest {
     }
 
     @Test
-    void officialPluginsAreInstalledAtProjectScope() {
+    void officialPluginsAreInstalledAtLocalScope() {
         service.enableLsp(DIR, "go");
-        verify(plugins).install("gopls-lsp@claude-plugins-official", ExtensionScope.PROJECT, DIR);
+        verify(plugins).install("gopls-lsp@claude-plugins-official", ExtensionScope.LOCAL, DIR);
     }
 
     @Test
@@ -259,7 +270,7 @@ class ProjectToolsServiceTest {
         var firstInside = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         var secondStarted = new AtomicBoolean();
-        when(plugins.installed(DIR)).thenReturn(List.of(installed(TS_PLUGIN, false, DIR)), List.of(installed(TS_PLUGIN, true, DIR)));
+        when(plugins.installed(DIR)).thenReturn(List.of(localInstalled(TS_PLUGIN, false)), List.of(installed(TS_PLUGIN, true, DIR)));
         doAnswer(call -> {
             if (call.getArgument(3).equals(Boolean.FALSE)) {
                 secondStarted.set(true);
@@ -332,26 +343,69 @@ class ProjectToolsServiceTest {
     @Test
     void detectedMissingServerKeepsItsState() {
         when(detector.detect(any(), any())).thenReturn(Set.of("go"));
+        when(plugins.installed(DIR)).thenReturn(List.of(localInstalled(GO_PLUGIN, true)));
         when(probe.probe("go")).thenReturn(new ToolStatus("go", ToolState.MISSING, "", ""));
-        assertThat(service.detected(DIR)).containsExactly(new DetectedTechnology(go, ToolState.MISSING));
+        assertThat(service.detected(DIR)).containsExactly(new DetectedTechnology(go, ToolState.MISSING, LspPluginState.ENABLED));
     }
 
     @Test
     void detectedServersKeepTheirProbeState() {
         when(detector.detect(any(), any())).thenReturn(Set.of("go", "typescript"));
+        when(plugins.installed(DIR)).thenReturn(List.of(localInstalled(GO_PLUGIN, true), localInstalled(TS_PLUGIN, true)));
         when(probe.probe("go")).thenReturn(status("go"));
         when(probe.probe("typescript")).thenReturn(new ToolStatus("typescript", ToolState.RESPONDING, "1", ""));
-        assertThat(service.detected(DIR)).containsExactly(new DetectedTechnology(go, ToolState.INSTALLED), new DetectedTechnology(typescript, ToolState.RESPONDING));
+        assertThat(service.detected(DIR)).containsExactly(new DetectedTechnology(go, ToolState.INSTALLED, LspPluginState.ENABLED),
+                new DetectedTechnology(typescript, ToolState.RESPONDING, LspPluginState.ENABLED));
     }
 
     @Test
-    void detectedNeverListsPrerequisitesNorTouchesPlugins() {
-        when(detector.detect(any(), any())).thenReturn(Set.of("node", "go"));
-        when(probe.probe(any())).thenReturn(status("go"));
-        assertThat(service.detected(DIR)).extracting(found -> found.tool().id()).containsExactly("go");
-        verifyNoInteractions(plugins);
+    void detectedNeverListsPrerequisitesAndSkipsTheProbeOfADisabledPlugin() {
+        when(detector.detect(any(), any())).thenReturn(Set.of("node", "go", "typescript"));
+        when(plugins.installed(DIR)).thenReturn(List.of(localInstalled(GO_PLUGIN, true), localInstalled(TS_PLUGIN, false)));
+        when(probe.probe("go")).thenReturn(status("go"));
+        assertThat(service.detected(DIR)).containsExactly(new DetectedTechnology(go, ToolState.INSTALLED, LspPluginState.ENABLED),
+                new DetectedTechnology(typescript, null, LspPluginState.DISABLED));
         verify(probe, never()).probeAll();
         verify(probe, never()).probe("node");
+        verify(probe, never()).probe("typescript");
+    }
+
+    @Test
+    void detectedReportsAMissingPluginAndAToolWithoutOne() {
+        when(detector.detect(any(), any())).thenReturn(Set.of("go", "pyright"));
+        when(probe.probe("pyright")).thenReturn(status("pyright"));
+        assertThat(service.detected(DIR)).containsExactly(new DetectedTechnology(go, null, LspPluginState.NOT_INSTALLED),
+                new DetectedTechnology(pyright, ToolState.INSTALLED, LspPluginState.NOT_NEEDED));
+        verify(probe, never()).probe("go");
+    }
+
+    @Test
+    void detectedReadsThePluginListOnceWithinTheTtlAndAgainAfterAnEnable() {
+        when(detector.detect(any(), any())).thenReturn(Set.of("typescript"));
+        when(plugins.installed(DIR)).thenReturn(List.of(localInstalled(TS_PLUGIN, false)));
+        service.detected(DIR);
+        service.detected(DIR);
+        verify(plugins, org.mockito.Mockito.times(1)).installed(DIR);
+        service.enableLsp(DIR, "typescript");
+        org.mockito.Mockito.clearInvocations(plugins);
+        service.detected(DIR);
+        verify(plugins, org.mockito.Mockito.times(1)).installed(DIR);
+    }
+
+    @Test
+    void localFalseOverAProjectTrueIsDisabledAndUserScopeEnabledIsEnabled() {
+        var bothOff = List.of(installed(TS_PLUGIN, false, DIR), localInstalled(TS_PLUGIN, false));
+        assertThat(ProjectToolsService.pluginState(bothOff, TS_PLUGIN, DIR)).isEqualTo(LspPluginState.DISABLED);
+        assertThat(ProjectToolsService.pluginState(List.of(userInstalled(TS_PLUGIN, true)), TS_PLUGIN, DIR)).isEqualTo(LspPluginState.ENABLED);
+        assertThat(ProjectToolsService.pluginState(List.of(installed(TS_PLUGIN, true, DIR.resolve("other"))), TS_PLUGIN, DIR)).isEqualTo(LspPluginState.NOT_INSTALLED);
+        assertThat(ProjectToolsService.pluginState(List.of(), "", DIR)).isEqualTo(LspPluginState.NOT_NEEDED);
+    }
+
+    @Test
+    void enableOverAStaleLocalFalseTurnsTheLocalEntryOn() {
+        when(plugins.installed(DIR)).thenReturn(List.of(installed(TS_PLUGIN, false, DIR), localInstalled(TS_PLUGIN, false)));
+        service.enableLsp(DIR, "typescript");
+        verify(plugins).setEnabled(TS_PLUGIN, ExtensionScope.LOCAL, DIR, true);
     }
 
     @Test
@@ -409,6 +463,72 @@ class ProjectToolsServiceTest {
         assertThat(service.rows(DIR)).filteredOn(row -> row.tool().id().equals("typescript")).noneMatch(ProjectToolRow::pluginEnabled);
         when(plugins.install(any(), any(), any())).thenReturn(mock(com.github.krpkbhdn.ccmanager.extension.plugin.PluginInstallResult.class));
         service.enableLsp(DIR, "typescript");
-        verify(plugins).install(TS_PLUGIN, ExtensionScope.PROJECT, DIR);
+        verify(plugins).install(TS_PLUGIN, ExtensionScope.LOCAL, DIR);
+    }
+
+    @Test
+    void enableWritesTheNavigationNoteAndExcludesLocalFiles() throws Exception {
+        service.enableLsp(DIR, "typescript");
+        assertThat(localMd()).contains("<!-- cc-manager:begin lsp-navigation -->", "## LSP navigation", "built-in LSP tool");
+        verify(localExclude).ensureExcluded(DIR, ".claude/settings.local.json");
+        verify(localExclude).ensureExcluded(DIR, "CLAUDE.local.md");
+    }
+
+    @Test
+    void enableWritesTheNoteOnceAlsoWhenThePluginIsAlreadyOn() throws Exception {
+        when(plugins.installed(DIR)).thenReturn(List.of(localInstalled(TS_PLUGIN, true)));
+        service.enableLsp(DIR, "typescript");
+        service.enableLsp(DIR, "typescript");
+        assertThat(localMd()).containsOnlyOnce("cc-manager:begin lsp-navigation");
+        verify(plugins, never()).install(any(), any(), any());
+    }
+
+    @Test
+    void enableKeepsHandWrittenTextAndASameTitledSection() throws Exception {
+        var handWritten = "## LSP navigation\nmine\n";
+        Files.writeString(DIR.resolve("CLAUDE.local.md"), handWritten);
+        service.enableLsp(DIR, "typescript");
+        assertThat(localMd()).isEqualTo(handWritten);
+
+        Files.writeString(DIR.resolve("CLAUDE.local.md"), "# Notes\nkeep me\n");
+        service.enableLsp(DIR, "typescript");
+        assertThat(localMd()).startsWith("# Notes\nkeep me\n").contains("cc-manager:begin lsp-navigation");
+    }
+
+    @Test
+    void noteStaysWhileAnotherLspPluginIsOnAndGoesWithTheLastOne() throws Exception {
+        service.enableLsp(DIR, "typescript");
+        when(plugins.installed(DIR)).thenReturn(List.of(localInstalled(TS_PLUGIN, true), localInstalled("gopls-lsp@claude-plugins-official", true)));
+        service.disableLsp(DIR, "typescript");
+        assertThat(localMd()).contains("cc-manager:begin lsp-navigation");
+
+        when(plugins.installed(DIR)).thenReturn(List.of(localInstalled("gopls-lsp@claude-plugins-official", true)));
+        service.disableLsp(DIR, "go");
+        assertThat(DIR.resolve("CLAUDE.local.md")).doesNotExist();
+    }
+
+    @Test
+    void noteStaysWhileAUserLevelLspPluginIsOn() throws Exception {
+        service.enableLsp(DIR, "typescript");
+        when(plugins.installed(DIR)).thenReturn(List.of(localInstalled(TS_PLUGIN, true), userInstalled("gopls-lsp@claude-plugins-official", true)));
+        service.disableLsp(DIR, "typescript");
+        assertThat(localMd()).contains("cc-manager:begin lsp-navigation");
+    }
+
+    @Test
+    void removingTheNoteKeepsHandWrittenText() throws Exception {
+        Files.writeString(DIR.resolve("CLAUDE.local.md"), "# Notes\nkeep me\n");
+        service.enableLsp(DIR, "typescript");
+        when(plugins.installed(DIR)).thenReturn(List.of(localInstalled(TS_PLUGIN, true)));
+        service.disableLsp(DIR, "typescript");
+        assertThat(localMd()).isEqualTo("# Notes\nkeep me\n");
+    }
+
+    private static String localMd() throws Exception {
+        return Files.readString(DIR.resolve("CLAUDE.local.md"));
+    }
+
+    private static InstalledPlugin localInstalled(String id, boolean enabled) {
+        return new InstalledPlugin(id, "1", ExtensionScope.LOCAL, enabled, null, DIR);
     }
 }

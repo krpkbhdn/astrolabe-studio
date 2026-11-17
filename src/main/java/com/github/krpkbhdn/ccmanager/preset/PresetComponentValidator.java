@@ -2,9 +2,11 @@ package com.github.krpkbhdn.ccmanager.preset;
 
 import com.github.krpkbhdn.ccmanager.codemode.ProjectCodeModeService;
 import com.github.krpkbhdn.ccmanager.config.NameRules;
+import com.github.krpkbhdn.ccmanager.preset.apply.LocalConfigFiles;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.regex.Pattern;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -17,6 +19,8 @@ import tools.jackson.databind.node.ObjectNode;
 final class PresetComponentValidator {
 
     static final JsonMapper MAPPER = JsonMapper.builder().build();
+    private static final Set<String> SCOPES = Set.of("shared", LocalConfigFiles.SCOPE);
+    private static final Set<PresetComponentKind> SCOPED_KINDS = Set.of(PresetComponentKind.INSTRUCTION, PresetComponentKind.PLUGIN, PresetComponentKind.SETTINGS);
     private static final Pattern PLUGIN = Pattern.compile("[^@\\s]+@[^@\\s]+");
     private static final Pattern FOLDER_NAME = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]*");
 
@@ -38,9 +42,12 @@ final class PresetComponentValidator {
             throw new IllegalArgumentException("The component name must not be empty.");
         }
         var body = payload == null || payload.isNull() || payload.isMissingNode() ? MAPPER.createObjectNode() : payload;
+        if (body.has("scope") && !SCOPED_KINDS.contains(kind)) {
+            throw new IllegalArgumentException("A " + kind.name().toLowerCase(java.util.Locale.ROOT).replace('_', ' ') + " has no scope.");
+        }
         var normalised = switch (kind) {
             case MARKETPLACE -> requireText(body, "source", "A marketplace needs a source.");
-            case PLUGIN -> plugin(cleanName);
+            case PLUGIN -> plugin(cleanName, body);
             case SKILL -> skill(cleanName, body);
             case AGENT -> agent(cleanName, body);
             case MCP_SERVER -> mcpServer(body);
@@ -92,14 +99,26 @@ final class PresetComponentValidator {
         if (text.contains("cc-manager:begin") || text.contains("cc-manager:end")) {
             throw new IllegalArgumentException("An instruction must not contain the managed block markers (cc-manager:begin / cc-manager:end).");
         }
-        return result;
+        return withScope(result, body);
     }
 
-    private static ObjectNode plugin(String name) {
+    /** Keeps the optional scope: absent means shared, so only "local" is stored. */
+    private static ObjectNode withScope(ObjectNode result, JsonNode body) {
+        var scope = body.path("scope");
+        if (scope.isMissingNode() || scope.isNull()) {
+            return result;
+        }
+        if (!scope.isString() || !SCOPES.contains(scope.asString())) {
+            throw new IllegalArgumentException("The scope must be \"shared\" or \"local\".");
+        }
+        return scope.asString().equals(LocalConfigFiles.SCOPE) ? result.put("scope", LocalConfigFiles.SCOPE) : result;
+    }
+
+    private static ObjectNode plugin(String name, JsonNode body) {
         if (!PLUGIN.matcher(name).matches()) {
             throw new IllegalArgumentException("A plugin is named plugin@marketplace: " + name);
         }
-        return MAPPER.createObjectNode();
+        return withScope(MAPPER.createObjectNode(), body);
     }
 
     private static ObjectNode skill(String name, JsonNode body) {
@@ -146,7 +165,7 @@ final class PresetComponentValidator {
         if (!body.path("fragment").isObject()) {
             throw new IllegalArgumentException("The settings fragment must be a JSON object.");
         }
-        return MAPPER.createObjectNode().set("fragment", body.path("fragment"));
+        return withScope(MAPPER.createObjectNode().set("fragment", body.path("fragment")), body);
     }
 
     private static ObjectNode file(JsonNode body) {

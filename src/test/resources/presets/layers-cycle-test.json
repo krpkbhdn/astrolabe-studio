@@ -1,0 +1,4 @@
+{"presets": [
+  {"key": "a", "version": 1, "name": "A", "description": "", "includes": ["b"], "components": []},
+  {"key": "b", "version": 1, "name": "B", "description": "", "includes": ["a"], "components": []}
+]}

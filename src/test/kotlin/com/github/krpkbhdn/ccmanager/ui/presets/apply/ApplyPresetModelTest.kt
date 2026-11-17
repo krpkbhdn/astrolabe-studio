@@ -86,4 +86,28 @@ class ApplyPresetModelTest {
         assertThat(resultLine(sampleOutcomes())).isEqualTo("5 applied · 1 failed · 1 to confirm · 2 skipped")
         assertThat(resultLine(emptyList())).isEqualTo("Nothing was applied")
     }
+
+    private val layers = listOf(
+        ProjectPreset(1, "General", "", "general", false, false, 1, emptyList()),
+        ProjectPreset(2, "Frontend", "", "frontend", false, false, 1, emptyList()),
+        ProjectPreset(3, "Mine", "", null, false, false, 1, emptyList()),
+    )
+
+    @Test
+    fun `the choice is ordered as the preset list`() {
+        assertThat(orderedChoice(layers, setOf(2L, 1L))).containsExactly(1L, 2L)
+    }
+
+    @Test
+    fun `only bundled presets with a recommended key are recommended`() {
+        assertThat(recommendedIds(layers, setOf("general", "frontend"))).containsExactlyInAnyOrder(1L, 2L)
+        assertThat(recommendedIds(layers, emptySet())).isEmpty()
+    }
+
+    @Test
+    fun `tidy is offered when something was applied or skipped, not when everything failed`() {
+        assertThat(offersTidy(sampleOutcomes())).isTrue()
+        assertThat(offersTidy(sampleOutcomes().filter { it.status() == OutcomeStatus.FAILED })).isFalse()
+        assertThat(offersTidy(emptyList())).isFalse()
+    }
 }

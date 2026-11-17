@@ -3,11 +3,14 @@ package com.github.krpkbhdn.ccmanager.preset.apply;
 import com.github.krpkbhdn.ccmanager.preset.PresetApplicationService;
 import com.github.krpkbhdn.ccmanager.preset.PresetComponent;
 import com.github.krpkbhdn.ccmanager.preset.PresetComponentKind;
+import com.github.krpkbhdn.ccmanager.preset.ProjectPreset;
 import com.github.krpkbhdn.ccmanager.preset.ProjectPresetService;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -48,8 +51,49 @@ public class PresetApplyService {
 
     /** @return one line per component in preset order; nothing is written */
     public List<PlannedChange> plan(long presetId, Path projectDir) {
-        return locked(projectDir, () -> presets.get(presetId).orElseThrow(() -> new IllegalArgumentException("Unknown preset " + presetId))
-                .components().stream().map(component -> plan(component, projectDir)).toList());
+        return plan(List.of(presetId), projectDir);
+    }
+
+    /** Layers in the given order; a component (same kind and name) repeated in a later layer is listed once, from the first. */
+    public List<PlannedChange> plan(List<Long> presetIds, Path projectDir) {
+        return locked(projectDir, () -> {
+            var layers = loadAll(presetIds);
+            var differing = differingLayers(layers);
+            return mergedComponents(layers).stream().map(component -> {
+                var change = plan(component, projectDir);
+                var others = differing.getOrDefault(keyOf(component), List.of());
+                return others.isEmpty() ? change : change.withDetail(change.detail() + "; also in " + String.join(", ", others) + ", differs");
+            }).toList();
+        });
+    }
+
+    private List<ProjectPreset> loadAll(List<Long> presetIds) {
+        return presetIds.stream().map(id -> presets.get(id).orElseThrow(() -> new IllegalArgumentException("Unknown preset " + id))).toList();
+    }
+
+    private static List<Object> keyOf(PresetComponent component) {
+        return List.of(component.kind(), component.name());
+    }
+
+    private static List<PresetComponent> mergedComponents(List<ProjectPreset> layers) {
+        var unique = new LinkedHashMap<List<Object>, PresetComponent>();
+        layers.forEach(layer -> layer.components().forEach(component -> unique.putIfAbsent(keyOf(component), component)));
+        return List.copyOf(unique.values());
+    }
+
+    /** Per component key, the names of the later layers whose copy has another scope or payload than the first one, which wins. */
+    private static Map<List<Object>, List<String>> differingLayers(List<ProjectPreset> layers) {
+        var first = new LinkedHashMap<List<Object>, PresetComponent>();
+        var differing = new LinkedHashMap<List<Object>, List<String>>();
+        for (var layer : layers) {
+            for (var component : layer.components()) {
+                var winner = first.putIfAbsent(keyOf(component), component);
+                if (winner != null && !winner.payload().equals(component.payload())) {
+                    differing.computeIfAbsent(keyOf(component), key -> new ArrayList<>()).add(layer.name());
+                }
+            }
+        }
+        return differing;
     }
 
     private <T> T locked(Path projectDir, Supplier<T> action) {
@@ -64,22 +108,31 @@ public class PresetApplyService {
 
     /** Plans again, since the project may have changed after the preview, then applies the selected components that can be applied. */
     public PresetApplyResult apply(long projectId, long presetId, Path projectDir, Set<Long> selectedComponentIds) {
-        return locked(projectDir, () -> applyLocked(projectId, presetId, projectDir, selectedComponentIds));
+        return apply(projectId, List.of(presetId), projectDir, selectedComponentIds);
     }
 
-    private PresetApplyResult applyLocked(long projectId, long presetId, Path projectDir, Set<Long> selectedComponentIds) {
-        var preset = presets.get(presetId).orElseThrow(() -> new IllegalArgumentException("Unknown preset " + presetId));
-        var ordered = preset.components().stream().sorted(Comparator.comparing(PresetComponent::kind, APPLY_ORDER)).toList();
+    /** Applies the merged layers as one plan, so a component two layers share is written once; a layer is recorded when nothing failed and one of its components was applied or already there. */
+    public PresetApplyResult apply(long projectId, List<Long> presetIds, Path projectDir, Set<Long> selectedComponentIds) {
+        return locked(projectDir, () -> applyLocked(projectId, loadAll(presetIds), projectDir, selectedComponentIds));
+    }
+
+    private PresetApplyResult applyLocked(long projectId, List<ProjectPreset> layers, Path projectDir, Set<Long> selectedComponentIds) {
+        var ordered = mergedComponents(layers).stream().sorted(Comparator.comparing(PresetComponent::kind, APPLY_ORDER)).toList();
         var outcomes = new ArrayList<ComponentOutcome>();
         var applied = 0;
         var allPresent = true;
+        var settled = new HashSet<List<Object>>();
         for (var component : ordered) {
             var change = plan(component, projectDir);
             allPresent &= change.action() == ChangeAction.PRESENT;
             var outcome = !selectedComponentIds.contains(component.id()) ? ComponentOutcome.of(component, OutcomeStatus.SKIPPED, "Not selected")
                     : change.action().writes() ? applyOne(component, projectDir)
                     : ComponentOutcome.of(component, OutcomeStatus.SKIPPED, change.detail());
-            applied += outcome.status() == OutcomeStatus.APPLIED || outcome.status() == OutcomeStatus.SIGN_IN_NEEDED ? 1 : 0;
+            var done = outcome.status() == OutcomeStatus.APPLIED || outcome.status() == OutcomeStatus.SIGN_IN_NEEDED;
+            applied += done ? 1 : 0;
+            if (done || change.action() == ChangeAction.PRESENT) {
+                settled.add(keyOf(component));
+            }
             outcomes.add(outcome);
         }
         for (var applier : appliers.values()) {
@@ -88,7 +141,8 @@ public class PresetApplyService {
         var failed = outcomes.stream().anyMatch(outcome -> outcome.status() == OutcomeStatus.FAILED);
         var recorded = !failed && (applied > 0 || allPresent);
         if (recorded) {
-            applications.markApplied(projectId, presetId, preset.revision());
+            layers.stream().filter(layer -> layer.components().stream().anyMatch(component -> settled.contains(keyOf(component))))
+                    .forEach(layer -> applications.markApplied(projectId, layer.id(), layer.revision()));
         }
         return new PresetApplyResult(outcomes, recorded);
     }

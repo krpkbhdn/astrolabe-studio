@@ -18,11 +18,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.github.krpkbhdn.ccmanager.preset.ProjectPreset
+import com.github.krpkbhdn.ccmanager.ui.components.AppCheckbox
 import com.github.krpkbhdn.ccmanager.ui.components.AppTextField
 import com.github.krpkbhdn.ccmanager.ui.components.Chip
 import com.github.krpkbhdn.ccmanager.ui.components.Label
 import com.github.krpkbhdn.ccmanager.ui.components.Pressable
-import com.github.krpkbhdn.ccmanager.ui.components.RadioMark
 import com.github.krpkbhdn.ccmanager.ui.components.ThinScrollbar
 import com.github.krpkbhdn.ccmanager.ui.icons.Icons
 import com.github.krpkbhdn.ccmanager.ui.presets.summaryOf
@@ -32,7 +32,7 @@ import com.github.krpkbhdn.ccmanager.ui.theme.Spacing
 import com.github.krpkbhdn.ccmanager.ui.theme.Type
 import com.github.krpkbhdn.ccmanager.ui.theme.colors
 
-/** Step 1: a searchable list of presets, each marked Applied or Outdated for the project. */
+/** Step 1: a searchable list of presets to check as layers, each marked Applied or Outdated for the project. */
 @Composable
 fun ApplyChoosePage(state: ApplyPresetState) {
     val list = rememberLazyListState()
@@ -44,7 +44,7 @@ fun ApplyChoosePage(state: ApplyPresetState) {
                 Label("No preset matches the search", Modifier.padding(horizontal = Spacing.xl, vertical = Spacing.md), color = colors.textTertiary, style = Type.small)
             }
             LazyColumn(Modifier.fillMaxSize(), list, contentPadding = PaddingValues(start = Spacing.xl, end = Spacing.xl, bottom = Spacing.lg), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                items(shown, key = { it.id() }) { preset -> PresetChoice(preset, state.statusOf(preset), preset.id() == state.presetId) { state.select(preset.id()) } }
+                items(shown, key = { it.id() }) { preset -> PresetChoice(preset, state.statusOf(preset), preset.id() in state.chosen, state.isRecommended(preset)) { state.toggleChosen(preset.id()) } }
             }
             ThinScrollbar(list)
         }
@@ -52,16 +52,17 @@ fun ApplyChoosePage(state: ApplyPresetState) {
 }
 
 @Composable
-private fun PresetChoice(preset: ProjectPreset, status: PresetStatus?, selected: Boolean, onClick: () -> Unit) {
+private fun PresetChoice(preset: ProjectPreset, status: PresetStatus?, selected: Boolean, recommended: Boolean, onClick: () -> Unit) {
     val shape = RoundedCornerShape(Radius.lg)
-    Pressable(onClick, Modifier.fillMaxWidth().border(1.dp, if (selected) colors.accent else colors.border, shape), shape, if (selected) colors.surfaceSelected else colors.surface, if (selected) null else colors.surfaceHover, role = androidx.compose.ui.semantics.Role.RadioButton) {
+    Pressable(onClick, Modifier.fillMaxWidth().border(1.dp, if (selected) colors.accent else colors.border, shape), shape, if (selected) colors.surfaceSelected else colors.surface, if (selected) null else colors.surfaceHover, role = androidx.compose.ui.semantics.Role.Checkbox) {
         Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.sm), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
-            RadioMark(selected)
+            AppCheckbox(selected, { onClick() })
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
                 Label(preset.name(), style = Type.bodyMedium, tooltipWhenTruncated = true)
                 Label(summaryOf(preset.components()), color = colors.textTertiary, style = Type.caption)
                 if (preset.description().isNotBlank()) Label(preset.description(), color = colors.textSecondary, style = Type.small, tooltipWhenTruncated = true)
             }
+            if (recommended) Chip("Recommended", colors.accent)
             status?.let { Chip(it.label, if (it == PresetStatus.OUTDATED) colors.warning else colors.success) }
         }
     }

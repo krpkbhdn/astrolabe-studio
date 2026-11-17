@@ -43,7 +43,15 @@ public class TechnologyDetector {
     }
 
     public Set<String> detect(Path projectDir, Collection<ToolDefinition> tools) {
-        var candidates = tools.stream().filter(tool -> tool.kind() != ToolKind.PREREQUISITE && !tool.markers().isEmpty()).toList();
+        var markersById = new HashMap<String, List<String>>();
+        tools.stream().filter(tool -> tool.kind() != ToolKind.PREREQUISITE && !tool.markers().isEmpty())
+                .forEach(tool -> markersById.put(tool.id(), tool.markers()));
+        return detectMarked(projectDir, markersById);
+    }
+
+    /** Same bounded scan for a caller-given table of name to markers; returns the names with a marker found. */
+    public Set<String> detectMarked(Path projectDir, Map<String, List<String>> markersByName) {
+        var candidates = markersByName.entrySet().stream().filter(entry -> !entry.getValue().isEmpty()).toList();
         var found = new HashSet<String>();
         var queue = new ArrayDeque<Level>();
         queue.add(new Level(projectDir, 0));
@@ -53,8 +61,8 @@ public class TechnologyDetector {
             var folder = level.folder();
             var contents = new FolderContents(folder);
             for (var tool : candidates) {
-                if (!found.contains(tool.id()) && tool.markers().stream().anyMatch(marker -> matches(marker, folder, contents))) {
-                    found.add(tool.id());
+                if (!found.contains(tool.getKey()) && tool.getValue().stream().anyMatch(marker -> matches(marker, folder, contents))) {
+                    found.add(tool.getKey());
                 }
             }
             if (level.depth() < properties.maxScanDepth() && queued < properties.maxScanFolders()) {

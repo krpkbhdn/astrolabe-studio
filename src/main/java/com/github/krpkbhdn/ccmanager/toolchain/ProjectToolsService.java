@@ -4,23 +4,40 @@ import com.github.krpkbhdn.ccmanager.claude.plugin.ClaudePluginWriter;
 import com.github.krpkbhdn.ccmanager.extension.ExtensionException;
 import com.github.krpkbhdn.ccmanager.extension.ExtensionScope;
 import com.github.krpkbhdn.ccmanager.extension.plugin.InstalledPlugin;
-import com.github.krpkbhdn.ccmanager.extension.plugin.Marketplace;
 import com.github.krpkbhdn.ccmanager.extension.plugin.PluginService;
+import com.github.krpkbhdn.ccmanager.git.GitLocalExclude;
+import com.github.krpkbhdn.ccmanager.preset.apply.LocalClaudeMdNote;
+import com.github.krpkbhdn.ccmanager.preset.apply.LocalConfigFiles;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
+import java.time.Instant;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /** Language servers of the catalog for one project: what it uses, what is installed, which Claude LSP plugin is on. */
 @Service
 public class ProjectToolsService {
 
+    private record CachedPlugins(Instant readAt, List<InstalledPlugin> plugins) {
+    }
+
+    private static final Logger LOG = LoggerFactory.getLogger(ProjectToolsService.class);
+    /** The app owns these entries and they depend on this machine, so they never go into the shared project settings. */
+    private static final ExtensionScope LSP_SCOPE = ExtensionScope.LOCAL;
+    private static final String NAVIGATION_TITLE = "LSP navigation";
+    private static final String NAVIGATION_RESOURCE = "/toolchain/lsp-navigation.md";
     private static final String OFFICIAL_MARKETPLACE = "claude-plugins-official";
     private static final String OFFICIAL_MARKETPLACE_SOURCE = "anthropics/claude-plugins-official";
 
@@ -29,15 +46,35 @@ public class ProjectToolsService {
     private final TechnologyDetector detector;
     private final PluginService plugins;
     private final ClaudePluginWriter pluginWriter;
+    private final LocalClaudeMdNote note;
+    private final GitLocalExclude localExclude;
+    private final String navigationText;
+    private final ToolchainProperties properties;
+    private final Map<Path, CachedPlugins> pluginCache = new ConcurrentHashMap<>();
     private final ReentrantLock pluginWrites = new ReentrantLock();
 
     public ProjectToolsService(ToolCatalog catalog, ToolProbe probe, TechnologyDetector detector, PluginService plugins,
-            ClaudePluginWriter pluginWriter) {
+            ClaudePluginWriter pluginWriter, LocalClaudeMdNote note, GitLocalExclude localExclude, ToolchainProperties properties) {
         this.catalog = catalog;
         this.probe = probe;
         this.detector = detector;
         this.plugins = plugins;
         this.pluginWriter = pluginWriter;
+        this.note = note;
+        this.localExclude = localExclude;
+        this.properties = properties;
+        this.navigationText = readNavigationText();
+    }
+
+    private static String readNavigationText() {
+        try (var in = ProjectToolsService.class.getResourceAsStream(NAVIGATION_RESOURCE)) {
+            if (in == null) {
+                throw new IllegalStateException("Bundled resource is missing on the classpath: " + NAVIGATION_RESOURCE);
+            }
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new IllegalStateException("Bundled resource cannot be read: " + NAVIGATION_RESOURCE, e);
+        }
     }
 
     /** Rows with the cached tool statuses. */
@@ -50,13 +87,50 @@ public class ProjectToolsService {
         return buildRows(projectDir, probe.probeAllFresh());
     }
 
-    /** Technologies found in the folder in catalog order with their tool states; blocking, the probe may run the binary on a cache miss, no plugin or claude calls. */
+    /**
+     * Technologies found in the folder in catalog order with their plugin state and, only where the plugin is on, the server state;
+     * blocking, the probe may run the binary on a cache miss and the plugin list is read through {@code claude plugin list} at most once per status TTL.
+     */
     public List<DetectedTechnology> detected(Path projectDir) {
         var tools = catalog.all().stream().filter(tool -> tool.kind() != ToolKind.PREREQUISITE).toList();
         var found = detector.detect(projectDir, tools);
-        return tools.stream().filter(tool -> found.contains(tool.id()))
-                .map(tool -> new DetectedTechnology(tool, probe.probe(tool.id()).state()))
-                .toList();
+        var foundTools = tools.stream().filter(tool -> found.contains(tool.id())).toList();
+        if (foundTools.isEmpty()) {
+            return List.of();
+        }
+        var installed = foundTools.stream().anyMatch(tool -> !tool.lspPlugin().isEmpty()) ? cachedPlugins(projectDir) : List.<InstalledPlugin>of();
+        return foundTools.stream().map(tool -> {
+            var pluginState = pluginState(installed, tool.lspPlugin(), projectDir);
+            return new DetectedTechnology(tool, pluginState.serverMatters() ? probe.probe(tool.id()).state() : null, pluginState);
+        }).toList();
+    }
+
+    private List<InstalledPlugin> cachedPlugins(Path projectDir) {
+        var key = projectDir.toAbsolutePath().normalize();
+        var hit = pluginCache.get(key);
+        if (hit != null && hit.readAt().plus(properties.statusTtl()).isAfter(Instant.now())) {
+            return hit.plugins();
+        }
+        var fresh = plugins.installed(projectDir);
+        pluginCache.put(key, new CachedPlugins(Instant.now(), fresh));
+        return fresh;
+    }
+
+    /** The one rule for "is this LSP plugin on for the project": the CLI reports each entry's effective enabled flag, so a local false already shows the project entry as off. */
+    private static boolean isEffectivelyEnabled(List<InstalledPlugin> installed, String pluginId, Path projectDir) {
+        return isEnabledAtUserLevel(installed, pluginId) || isEnabledForProject(installed, pluginId, projectDir);
+    }
+
+    static LspPluginState pluginState(List<InstalledPlugin> installed, String pluginId, Path projectDir) {
+        if (pluginId.isEmpty()) {
+            return LspPluginState.NOT_NEEDED;
+        }
+        if (isEffectivelyEnabled(installed, pluginId, projectDir)) {
+            return LspPluginState.ENABLED;
+        }
+        var present = installed.stream().anyMatch(plugin -> plugin.id().equals(pluginId)
+                && (isProjectOrLocalInstallation(plugin, projectDir) || plugin.isInstallationOf(pluginId, ExtensionScope.USER, null)));
+        return present ? LspPluginState.DISABLED : LspPluginState.NOT_INSTALLED;
     }
 
     private List<ProjectToolRow> buildRows(Path projectDir, List<ToolStatus> probed) {
@@ -88,18 +162,31 @@ public class ProjectToolsService {
         pluginWrites.lock();
         try {
             var installedPlugins = plugins.installed(projectDir);
-            if (isEnabledAtUserLevel(installedPlugins, pluginId) || isEnabledForProject(installedPlugins, pluginId, projectDir)) {
-                return;
+            if (!isEffectivelyEnabled(installedPlugins, pluginId, projectDir)) {
+                installOrEnable(installedPlugins, pluginId, projectDir);
+                excludeFromGit(projectDir, LocalConfigFiles.SETTINGS);
             }
-            ensureMarketplace(pluginId);
-            var installed = findInstallation(installedPlugins, pluginId, projectDir);
-            if (installed.isPresent()) {
-                plugins.setEnabled(pluginId, installScope(pluginId), projectDir, true);
-            } else if (plugins.install(pluginId, installScope(pluginId), projectDir).needsConfirmation()) {
-                throw new ExtensionException("The plugin " + pluginId + " runs a command that needs your confirmation, install it on the Plugins page");
-            }
+            note.write(projectDir, NAVIGATION_TITLE, navigationText);
         } finally {
+            pluginCache.clear();
             pluginWrites.unlock();
+        }
+    }
+
+    private void installOrEnable(List<InstalledPlugin> installedPlugins, String pluginId, Path projectDir) {
+        ensureMarketplace(pluginId);
+        if (findInstallation(installedPlugins, pluginId, projectDir).isPresent()) {
+            plugins.setEnabled(pluginId, LSP_SCOPE, projectDir, true);
+        } else if (plugins.install(pluginId, LSP_SCOPE, projectDir).needsConfirmation()) {
+            throw new ExtensionException("The plugin " + pluginId + " runs a command that needs your confirmation, install it on the Plugins page");
+        }
+    }
+
+    private void excludeFromGit(Path projectDir, String relativePath) {
+        try {
+            localExclude.ensureExcluded(projectDir, relativePath);
+        } catch (IOException e) {
+            LOG.warn("Could not exclude {} from git: {}", relativePath, e.getClass().getSimpleName());
         }
     }
 
@@ -113,12 +200,23 @@ public class ProjectToolsService {
         var pluginId = tool.lspPlugin();
         pluginWrites.lock();
         try {
-            plugins.installed(projectDir).stream()
+            var installed = plugins.installed(projectDir);
+            installed.stream()
                     .filter(plugin -> plugin.enabled() && plugin.id().equals(pluginId) && isProjectOrLocalInstallation(plugin, projectDir))
                     .forEach(plugin -> plugins.setEnabled(pluginId, plugin.scope(), projectDir, false));
+            if (!anotherLspPluginEnabled(installed, pluginId, projectDir)) {
+                note.remove(projectDir, NAVIGATION_TITLE);
+            }
         } finally {
+            pluginCache.clear();
             pluginWrites.unlock();
         }
+    }
+
+    private boolean anotherLspPluginEnabled(List<InstalledPlugin> installed, String disabledId, Path projectDir) {
+        var lspPlugins = catalog.all().stream().map(ToolDefinition::lspPlugin).filter(id -> !id.isEmpty() && !id.equals(disabledId)).collect(Collectors.toSet());
+        return installed.stream().anyMatch(plugin -> plugin.enabled() && lspPlugins.contains(plugin.id())
+                && (isProjectOrLocalInstallation(plugin, projectDir) || plugin.isInstallationOf(plugin.id(), ExtensionScope.USER, null)));
     }
 
     private static void requireProjectDir(Path projectDir) {
@@ -127,14 +225,14 @@ public class ProjectToolsService {
         }
     }
 
-    private boolean isEnabledAtUserLevel(List<InstalledPlugin> installedPlugins, String pluginId) {
+    private static boolean isEnabledAtUserLevel(List<InstalledPlugin> installedPlugins, String pluginId) {
         return installedPlugins.stream()
                 .anyMatch(plugin -> plugin.enabled() && plugin.isInstallationOf(pluginId, ExtensionScope.USER, null));
     }
 
     private Optional<InstalledPlugin> findInstallation(List<InstalledPlugin> installedPlugins, String pluginId, Path projectDir) {
         return installedPlugins.stream()
-                .filter(plugin -> plugin.isInstallationOf(pluginId, installScope(pluginId), projectDir)).findFirst();
+                .filter(plugin -> plugin.isInstallationOf(pluginId, LSP_SCOPE, projectDir)).findFirst();
     }
 
     /** A local install of the same project is on for it too; it is only read, writes use `installScope`. */
@@ -145,11 +243,6 @@ public class ProjectToolsService {
     private static boolean isEnabledForProject(List<InstalledPlugin> installedPlugins, String pluginId, Path projectDir) {
         return installedPlugins.stream()
                 .anyMatch(plugin -> plugin.enabled() && plugin.id().equals(pluginId) && isProjectOrLocalInstallation(plugin, projectDir));
-    }
-
-    /** Plugins of our own marketplace go to local scope so the shared settings never name a marketplace teammates lack. */
-    private static ExtensionScope installScope(String pluginId) {
-        return isOwnMarketplace(pluginId) ? ExtensionScope.LOCAL : ExtensionScope.PROJECT;
     }
 
     private static boolean isOwnMarketplace(String pluginId) {

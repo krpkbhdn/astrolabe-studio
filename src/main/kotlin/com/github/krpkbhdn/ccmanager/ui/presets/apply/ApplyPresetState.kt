@@ -9,15 +9,17 @@ import com.github.krpkbhdn.ccmanager.preset.ProjectPreset
 import com.github.krpkbhdn.ccmanager.preset.apply.PlannedChange
 import com.github.krpkbhdn.ccmanager.preset.apply.PresetApplyResult
 import com.github.krpkbhdn.ccmanager.preset.apply.PresetApplyService
+import com.github.krpkbhdn.ccmanager.preset.apply.TidyClaudeMd
 import com.github.krpkbhdn.ccmanager.project.Project
 import com.github.krpkbhdn.ccmanager.ui.presets.searchPresets
 import com.github.krpkbhdn.ccmanager.ui.state.io
 import com.github.krpkbhdn.ccmanager.ui.state.runGuarded
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import java.nio.file.Path
 
 /**
- * The Apply preset dialog: choose a preset, review what it would change in the project, apply the checked changes, read the outcomes.
+ * The Apply preset dialog: choose one or more presets (layers), review what it would change in the project, apply the checked changes, read the outcomes.
  * Planning and applying do file and CLI work, so they run off the UI thread; a project chosen first decides the folder.
  */
 class ApplyPresetState(
@@ -27,6 +29,8 @@ class ApplyPresetState(
     private val projectOf: (Long) -> Project?,
     private val scope: CoroutineScope,
     private val reportError: (String) -> Unit,
+    private val recommendedKeys: (Path) -> Set<String>,
+    private val startTidySession: (project: Project, prompt: String, onStarted: () -> Unit) -> Unit,
 ) {
     /** True while the user still has to pick the project this opened without. */
     var pickingProject by mutableStateOf(false)
@@ -35,7 +39,13 @@ class ApplyPresetState(
         private set
     var step by mutableStateOf(ApplyStep.CHOOSE)
         private set
-    var presetId by mutableStateOf<Long?>(null)
+    /** The checked presets; they are applied in the order of the preset list. */
+    var chosen by mutableStateOf<Set<Long>>(emptySet())
+        private set
+    var recommended by mutableStateOf<Set<String>>(emptySet())
+        private set
+    /** True on the result when Claude can be asked to merge duplicate rules in CLAUDE.md files. */
+    var tidyOffered by mutableStateOf(false)
         private set
     var applied by mutableStateOf<Map<Long, Int>>(emptyMap())
         private set
@@ -54,41 +64,43 @@ class ApplyPresetState(
         private set
     val query = TextFieldState()
 
-    private var pendingPresetId: Long? = null
+    private var pendingPresetIds: Set<Long> = emptySet()
     private var generation = 0
 
     val isOpen: Boolean get() = pickingProject || project != null
 
-    val preset: ProjectPreset? get() = presetId?.let { id -> presets().firstOrNull { it.id() == id } }
+    val chosenNames: String get() = presets().filter { it.id() in chosen }.joinToString(" + ") { it.name() }
 
     val visiblePresets: List<ProjectPreset> get() = searchPresets(presets(), query.text.toString())
 
-    /** Opens for [projectId], or first asks for a project when null; with a [presetId] it starts at the review. */
-    fun open(projectId: Long?, presetId: Long? = null) {
+    /** Opens for [projectId], or first asks for a project when null; with [presetIds] it starts at the review of those. */
+    fun open(projectId: Long?, vararg presetIds: Long) {
         if (isOpen) return
         reset()
         val known = projectId?.let(projectOf)
         if (known == null) {
-            pendingPresetId = presetId
+            pendingPresetIds = presetIds.toSet()
             pickingProject = true
         } else {
-            begin(known, presetId)
+            begin(known, presetIds.toSet())
         }
     }
 
-    fun chooseProject(chosen: Project) {
+    fun chooseProject(picked: Project) {
         pickingProject = false
-        begin(chosen, pendingPresetId)
+        begin(picked, pendingPresetIds)
     }
 
     fun statusOf(preset: ProjectPreset): PresetStatus? = presetStatus(preset, applied[preset.id()])
 
-    fun select(id: Long) {
-        presetId = id
+    fun isRecommended(preset: ProjectPreset): Boolean = preset.bundledKey() in recommended
+
+    fun toggleChosen(id: Long) {
+        chosen = if (id in chosen) chosen - id else chosen + id
     }
 
     fun review() {
-        val id = presetId ?: return
+        val ids = orderedChoice(presets(), chosen).takeIf { it.isNotEmpty() } ?: return
         val folder = project?.path ?: return
         val mine = ++generation
         step = ApplyStep.REVIEW
@@ -98,7 +110,7 @@ class ApplyPresetState(
         error = null
         scope.launch {
             runGuarded({ if (mine == generation) { error = it; plan = emptyList() } }) {
-                val planned = io { service.plan(id, folder) }
+                val planned = io { service.plan(ids, folder) }
                 if (mine == generation) {
                     plan = planned
                     selection = defaultSelection(planned)
@@ -126,18 +138,19 @@ class ApplyPresetState(
 
     fun apply() {
         val shown = project ?: return
-        val id = presetId ?: return
+        val ids = orderedChoice(presets(), chosen).takeIf { it.isNotEmpty() } ?: return
         if (running || !canApply(plan, selection)) return
-        val chosen = selection
+        val checked = selection
         val mine = generation
         running = true
         error = null
         scope.launch {
             try {
                 runGuarded({ error = it }) {
-                    val outcome = io { service.apply(shown.id, id, shown.path, chosen) }
+                    val outcome = io { service.apply(shown.id, ids, shown.path, checked) }
                     if (mine != generation) return@runGuarded
                     result = outcome
+                    tidyOffered = offersTidy(outcome.outcomes()) && io { TidyClaudeMd.applicableTo(shown.path) }
                     running = false
                     step = ApplyStep.RESULT
                     applied = io { applications.applications(shown.id) }
@@ -148,24 +161,46 @@ class ApplyPresetState(
         }
     }
 
+    /** Starts a normal interactive Claude session that proposes merging duplicate rules; the dialog closes once it started. */
+    fun tidy() {
+        val shown = project ?: return
+        startTidySession(shown, TidyClaudeMd.prompt(), ::close)
+    }
+
     fun close() {
         generation++
         reset()
     }
 
-    private fun begin(target: Project, startAt: Long?) {
+    private fun begin(target: Project, startAt: Set<Long>) {
         project = target
-        presetId = startAt ?: presets().firstOrNull()?.id()
+        val initial = startAt.ifEmpty { setOfNotNull(presets().firstOrNull()?.id()) }
+        chosen = initial
         scope.launch { runGuarded(reportError) { applied = io { applications.applications(target.id) } } }
-        if (startAt != null) review()
+        if (startAt.isNotEmpty()) review() else recommend(target, initial)
+    }
+
+    /** Preselects the recommended layers unless the user already changed the choice meanwhile. */
+    private fun recommend(target: Project, initial: Set<Long>) {
+        val mine = generation
+        scope.launch {
+            runGuarded(reportError) {
+                val keys = io { runCatching { recommendedKeys(target.path) }.getOrDefault(emptySet()) }
+                if (mine != generation) return@runGuarded
+                recommended = keys
+                if (chosen == initial) chosen = recommendedIds(presets(), keys).ifEmpty { initial }
+            }
+        }
     }
 
     private fun reset() {
         pickingProject = false
-        pendingPresetId = null
+        pendingPresetIds = emptySet()
         project = null
         step = ApplyStep.CHOOSE
-        presetId = null
+        chosen = emptySet()
+        recommended = emptySet()
+        tidyOffered = false
         applied = emptyMap()
         plan = null
         selection = emptySet()

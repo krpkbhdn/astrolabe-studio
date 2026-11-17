@@ -33,6 +33,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
+import com.github.krpkbhdn.ccmanager.git.GitLocalExclude;
+import com.github.krpkbhdn.ccmanager.git.GitRunner;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.JsonNode;
@@ -55,7 +57,7 @@ class PresetApplyServiceTest {
     @BeforeEach
     void setUp() {
         service = new PresetApplyService(presets, applications, List.of(new MarketplaceApplier(plugins), new PluginApplier(plugins),
-                new McpServerApplier(mcp), new SkillApplier(), new AgentApplier(), new FileApplier(), new InstructionApplier(), new SettingsApplier()));
+                new McpServerApplier(mcp), new SkillApplier(), new AgentApplier(), new FileApplier(), new InstructionApplier(new GitLocalExclude(new GitRunner())), new SettingsApplier(new GitLocalExclude(new GitRunner()))));
         when(plugins.install(anyString(), any(), any())).thenReturn(new PluginInstallResult(true, "", null));
     }
 
@@ -289,6 +291,50 @@ class PresetApplyServiceTest {
 
         assertThat(kinds).containsExactly(PresetComponentKind.MARKETPLACE, PresetComponentKind.PLUGIN, PresetComponentKind.MCP_SERVER,
                 PresetComponentKind.AGENT, PresetComponentKind.INSTRUCTION, PresetComponentKind.SETTINGS);
+    }
+
+    @Test
+    void layersAreMergedByKindAndNameAndEveryLayerIsRecorded() throws IOException {
+        var shared = component(PresetComponentKind.INSTRUCTION, "Style", "{\"markdown\":\"Use tabs.\"}");
+        var sharedAgain = component(PresetComponentKind.INSTRUCTION, "Style", "{\"markdown\":\"Use tabs.\"}");
+        var extra = component(PresetComponentKind.FILE, "f", "{\"path\":\"docs/x.txt\",\"content\":\"hi\"}");
+        when(presets.get(1L)).thenReturn(Optional.of(new ProjectPreset(1, "general", "", null, false, false, 3, List.of(shared))));
+        when(presets.get(2L)).thenReturn(Optional.of(new ProjectPreset(2, "frontend", "", null, false, false, 5, List.of(sharedAgain, extra))));
+
+        var plan = service.plan(List.of(1L, 2L), project);
+        var result = service.apply(7, List.of(1L, 2L), project, Set.of(shared.id(), extra.id()));
+
+        assertThat(plan).extracting(PlannedChange::componentId).containsExactly(shared.id(), extra.id());
+        assertThat(result.outcomes()).extracting(ComponentOutcome::status).containsOnly(OutcomeStatus.APPLIED);
+        verify(applications).markApplied(7, 1, 3);
+        verify(applications).markApplied(7, 2, 5);
+    }
+
+    @Test
+    void sameComponentWithAnotherPayloadInALaterLayerIsNotedAndTheFirstWins() throws IOException {
+        var first = component(PresetComponentKind.INSTRUCTION, "Style", "{\"markdown\":\"Use tabs.\"}");
+        var second = component(PresetComponentKind.INSTRUCTION, "Style", "{\"markdown\":\"Use tabs.\",\"scope\":\"local\"}");
+        when(presets.get(1L)).thenReturn(Optional.of(new ProjectPreset(1, "general", "", null, false, false, 3, List.of(first))));
+        when(presets.get(2L)).thenReturn(Optional.of(new ProjectPreset(2, "frontend", "", null, false, false, 5, List.of(second))));
+
+        var plan = service.plan(List.of(1L, 2L), project);
+
+        assertThat(plan).hasSize(1);
+        assertThat(plan.getFirst().componentId()).isEqualTo(first.id());
+        assertThat(plan.getFirst().detail()).contains("also in frontend, differs");
+    }
+
+    @Test
+    void layerWithNothingAppliedOrPresentIsNotRecorded() throws IOException {
+        var one = component(PresetComponentKind.INSTRUCTION, "Style", "{\"markdown\":\"Use tabs.\"}");
+        var two = component(PresetComponentKind.FILE, "f", "{\"path\":\"docs/x.txt\",\"content\":\"hi\"}");
+        when(presets.get(1L)).thenReturn(Optional.of(new ProjectPreset(1, "general", "", null, false, false, 3, List.of(one))));
+        when(presets.get(2L)).thenReturn(Optional.of(new ProjectPreset(2, "frontend", "", null, false, false, 5, List.of(two))));
+
+        service.apply(7, List.of(1L, 2L), project, Set.of(one.id()));
+
+        verify(applications).markApplied(7, 1, 3);
+        verify(applications, never()).markApplied(eq(7L), eq(2L), org.mockito.ArgumentMatchers.anyInt());
     }
 
     private Set<Long> preset(List<PresetComponent> components) {

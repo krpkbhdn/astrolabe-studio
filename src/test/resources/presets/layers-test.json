@@ -1,0 +1,15 @@
+{"presets": [
+  {"key": "base", "version": 1, "name": "Base", "description": "",
+   "components": [
+     {"kind": "SETTINGS", "name": "a", "payload": {"from": "base"}},
+     {"kind": "SETTINGS", "name": "b", "payload": {"from": "base"}}]},
+  {"key": "extra", "version": 1, "name": "Extra", "description": "",
+   "components": [
+     {"kind": "SETTINGS", "name": "b", "payload": {"from": "extra"}},
+     {"kind": "SETTINGS", "name": "c", "payload": {"from": "extra"}}]},
+  {"key": "web", "version": 2, "name": "Web", "description": "", "includes": ["base", "extra"], "match": ["frontend", "node"],
+   "components": [
+     {"kind": "SETTINGS", "name": "c", "payload": {"from": "web"}},
+     {"kind": "SETTINGS", "name": "d", "payload": {"from": "web"}}]},
+  {"key": "app", "version": 1, "name": "App", "description": "", "includes": ["web"], "components": []}
+]}

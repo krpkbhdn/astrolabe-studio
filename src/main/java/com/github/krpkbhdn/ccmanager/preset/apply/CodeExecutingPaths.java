@@ -27,6 +27,11 @@ public final class CodeExecutingPaths {
         return fragment.propertyNames().stream().filter(EXECUTABLE_SETTINGS::contains).toList();
     }
 
+    /** Who is affected by executable settings: only the user for the local settings file, everyone using the project otherwise. */
+    static String settingsAudience(boolean local) {
+        return local ? "for you in this project" : "for everyone using the project";
+    }
+
     /** Wording of the confirmation line for a component whose content runs code automatically. */
     static String runsCode(String what) {
         return what + " runs code automatically, create it yourself after reviewing it";

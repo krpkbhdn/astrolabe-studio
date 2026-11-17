@@ -23,10 +23,12 @@ class PresetOfferStateTest {
     private val applications = mock(PresetApplicationService::class.java)
     private val project = Project(7, "demo", Path.of("demo"), Instant.EPOCH)
     private val group = Project(8, "services", Path.of("services"), Instant.EPOCH, com.github.krpkbhdn.ccmanager.project.ModelSelection.DEFAULT, true, null)
-    private val presets = listOf(ProjectPreset(1, "Spring", "", null, false, false, 1, emptyList()), ProjectPreset(2, "General", "", "general", false, false, 1, emptyList()))
+    private val presets = listOf(ProjectPreset(1, "Spring", "", "spring", false, false, 1, emptyList()), ProjectPreset(2, "General", "", "general", false, false, 1, emptyList()))
     private var blocked = false
-    private val reviewed = mutableListOf<Pair<Long, Long>>()
-    private val state = PresetOfferState(applications, { presets }, { id -> listOf(project, group).firstOrNull { it.id == id } }, scope, { blocked }, { p, preset -> reviewed += p to preset }, {})
+    private var recommended: Set<String> = emptySet()
+    private var recommendationFails = false
+    private val reviewed = mutableListOf<Pair<Long, List<Long>>>()
+    private val state = PresetOfferState(applications, { presets }, { id -> listOf(project, group).firstOrNull { it.id == id } }, scope, { blocked }, { p, ids -> reviewed += p to ids }, {}, { if (recommendationFails) error("detection failed") else recommended })
 
     @AfterEach
     fun stop() = scope.cancel()
@@ -36,7 +38,17 @@ class PresetOfferStateTest {
         state.offerFor(7)
 
         await { state.offer != null }
-        assertThat(state.offer!!.presetId).isEqualTo(2)
+        assertThat(state.offer!!.presetIds).containsExactly(2L)
+    }
+
+    @Test
+    fun `a failing recommendation still offers general`() {
+        recommendationFails = true
+
+        state.offerFor(7)
+
+        await { state.offer != null }
+        assertThat(state.offer!!.presetIds).containsExactly(2L)
     }
 
     @Test
@@ -106,14 +118,14 @@ class PresetOfferStateTest {
     }
 
     @Test
-    fun `review and apply hands the chosen preset on`() {
+    fun `review and apply hands the recommended layers on in list order`() {
+        recommended = setOf("general", "spring")
         state.offerFor(7)
         await { state.offer != null }
-        state.choose(1)
 
         state.reviewAndApply()
 
-        assertThat(reviewed).containsExactly(7L to 1L)
+        assertThat(reviewed).containsExactly(7L to listOf(1L, 2L))
         assertThat(state.offer).isNull()
     }
 }

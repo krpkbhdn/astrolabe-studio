@@ -1,0 +1,2 @@
+- Use Playwright to verify UI in a real browser (navigate, snapshot, screenshots). It is not for backend or unit-test work.
+- Use frontend-design when creating new UI visuals.

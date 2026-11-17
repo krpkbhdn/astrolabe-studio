@@ -139,16 +139,16 @@ public class LspHealthMonitor extends ScheduledSweep {
     private DetectedTechnology fresh(Path directory, DetectedTechnology found, boolean recover) {
         var id = found.tool().id();
         details.remove(detailKey(directory, id));
-        if (found.serverState() == ToolState.MISSING) {
+        if (!found.pluginState().serverMatters() || found.serverState() == ToolState.MISSING) {
             return found;
         }
         try {
             var state = probe.probeFresh(id).state();
             if (healthy(state)) {
                 notRepairedByReinstall.remove(id);
-                return new DetectedTechnology(found.tool(), withRedirectCheck(directory, id, state));
+                return found.withServerState(withRedirectCheck(directory, id, state));
             }
-            return new DetectedTechnology(found.tool(), recover && state == ToolState.FAILED ? recovered(id) : state);
+            return found.withServerState(recover && state == ToolState.FAILED ? recovered(id) : state);
         } catch (RuntimeException e) {
             log.warn("Probing language server {} failed: {}", id, e.getClass().getSimpleName());
             return found;

@@ -1,6 +1,7 @@
 package com.github.krpkbhdn.ccmanager.ui.projectsettings
 
 import com.github.krpkbhdn.ccmanager.toolchain.DetectedTechnology
+import com.github.krpkbhdn.ccmanager.toolchain.LspPluginState
 import com.github.krpkbhdn.ccmanager.toolchain.ToolDefinition
 import com.github.krpkbhdn.ccmanager.toolchain.ToolKind
 import com.github.krpkbhdn.ccmanager.toolchain.ToolState
@@ -8,10 +9,13 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 
 class DetectedTechModelTest {
-    private fun tech(name: String, state: ToolState = ToolState.RESPONDING) = DetectedTechnology(
+    private fun tech(name: String, state: ToolState? = ToolState.RESPONDING, plugin: LspPluginState = LspPluginState.ENABLED) = DetectedTechnology(
         ToolDefinition(name.lowercase(), name, "G", ToolKind.LANGUAGE_SERVER, name, listOf(), "", "", listOf(), mapOf(), "", mapOf(), mapOf()),
         state,
+        plugin,
     )
+
+    private fun off(name: String, plugin: LspPluginState = LspPluginState.DISABLED) = tech(name, null, plugin)
 
     @Test
     fun `an empty list gives no indicator`() {
@@ -47,5 +51,37 @@ class DetectedTechModelTest {
             "Go: not installed",
             "Java: not responding",
         )
+    }
+
+    @Test
+    fun `every plugin off is gray with the explaining tooltip and no warning`() {
+        val indicator = lspIndicatorOf(listOf(off("Go"), off("Java", LspPluginState.NOT_INSTALLED)))!!
+        assertThat(indicator.level).isEqualTo(LspLevel.GRAY)
+        assertThat(indicator.lines).containsExactly("Language servers (LSP)", "LSP plugins are disabled for this project")
+        assertThat(indicator.warningCount).isZero()
+    }
+
+    @Test
+    fun `a partly enabled set with healthy servers is green with a warning for the rest`() {
+        val indicator = lspIndicatorOf(listOf(tech("Java"), off("Go"), off("Rust", LspPluginState.NOT_INSTALLED)))!!
+        assertThat(indicator.level).isEqualTo(LspLevel.GREEN)
+        assertThat(indicator.warningCount).isEqualTo(2)
+        assertThat(indicator.lines).containsExactly(
+            "Language servers (LSP)",
+            "Java: running",
+            "Not enabled: Go (plugin disabled), Rust (plugin not installed)",
+        )
+    }
+
+    @Test
+    fun `a partly enabled set with a broken server is red and still warns`() {
+        val indicator = lspIndicatorOf(listOf(tech("Java", ToolState.FAILED), off("Go")))!!
+        assertThat(indicator.level).isEqualTo(LspLevel.RED)
+        assertThat(indicator.warningCount).isEqualTo(1)
+    }
+
+    @Test
+    fun `every plugin on has no warning`() {
+        assertThat(lspIndicatorOf(listOf(tech("Java"), tech("Go", ToolState.INSTALLED)))!!.warningCount).isZero()
     }
 }
