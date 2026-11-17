@@ -128,8 +128,8 @@ abstract class EndToEndFixture {
         var projects = mock(ProjectService.class);
         when(projects.find(1)).thenReturn(Optional.of(new Project(1, "p", dir, Instant.now())));
         var modes = mock(ProjectCodeModeService.class);
-        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of("fake"), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
-        when(modes.get(2)).thenReturn(new ProjectCodeMode(2, false, List.of(), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
+        when(modes.effective(1)).thenReturn(new ProjectCodeMode(1, true, List.of("fake"), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
+        when(modes.effective(2)).thenReturn(new ProjectCodeMode(2, false, List.of(), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
         var reader = mock(McpConfigReader.class);
         when(reader.definitions(dir)).thenReturn(List.of(new McpServerDefinition("fake", ExtensionScope.USER, McpServerDefinition.Transport.STDIO,
                 node, List.of(script.toString()), Map.of("HANG_FLAG", hangFlag().toString()), "", Map.of(), null)));

@@ -8,6 +8,12 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.github.krpkbhdn.ccmanager.config.AppProperties;
+import com.github.krpkbhdn.ccmanager.overlay.OverlayAgent;
+import com.github.krpkbhdn.ccmanager.overlay.SessionOverlay;
+import com.github.krpkbhdn.ccmanager.project.TrustLevel;
+import com.github.krpkbhdn.ccmanager.team.RoleDraft;
+import com.github.krpkbhdn.ccmanager.team.Team;
+import com.github.krpkbhdn.ccmanager.team.TeamRole;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
@@ -41,6 +47,7 @@ class HookSettingsWriterTest {
     private static final HookProperties HOOK_PROPERTIES = new HookProperties(10, 1024, 500, Duration.ofSeconds(590), 10, 1000, 1000);
 
     private final JsonMapper mapper =JsonMapper.builder().build();
+    private static final com.github.krpkbhdn.ccmanager.overlay.OverlayProperties OVERLAY_PROPERTIES = new com.github.krpkbhdn.ccmanager.overlay.OverlayProperties(java.time.Duration.ofDays(1), 20_000);
     private static final com.github.krpkbhdn.ccmanager.codemode.CodeModeProperties CODE_MODE = com.github.krpkbhdn.ccmanager.codemode.TestProperties.of(
             java.time.Duration.ofMinutes(1), 1000, 1000, 10, java.time.Duration.ofMinutes(1), "img", "64m", 1, java.time.Duration.ofDays(1), java.time.Duration.ofSeconds(10));
     private HookSettingsWriter writer;
@@ -57,8 +64,8 @@ class HookSettingsWriterTest {
         when(server.statusLineUrl("abc-1")).thenReturn(STATUS_LINE_URL);
         when(server.mcpUrl("abc-1")).thenReturn(MCP_URL);
         when(server.sessionToken("abc-1")).thenReturn(TOKEN);
-        writer = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, HELPER, installationWith("2.1.200"), CODE_MODE);
-        windowsWriter = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, WINDOWS_HELPER, installationWith("2.1.200"), CODE_MODE);
+        writer = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, HELPER, installationWith("2.1.200"), CODE_MODE, OVERLAY_PROPERTIES);
+        windowsWriter = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, WINDOWS_HELPER, installationWith("2.1.200"), CODE_MODE, OVERLAY_PROPERTIES);
     }
 
     private static ClaudeInstallationService installationWith(String version) {
@@ -100,14 +107,14 @@ class HookSettingsWriterTest {
     @Test
     void sessionStartNeedsAClaudeThatKnowsTheExecFormArgsField() throws Exception {
         for (var version : java.util.Arrays.asList("2.1.138", "2.0.0", null)) {
-            var old = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, HELPER, installationWith(version), CODE_MODE);
+            var old = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, HELPER, installationWith(version), CODE_MODE, OVERLAY_PROPERTIES);
 
             var settings = mapper.readTree(Files.readString(old.write("abc-1").settings()));
 
             assertThat(settings.path("hooks").has("SessionStart")).as(String.valueOf(version)).isFalse();
             assertThat(settings.has("statusLine")).as(String.valueOf(version)).isTrue();
         }
-        var exact = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, HELPER, installationWith("2.1.139"), CODE_MODE);
+        var exact = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, HELPER, installationWith("2.1.139"), CODE_MODE, OVERLAY_PROPERTIES);
         assertThat(mapper.readTree(Files.readString(exact.write("abc-1").settings())).path("hooks").has("SessionStart")).isTrue();
     }
 
@@ -116,7 +123,7 @@ class HookSettingsWriterTest {
         var installation = mock(ClaudeInstallationService.class);
         when(installation.current()).thenReturn(new ClaudeInstallation(false, null, null, LoginState.UNKNOWN, null));
         when(installation.recheck()).thenReturn(new ClaudeInstallation(true, null, "2.1.200", LoginState.UNKNOWN, null));
-        var recovered = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, HELPER, installation, CODE_MODE);
+        var recovered = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, HELPER, installation, CODE_MODE, OVERLAY_PROPERTIES);
 
         var settings = mapper.readTree(Files.readString(recovered.write("abc-1").settings()));
 
@@ -127,7 +134,7 @@ class HookSettingsWriterTest {
     @Test
     void decisionHookTimeoutFollowsTheConfiguredHoldWithAMargin() throws Exception {
         var longHold = new HookProperties(10, 1024, 500, Duration.ofSeconds(900), 10, 1000, 1000);
-        var file = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, longHold, HELPER, installationWith("2.1.200"), CODE_MODE).write("abc-1").settings();
+        var file = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, longHold, HELPER, installationWith("2.1.200"), CODE_MODE, OVERLAY_PROPERTIES).write("abc-1").settings();
 
         var hooks = mapper.readTree(Files.readString(file)).path("hooks");
 
@@ -234,7 +241,7 @@ class HookSettingsWriterTest {
     @Test
     void withoutAKnownLauncherThereIsNoStatusLineAndNoSessionStart() throws Exception {
         var unknown = new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES,
-                new HookHelperCommand(Optional.empty(), "/unused", false, path -> path, false), installationWith("2.1.200"), CODE_MODE);
+                new HookHelperCommand(Optional.empty(), "/unused", false, path -> path, false), installationWith("2.1.200"), CODE_MODE, OVERLAY_PROPERTIES);
 
         var settings = mapper.readTree(Files.readString(unknown.write("abc-1").settings()));
 
@@ -398,7 +405,7 @@ class HookSettingsWriterTest {
     void aSecondWriterInTheSameProcessLeavesTheRunningOnesFilesAlone() throws Exception {
         var live = writer.write("abc-1").settings();
 
-        new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, HELPER, installationWith("2.1.200"), CODE_MODE).deleteStaleFiles();
+        new HookSettingsWriter(server, new AppProperties(dataDir), mapper, HOOK_PROPERTIES, HELPER, installationWith("2.1.200"), CODE_MODE, OVERLAY_PROPERTIES).deleteStaleFiles();
 
         assertThat(live).exists();
     }
@@ -450,5 +457,121 @@ class HookSettingsWriterTest {
         assertThat(servers.propertyNames()).doesNotContain("cc-manager-code");
         servers.forEach(entry -> assertThat(entry.has("timeout")).isFalse());
         assertThat(settings).doesNotContain("cc-manager-code").doesNotContain("disabledMcpjsonServers");
+    }
+
+    private SessionOverlay overlay(String settings, String instructions, String servers, java.util.List<OverlayAgent> agents) throws Exception {
+        var serverMap = new java.util.LinkedHashMap<String, tools.jackson.databind.JsonNode>();
+        mapper.readTree(servers).properties().forEach(entry -> serverMap.put(entry.getKey(), entry.getValue()));
+        var agentMap = new java.util.LinkedHashMap<String, OverlayAgent>();
+        agents.forEach(agent -> agentMap.put(agent.name(), agent));
+        return new SessionOverlay(serverMap, (tools.jackson.databind.node.ObjectNode) mapper.readTree(settings), instructions, agentMap, java.util.List.of(),
+                java.util.List.of(dataDir.resolve("projects").resolve("1")));
+    }
+
+    private SessionFiles writeWith(SessionOverlay overlay, CodeModeAccess access, Team team) {
+        return writer.write("abc-1", java.util.Map.of(), access, TrustLevel.ASK, overlay, team);
+    }
+
+    @Test
+    void anEmptyOverlayWritesTheSameFilesAsNoOverlay() throws Exception {
+        var plain = writer.write("abc-1");
+        var settings = Files.readString(plain.settings());
+        var mcp = Files.readString(plain.mcpConfig());
+
+        var withEmpty = writeWith(SessionOverlay.EMPTY, CodeModeAccess.OFF, null);
+
+        assertThat(Files.readString(withEmpty.settings())).isEqualTo(settings);
+        assertThat(Files.readString(withEmpty.mcpConfig())).isEqualTo(mcp);
+        assertThat(withEmpty.promptFile()).isNull();
+        assertThat(withEmpty.agentsPlugin()).isNull();
+    }
+
+    @Test
+    void overlaySettingsAreMergedUnderTheAppsAndTheOverlayFolderIsEditProtected() throws Exception {
+        var overlay = overlay("{\"hooks\":{\"Stop\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"evil\"}]}]},\"statusLine\":{\"type\":\"command\",\"command\":\"evil\"},"
+                + "\"permissions\":{\"allow\":[\"Bash(ls)\"],\"deny\":[\"Read(secret)\"],\"ask\":[\"Bash(rm *)\"],\"defaultMode\":\"bypassPermissions\"},\"enabledPlugins\":{\"a@b\":true},"
+                + "\"env\":{\"X\":\"1\"},\"apiKeyHelper\":\"evil\",\"enableAllProjectMcpServers\":true,\"disableAllHooks\":true,\"sandbox\":{\"enabled\":false}}", "", "{}", java.util.List.of());
+
+        var merged = mapper.readTree(Files.readString(writeWith(overlay, CodeModeAccess.OFF, null).settings()));
+
+        assertThat(merged.path("hooks").path("Stop").toString()).doesNotContain("evil").contains(URL);
+        assertThat(merged.path("statusLine").toString()).doesNotContain("evil");
+        assertThat(merged.path("permissions").path("allow").toString()).contains("mcp__cc-manager__list_run_configurations").doesNotContain("Bash(ls)");
+        assertThat(merged.path("permissions").path("deny").toString()).contains("Read(secret)", "Read(/", "Edit(/").contains("/projects/1/**)")
+                .contains("/projects/1/mcp.json)", "/projects/1/settings.json)");
+        assertThat(merged.path("permissions").path("ask").toString()).contains("Bash(rm *)");
+        assertThat(merged.path("permissions").has("defaultMode")).isFalse();
+        assertThat(merged.path("enabledPlugins").path("a@b").asBoolean()).isTrue();
+        assertThat(merged.has("env") || merged.has("apiKeyHelper") || merged.has("enableAllProjectMcpServers") || merged.has("disableAllHooks") || merged.has("sandbox")).isFalse();
+    }
+
+    @Test
+    void overlayServersJoinTheMcpConfigExceptTheOnesCodeModeHidesAndNeverReplaceTheAppServer() throws Exception {
+        when(server.codeModeUrl("abc-1")).thenReturn("http://127.0.0.1:1/code/abc-1");
+        var overlay = overlay("{}", "", "{\"keep\":{\"command\":\"a\"},\"hidden\":{\"command\":\"b\"},\"cc-manager\":{\"command\":\"evil\"}}", java.util.List.of());
+
+        var servers = mapper.readTree(Files.readString(writeWith(overlay, new CodeModeAccess(java.util.List.of(), java.util.List.of("hidden")), null).mcpConfig())).path("mcpServers");
+
+        assertThat(servers.has("keep")).isTrue();
+        assertThat(servers.has("hidden")).isFalse();
+        assertThat(servers.path("cc-manager").toString()).isEqualTo(PROJECT_MCP_ENTRY);
+    }
+
+    @Test
+    void overlayInstructionsAndTheTeamAddendumShareOneOwnerOnlyPromptFileThatIsDeletedWithTheSession() throws Exception {
+        var team = new Team(1, "T", java.util.List.of(new TeamRole(1, new RoleDraft("boss", "d", "Lead it.", null, null, null, true), 0),
+                new TeamRole(2, new RoleDraft("dev", "Writes code", "Code.", null, null, null, false), 1)));
+        var files = writeWith(overlay("{}", "Use tabs.", "{}", java.util.List.of()), CodeModeAccess.OFF, team);
+
+        var content = Files.readString(files.promptFile());
+        assertThat(content).startsWith("Lead it.").contains("lead of the team \"T\"").endsWith("Use tabs.");
+        assertThat(files.promptFile().getFileName().toString()).isEqualTo("abc-1.prompt.md");
+        if (Files.getFileStore(dataDir).supportsFileAttributeView("posix")) {
+            assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(files.promptFile()))).isEqualTo("rw-------");
+        }
+
+        writer.delete("abc-1");
+
+        assertThat(files.promptFile()).doesNotExist();
+    }
+
+    private static String agentMarkdown(String body) {
+        return String.join("\n","---", "description: d", "---", body);
+    }
+
+    @Test
+    void overlayAgentsTooLongForTheCommandLineBecomeAPluginDirectoryDeletedWithTheSession() throws Exception {
+        var big = agentMarkdown("x".repeat(25_000));
+        var agent = OverlayAgent.parse("big.md", big).orElseThrow();
+        var small = OverlayAgent.parse("small.md", agentMarkdown("ok")).orElseThrow();
+
+        var files = writeWith(overlay("{}", "", "{}", java.util.List.of(agent, small)), CodeModeAccess.OFF, null);
+
+        assertThat(files.agentsPlugin().resolve(".claude-plugin").resolve("plugin.json")).exists();
+        assertThat(files.agentsPlugin().resolve("agents").resolve("big.md")).hasContent(big);
+        assertThat(files.agentsPlugin().resolve("agents").resolve("small.md")).exists();
+        assertThat(files.inlineAgents()).isEmpty();
+
+        writer.delete("abc-1");
+
+        assertThat(files.agentsPlugin()).doesNotExist();
+    }
+
+    @Test
+    void quoteHeavyOverlayAgentsCountEscapedCharactersSoTheyFallBackToThePlugin() throws Exception {
+        var quoted = OverlayAgent.parse("q.md", agentMarkdown("\"".repeat(8_000))).orElseThrow();
+
+        var files = writeWith(overlay("{}", "", "{}", java.util.List.of(quoted)), CodeModeAccess.OFF, null);
+
+        assertThat(com.github.krpkbhdn.ccmanager.team.TeamAgentsJson.agents(null, java.util.List.of(quoted)).length()).isLessThan(20_000);
+        assertThat(files.agentsPlugin()).exists();
+    }
+
+    @Test
+    void smallOverlayAgentsStayInlineWithoutAPluginDirectory() throws Exception {
+        var files = writeWith(overlay("{}", "", "{}", java.util.List.of(OverlayAgent.parse("small.md", agentMarkdown("ok")).orElseThrow())), CodeModeAccess.OFF, null);
+
+        assertThat(files.agentsPlugin()).isNull();
+        assertThat(files.inlineAgents()).hasSize(1);
     }
 }

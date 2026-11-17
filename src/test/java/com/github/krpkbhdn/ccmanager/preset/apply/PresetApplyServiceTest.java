@@ -33,8 +33,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
-import com.github.krpkbhdn.ccmanager.git.GitLocalExclude;
-import com.github.krpkbhdn.ccmanager.git.GitRunner;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.JsonNode;
@@ -47,6 +45,9 @@ class PresetApplyServiceTest {
     @TempDir
     Path project;
 
+    @TempDir
+    Path data;
+
     private final ProjectPresetService presets = mock(ProjectPresetService.class);
     private final PresetApplicationService applications = mock(PresetApplicationService.class);
     private final PluginService plugins = mock(PluginService.class);
@@ -54,10 +55,26 @@ class PresetApplyServiceTest {
     private PresetApplyService service;
     private long nextId = 1;
 
+    private Path overlayFile() {
+        return data.resolve("projects").resolve("7").resolve("instructions.md");
+    }
+
+    private Path settingsFile() {
+        return data.resolve("projects").resolve("7").resolve("settings.json");
+    }
+
+    private Path skills() {
+        return data.resolve("projects/7/context/.claude/skills");
+    }
+
+    private Path agents() {
+        return data.resolve("projects/7/agents");
+    }
+
     @BeforeEach
     void setUp() {
-        service = new PresetApplyService(presets, applications, List.of(new MarketplaceApplier(plugins), new PluginApplier(plugins),
-                new McpServerApplier(mcp), new SkillApplier(), new AgentApplier(), new FileApplier(), new InstructionApplier(new GitLocalExclude(new GitRunner())), new SettingsApplier(new GitLocalExclude(new GitRunner()))));
+        service = new PresetApplyService(presets, applications, List.of(new MarketplaceApplier(plugins), new PluginApplier(plugins, OverlayInstructions.settings(data, 7, project)),
+                new McpServerApplier(mcp), new SkillApplier(OverlayInstructions.settings(data, 7, project)), new AgentApplier(OverlayInstructions.settings(data, 7, project)), new FileApplier(), OverlayInstructions.applier(data, 7, project), new SettingsApplier(OverlayInstructions.settings(data, 7, project))));
         when(plugins.install(anyString(), any(), any())).thenReturn(new PluginInstallResult(true, "", null));
     }
 
@@ -76,12 +93,14 @@ class PresetApplyServiceTest {
 
         assertThat(result.outcomes()).extracting(ComponentOutcome::status).containsOnly(OutcomeStatus.APPLIED);
         assertThat(result.outcomes().getLast().kind()).isEqualTo(PresetComponentKind.SETTINGS);
-        assertThat(project.resolve(".claude/skills/tidy/ref/a.md")).hasContent("a");
-        assertThat(project.resolve(".claude/agents/reviewer.md")).hasContent("agent text");
+        assertThat(skills().resolve("tidy/ref/a.md")).hasContent("a");
+        assertThat(agents().resolve("reviewer.md")).hasContent("agent text");
+        assertThat(project.resolve(".claude/agents")).doesNotExist();
+        assertThat(project.resolve(".claude/skills")).doesNotExist();
         assertThat(project.resolve("docs/x.txt")).hasContent("hi");
         assertThat(project.resolve(".gitignore")).hasContent("build/\n");
-        assertThat(project.resolve("CLAUDE.md")).content().contains("## Style\nUse tabs.");
-        assertThat(project.resolve(".claude/settings.json")).content().contains("\"a\"");
+        assertThat(overlayFile()).content().contains("## Style\nUse tabs.");
+        assertThat(settingsFile()).content().contains("\"a\"");
         verify(applications).markApplied(7, 1, 3);
 
         assertThat(service.plan(1, project)).extracting(PlannedChange::action).containsOnly(ChangeAction.PRESENT);
@@ -92,13 +111,14 @@ class PresetApplyServiceTest {
 
     @Test
     void conflictsAreNeverWritten() throws IOException {
-        Files.createDirectories(project.resolve(".claude/agents"));
-        Files.writeString(project.resolve(".claude/agents/reviewer.md"), "mine");
+        Files.createDirectories(agents());
+        Files.writeString(agents().resolve("reviewer.md"), "mine");
         Files.writeString(project.resolve("x.txt"), "mine");
-        Files.writeString(project.resolve("CLAUDE.md"), "## Style\nmine\n");
-        Files.writeString(project.resolve(".claude/settings.json"), "{\"a\":2}");
-        Files.createDirectories(project.resolve(".claude/skills/tidy"));
-        Files.writeString(project.resolve(".claude/skills/tidy/SKILL.md"), "mine");
+        Files.createDirectories(overlayFile().getParent());
+        Files.writeString(overlayFile(), "<!-- cc-manager:begin style -->\nmine\n");
+        Files.writeString(settingsFile(), "{\"a\":2}");
+        Files.createDirectories(skills().resolve("tidy"));
+        Files.writeString(skills().resolve("tidy/SKILL.md"), "mine");
         var ids = preset(List.of(
                 component(PresetComponentKind.AGENT, "reviewer", "{\"content\":\"theirs\"}"),
                 component(PresetComponentKind.FILE, "f", "{\"path\":\"x.txt\",\"content\":\"theirs\"}"),
@@ -111,18 +131,18 @@ class PresetApplyServiceTest {
 
         assertThat(result.outcomes()).extracting(ComponentOutcome::status).containsOnly(OutcomeStatus.SKIPPED);
         assertThat(result.recorded()).isFalse();
-        assertThat(project.resolve(".claude/agents/reviewer.md")).hasContent("mine");
+        assertThat(agents().resolve("reviewer.md")).hasContent("mine");
         assertThat(project.resolve("x.txt")).hasContent("mine");
-        assertThat(project.resolve("CLAUDE.md")).hasContent("## Style\nmine\n");
-        assertThat(project.resolve(".claude/settings.json")).hasContent("{\"a\":2}");
-        assertThat(project.resolve(".claude/skills/tidy/SKILL.md")).hasContent("mine");
+        assertThat(overlayFile()).hasContent("<!-- cc-manager:begin style -->\nmine\n");
+        assertThat(settingsFile()).hasContent("{\"a\":2}");
+        assertThat(skills().resolve("tidy/SKILL.md")).hasContent("mine");
         verify(applications, never()).markApplied(eq(7L), eq(1L), org.mockito.ArgumentMatchers.anyInt());
     }
 
     @Test
     void settingsMergePartiallyAndReportTheDifferingKey() throws IOException {
-        Files.createDirectories(project.resolve(".claude"));
-        Files.writeString(project.resolve(".claude/settings.json"), "{\"a\":2}");
+        Files.createDirectories(settingsFile().getParent());
+        Files.writeString(settingsFile(), "{\"a\":2}");
         var ids = preset(List.of(component(PresetComponentKind.SETTINGS, "s", "{\"fragment\":{\"a\":1,\"b\":true}}")));
 
         var change = service.plan(1, project).getFirst();
@@ -131,7 +151,7 @@ class PresetApplyServiceTest {
         assertThat(change.action()).isEqualTo(ChangeAction.UPDATE);
         assertThat(change.detail()).contains("a");
         assertThat(result.outcomes().getFirst().status()).isEqualTo(OutcomeStatus.APPLIED);
-        assertThat(project.resolve(".claude/settings.json")).content().contains("\"a\" : 2").contains("\"b\" : true");
+        assertThat(settingsFile()).content().contains("\"a\" : 2").contains("\"b\" : true");
     }
 
     @Test
@@ -148,7 +168,8 @@ class PresetApplyServiceTest {
 
     @Test
     void crlfFilesKeepTheirLineEndings() throws IOException {
-        Files.writeString(project.resolve("CLAUDE.md"), "# Mine\r\n");
+        Files.createDirectories(overlayFile().getParent());
+        Files.writeString(overlayFile(), "# Mine\r\n");
         Files.writeString(project.resolve(".gitignore"), "bin\r\n");
         var ids = preset(List.of(
                 component(PresetComponentKind.INSTRUCTION, "Style", "{\"markdown\":\"a\\nb\"}"),
@@ -156,7 +177,7 @@ class PresetApplyServiceTest {
 
         service.apply(7, 1, project, ids);
 
-        assertThat(Files.readString(project.resolve("CLAUDE.md"))).contains("a\r\nb\r\n").doesNotContainPattern("[^\\r]\\n");
+        assertThat(Files.readString(overlayFile())).contains("a\r\nb\r\n").doesNotContainPattern("[^\\r]\\n");
         assertThat(Files.readString(project.resolve(".gitignore"))).isEqualTo("bin\r\nobj/\r\n");
     }
 
@@ -176,28 +197,12 @@ class PresetApplyServiceTest {
     }
 
     @Test
-    void claudeMdSymlinkStaysALinkAndItsTargetIsRewritten() throws IOException {
-        Files.writeString(project.resolve("AGENTS.md"), "# Mine\n");
-        try {
-            Files.createSymbolicLink(project.resolve("CLAUDE.md"), Path.of("AGENTS.md"));
-        } catch (IOException | UnsupportedOperationException e) {
-            org.assertj.core.api.Assumptions.assumeThat(false).as("symlinks cannot be created here").isTrue();
-        }
-        var ids = preset(List.of(component(PresetComponentKind.INSTRUCTION, "Style", "{\"markdown\":\"Use tabs.\"}")));
-
-        service.apply(7, 1, project, ids);
-
-        assertThat(Files.isSymbolicLink(project.resolve("CLAUDE.md"))).isTrue();
-        assertThat(project.resolve("AGENTS.md")).content().startsWith("# Mine").contains("## Style\nUse tabs.");
-    }
-
-    @Test
     void mcpPlanWarnsAboutTheCommittedFileWithoutShowingTheConfig() {
         var ids = preset(List.of(component(PresetComponentKind.MCP_SERVER, "srv", "{\"config\":{\"url\":\"https://x\",\"token\":\"s3cret\"}}")));
 
         var change = service.plan(1, project).getFirst();
 
-        assertThat(change.detail()).startsWith("Written to .mcp.json in the project, which is usually committed: check it contains no secrets.")
+        assertThat(change.detail()).startsWith("Kept in the project's app folder, outside the repository.")
                 .contains("srv").doesNotContain("s3cret");
         assertThat(ids).hasSize(1);
     }
@@ -237,7 +242,7 @@ class PresetApplyServiceTest {
 
         service.apply(7, 1, project, ids);
 
-        assertThat(project.resolve(".claude/skills/tidy/ref/a.md")).hasContent("a");
+        assertThat(skills().resolve("tidy/ref/a.md")).hasContent("a");
     }
 
     @Test
@@ -259,12 +264,12 @@ class PresetApplyServiceTest {
         var result = service.apply(7, 1, project, Set.of(all.iterator().next()));
 
         assertThat(result.outcomes()).extracting(ComponentOutcome::status).containsExactlyInAnyOrder(OutcomeStatus.APPLIED, OutcomeStatus.SKIPPED);
-        assertThat(project.resolve(".claude/agents").toFile().list()).hasSize(1);
+        assertThat(agents().toFile().list()).hasSize(1);
     }
 
     @Test
     void pluginNeedingConfirmationAndMcpSignInAreReported() {
-        when(plugins.install(eq("p@m"), eq(ExtensionScope.PROJECT), eq(project)))
+        when(plugins.install(eq("p@m"), eq(ExtensionScope.USER), org.mockito.ArgumentMatchers.isNull()))
                 .thenReturn(new PluginInstallResult(false, "", new ShownCommand("cmd", "sha")));
         when(mcp.health(project)).thenReturn(List.of(new McpHealth("srv", "", McpStatus.NEEDS_AUTHENTICATION, "")));
         var ids = preset(List.of(
@@ -274,7 +279,7 @@ class PresetApplyServiceTest {
         var result = service.apply(7, 1, project, ids);
 
         assertThat(result.outcomes()).extracting(ComponentOutcome::status).containsExactly(OutcomeStatus.NEEDS_CONFIRMATION, OutcomeStatus.SIGN_IN_NEEDED);
-        verify(mcp).add("srv", "{\"url\":\"https://x\"}", ExtensionScope.PROJECT, project);
+        verify(mcp).add("srv", "{\"url\":\"https://x\"}", ExtensionScope.APP, project);
     }
 
     @Test

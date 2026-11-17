@@ -3,11 +3,20 @@ package com.github.krpkbhdn.ccmanager.preset.apply;
 import com.github.krpkbhdn.ccmanager.preset.PresetComponent;
 import com.github.krpkbhdn.ccmanager.preset.PresetComponentKind;
 import java.io.IOException;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import org.springframework.stereotype.Component;
 
+/** An agent is a markdown file in the agents folder of the project's overlay (outside the repository); an existing one is never changed. */
 @Component
 class AgentApplier implements PresetComponentApplier {
+
+    private final ProjectOverlaySettings overlays;
+
+    AgentApplier(ProjectOverlaySettings overlays) {
+        this.overlays = overlays;
+    }
 
     @Override
     public PresetComponentKind kind() {
@@ -18,7 +27,7 @@ class AgentApplier implements PresetComponentApplier {
     public PlannedChange plan(PresetComponent component, Path projectDir) throws IOException {
         var file = file(component, projectDir);
         var content = content(component);
-        var path = ".claude/agents/" + component.name() + ".md";
+        var path = "agent " + component.name() + " in the project's app folder";
         return switch (ProjectFiles.compare(file, content)) {
             case MISSING -> CodeExecutingPaths.agentDeclaresHooks(content)
                     ? PlannedChange.of(component, ChangeAction.NEEDS_CONFIRMATION, CodeExecutingPaths.runsCode(path + " (declares hooks)")).withPreview(content)
@@ -30,12 +39,16 @@ class AgentApplier implements PresetComponentApplier {
 
     @Override
     public ComponentOutcome apply(PresetComponent component, Path projectDir) throws IOException {
-        ProjectFiles.createNew(file(component, projectDir), content(component));
+        var file = file(component, projectDir);
+        if (Files.exists(file)) {
+            throw new FileAlreadyExistsException(file.toString());
+        }
+        overlays.overlayOf(projectDir).write(file, content(component));
         return ComponentOutcome.of(component, OutcomeStatus.APPLIED, "Agent created");
     }
 
-    private static Path file(PresetComponent component, Path projectDir) {
-        return ProjectFiles.resolve(projectDir, ".claude/agents/" + component.name() + ".md");
+    private Path file(PresetComponent component, Path projectDir) {
+        return ProjectFiles.resolve(overlays.overlayOf(projectDir).agentsDirectory(), component.name() + ".md");
     }
 
     private static String content(PresetComponent component) {

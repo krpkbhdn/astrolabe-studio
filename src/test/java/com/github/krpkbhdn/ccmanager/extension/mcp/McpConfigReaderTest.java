@@ -21,7 +21,7 @@ class McpConfigReaderTest {
     Path project;
 
     private McpConfigReader reader(HostEnvironment.OperatingSystem os) {
-        return new McpConfigReader(new FakeHostEnvironment(os, home), new GitRunner());
+        return new McpConfigReader(new FakeHostEnvironment(os, home), new GitRunner(), org.mockito.Mockito.mock(com.github.krpkbhdn.ccmanager.extension.ProjectOverlays.class));
     }
 
     @Test
@@ -96,7 +96,7 @@ class McpConfigReaderTest {
         Files.writeString(project.resolve(".claude.json"), "{\"mcpServers\":{\"custom\":{\"command\":\"x\"}}}");
         var host = new FakeHostEnvironment(HostEnvironment.OperatingSystem.LINUX, home).withEnv("CLAUDE_CONFIG_DIR", project.toString());
 
-        assertThat(new McpConfigReader(host, new GitRunner()).read(null)).extracting(McpServerConfig::name).containsExactly("custom");
+        assertThat(new McpConfigReader(host, new GitRunner(), org.mockito.Mockito.mock(com.github.krpkbhdn.ccmanager.extension.ProjectOverlays.class)).read(null)).extracting(McpServerConfig::name).containsExactly("custom");
     }
 
     @Test

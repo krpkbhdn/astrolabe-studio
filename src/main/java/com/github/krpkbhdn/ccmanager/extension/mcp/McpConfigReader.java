@@ -5,6 +5,7 @@ import static com.github.krpkbhdn.ccmanager.extension.Json.text;
 import com.github.krpkbhdn.ccmanager.extension.ExtensionException;
 import com.github.krpkbhdn.ccmanager.extension.ExtensionScope;
 import com.github.krpkbhdn.ccmanager.extension.Json;
+import com.github.krpkbhdn.ccmanager.extension.ProjectOverlays;
 import com.github.krpkbhdn.ccmanager.git.GitRunner;
 import com.github.krpkbhdn.ccmanager.workspace.HostEnvironment;
 import java.io.IOException;
@@ -51,9 +52,17 @@ public class McpConfigReader {
 
     private final GitRunner git;
 
-    McpConfigReader(HostEnvironment host, GitRunner git) {
+    private final ProjectOverlays overlays;
+
+    McpConfigReader(HostEnvironment host, GitRunner git, ProjectOverlays overlays) {
         this.host = host;
         this.git = git;
+        this.overlays = overlays;
+    }
+
+    /** The mcp.json the app keeps outside the folder of the registered project at the directory; empty for any other folder. */
+    private JsonNode overlayConfig(Path projectDirectory) {
+        return overlays.of(projectDirectory).<JsonNode>map(overlay -> overlay.readObjectLenient(overlay.mcpFile())).orElseGet(() -> Json.parse("{}"));
     }
 
     /** Claude keeps .claude.json in CLAUDE_CONFIG_DIR when that is set, else directly in the home directory. */
@@ -63,13 +72,14 @@ public class McpConfigReader {
         return directory.resolve(USER_CONFIG_FILE);
     }
 
-    /** User servers, plus local and project ones when a project directory is given. */
+    /** User servers, plus local, app (overlay) and in-folder project ones when a project directory is given. */
     public List<McpServerConfig> read(Path projectDirectory) {
         var userConfig = readUserConfig();
         var servers = new ArrayList<>(servers(userConfig, ExtensionScope.USER, McpApproval.NOT_REQUIRED));
         if (projectDirectory != null) {
             var projectEntry = projectEntry(userConfig, projectDirectory);
             servers.addAll(servers(projectEntry, ExtensionScope.LOCAL, McpApproval.NOT_REQUIRED));
+            servers.addAll(servers(overlayConfig(projectDirectory), ExtensionScope.APP, McpApproval.NOT_REQUIRED));
             var approvals = List.of(readLenient(projectDirectory.resolve(SETTINGS_LOCAL_FILE)), readLenient(projectDirectory.resolve(SETTINGS_FILE)), projectEntry,
                     readLenient(host.claudeConfigDirectory().resolve(USER_SETTINGS_FILE)));
             servers.addAll(servers(readFile(projectDirectory.resolve(PROJECT_CONFIG_FILE)), ExtensionScope.PROJECT, approvals));
@@ -86,9 +96,15 @@ public class McpConfigReader {
         var found = new ArrayList<>(definitions(userConfig, ExtensionScope.USER, projectDirectory));
         if (projectDirectory != null) {
             found.addAll(definitions(projectEntry(userConfig, projectDirectory), ExtensionScope.LOCAL, projectDirectory));
+            found.addAll(overlayDefinitions(projectDirectory, projectDirectory));
             found.addAll(definitions(readFile(projectDirectory.resolve(PROJECT_CONFIG_FILE)), ExtensionScope.PROJECT, projectDirectory));
         }
         return List.copyOf(found);
+    }
+
+    /** The app-kept servers of the registered project at [projectDirectory], started in [workingDirectory] (one of its task worktrees, say). */
+    public List<McpServerDefinition> overlayDefinitions(Path workingDirectory, Path projectDirectory) {
+        return definitions(overlayConfig(projectDirectory), ExtensionScope.APP, workingDirectory);
     }
 
     private List<McpServerDefinition> definitions(JsonNode owner, ExtensionScope scope, Path workingDirectory) {

@@ -8,27 +8,30 @@ import com.github.krpkbhdn.ccmanager.claude.mcp.McpEndpoint;
 import com.github.krpkbhdn.ccmanager.codemode.CodeModeProperties;
 import com.github.krpkbhdn.ccmanager.codemode.mcp.CodeModeEndpoint;
 import com.github.krpkbhdn.ccmanager.config.AppProperties;
+import com.github.krpkbhdn.ccmanager.overlay.OverlayProperties;
+import com.github.krpkbhdn.ccmanager.overlay.OwnerOnlyFiles;
+import com.github.krpkbhdn.ccmanager.overlay.ProjectOverlay;
+import com.github.krpkbhdn.ccmanager.overlay.SessionOverlay;
+import com.github.krpkbhdn.ccmanager.overlay.SettingsMerge;
 import com.github.krpkbhdn.ccmanager.project.TrustLevel;
+import com.github.krpkbhdn.ccmanager.team.Team;
+import com.github.krpkbhdn.ccmanager.team.TeamAgentsJson;
+import com.github.krpkbhdn.ccmanager.team.TeamRole;
 import com.github.krpkbhdn.ccmanager.workspace.TreeDeleter;
 import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.attribute.AclEntry;
-import java.nio.file.attribute.AclEntryPermission;
-import java.nio.file.attribute.AclEntryType;
-import java.nio.file.attribute.AclFileAttributeView;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.EnumSet;
-import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,6 +51,8 @@ public class HookSettingsWriter {
     private static final String MCP_SUFFIX = ".mcp.json";
     private static final String LIST_RUN_CONFIGURATIONS_TOOL = "list_run_configurations";
     private static final String TOKEN_SUFFIX = ".token";
+    private static final String PROMPT_SUFFIX = ".prompt.md";
+    private static final String AGENTS_PLUGIN_SUFFIX = ".agents";
     private static final String BEARER_PREFIX = "Bearer ";
     private static final Pattern SAFE_ID = Pattern.compile("[A-Za-z0-9-]+");
     private static final int HOOK_TIMEOUT_SECONDS = 5;
@@ -71,11 +76,13 @@ public class HookSettingsWriter {
     private final HookHelperCommand helper;
     private final ClaudeInstallationService installation;
     private final long codeModeTimeoutMillis;
+    private final int maxAgentsJsonChars;
     private final AtomicBoolean skipWarned = new AtomicBoolean();
 
     @Autowired
     public HookSettingsWriter(HookServer server, AppProperties properties, JsonMapper mapper, HookProperties hookProperties, HookHelperCommand helper,
-            ClaudeInstallationService installation, CodeModeProperties codeModeProperties) {
+            ClaudeInstallationService installation, CodeModeProperties codeModeProperties, OverlayProperties overlayProperties) {
+        this.maxAgentsJsonChars = overlayProperties.maxAgentsJsonChars();
         this.codeModeTimeoutMillis = codeModeProperties.maxScriptTime().plus(CODE_MODE_TIMEOUT_MARGIN).toMillis();
         this.installation = installation;
         this.helper = helper;
@@ -128,13 +135,24 @@ public class HookSettingsWriter {
 
     /** The [trust] level adds its permission mode and allow and deny rules to the session's settings. */
     public SessionFiles write(String ccmSessionId, Map<String, JsonNode> extraServers, CodeModeAccess codeMode, TrustLevel trust) {
+        return write(ccmSessionId, extraServers, codeMode, trust, SessionOverlay.EMPTY, null);
+    }
+
+    /**
+     * The [overlay] adds its servers (except those Code Mode hides), settings, instructions and agents; [team] (may be null) only decides what the
+     * instructions file holds. With an empty overlay the files are those of the overload without it.
+     */
+    public SessionFiles write(String ccmSessionId, Map<String, JsonNode> extraServers, CodeModeAccess codeMode, TrustLevel trust, SessionOverlay overlay, Team team) {
         var bearer = BEARER_PREFIX + server.sessionToken(ccmSessionId);
-        var config = mcpConfig(McpEndpoint.SERVER_NAME, server.mcpUrl(ccmSessionId), bearer, extraServers);
+        var servers = new LinkedHashMap<>(extraServers);
+        overlay.mcpServers().entrySet().stream().filter(entry -> !codeMode.deniedServers().contains(entry.getKey()))
+                .forEach(entry -> servers.putIfAbsent(entry.getKey(), entry.getValue()));
+        var config = mcpConfig(McpEndpoint.SERVER_NAME, server.mcpUrl(ccmSessionId), bearer, servers);
         if (codeMode != CodeModeAccess.OFF) {
             config.withObject("/mcpServers").putObject(CodeModeEndpoint.SERVER_NAME).put("type", "http").put("url", server.codeModeUrl(ccmSessionId))
                     .put("timeout", codeModeTimeoutMillis).putObject("headers").put("Authorization", bearer);
         }
-        return write(ccmSessionId, config, codeMode, trust);
+        return write(ccmSessionId, config, codeMode, trust, overlay, team);
     }
 
     /**
@@ -144,7 +162,7 @@ public class HookSettingsWriter {
      */
     public SessionFiles writeAssistant(String ccmSessionId) {
         return write(ccmSessionId, mcpConfig(AssistantMcpServer.SERVER_NAME, server.assistantMcpUrl(), BEARER_PREFIX + server.assistantMcpToken(), Map.of()),
-                CodeModeAccess.OFF, TrustLevel.ASK);
+                CodeModeAccess.OFF, TrustLevel.ASK, SessionOverlay.EMPTY, null);
     }
 
     /** Value of {@link HookServer#SESSION_TOKEN_ENV}: the fallback for the helper, the files hold the token themselves because a restarted claude keeps their paths but not the environment. */
@@ -152,51 +170,57 @@ public class HookSettingsWriter {
         return server.sessionToken(ccmSessionId);
     }
 
-    private SessionFiles write(String ccmSessionId, ObjectNode mcpConfig, CodeModeAccess codeMode, TrustLevel trust) {
+    private SessionFiles write(String ccmSessionId, ObjectNode mcpConfig, CodeModeAccess codeMode, TrustLevel trust, SessionOverlay overlay, Team team) {
         var file = fileOf(ccmSessionId);
         var mcpFile = mcpFileOf(ccmSessionId);
+        Path promptFile;
+        Path agentsPlugin;
         try {
-            restrictToOwner(Files.createDirectories(hooksDir), "rwx------");
-            writeOwnerOnly(tokenFileOf(ccmSessionId), server.sessionToken(ccmSessionId));
-            writeOwnerOnly(file, mapper.writeValueAsString(settings(ccmSessionId, codeMode, trust)));
-            writeOwnerOnly(mcpFile, mapper.writeValueAsString(mcpConfig));
+            OwnerOnlyFiles.createDirectory(hooksDir);
+            OwnerOnlyFiles.write(tokenFileOf(ccmSessionId), server.sessionToken(ccmSessionId));
+            OwnerOnlyFiles.write(file, mapper.writeValueAsString(settings(ccmSessionId, codeMode, trust, overlay)));
+            OwnerOnlyFiles.write(mcpFile, mapper.writeValueAsString(mcpConfig));
+            promptFile = writePrompt(ccmSessionId, overlay, team);
+            agentsPlugin = writeAgentsPlugin(ccmSessionId, overlay, team);
         } catch (IOException e) {
             throw new UncheckedIOException("Cannot write hook settings " + file, e);
         }
-        return new SessionFiles(file, mcpFile);
+        return new SessionFiles(file, mcpFile, promptFile, agentsPlugin, overlay);
     }
 
-    /** The files hold the session's token; the group and others must not read them. Created with the permissions where POSIX exists, else the ACL is cut to the owner before any content is written. */
-    private static void writeOwnerOnly(Path file, String content) throws IOException {
-        var posix = file.getFileSystem().supportedFileAttributeViews().contains("posix");
-        var temp = posix
-                ? Files.createTempFile(file.getParent(), file.getFileName().toString(), ".tmp",
-                        PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")))
-                : Files.createTempFile(file.getParent(), file.getFileName().toString(), ".tmp");
-        try {
-            if (!posix) {
-                restrictAclToOwner(temp);
+    /** One file for --append-system-prompt-file: the lead addendum of the team, then the overlay instructions; claude never gets both flags. */
+    private Path writePrompt(String ccmSessionId, SessionOverlay overlay, Team team) throws IOException {
+        if (overlay.instructions().isBlank()) {
+            return null;
+        }
+        var file = hooksDir.resolve(ccmSessionId + PROMPT_SUFFIX).toAbsolutePath();
+        OwnerOnlyFiles.write(file, (team == null ? "" : TeamAgentsJson.leadAddendum(team) + "\n\n") + overlay.instructions());
+        return file;
+    }
+
+    /** Agents too long for the command line travel as a plugin directory; claude then names them {@code ccm-overlay-agents:<name>} instead of {@code <name>}. */
+    private Path writeAgentsPlugin(String ccmSessionId, SessionOverlay overlay, Team team) throws IOException {
+        if (overlay.agents().isEmpty() || commandLineLength(TeamAgentsJson.agents(team, overlay.agents().values())) <= maxAgentsJsonChars) {
+            return null;
+        }
+        log.warn("The overlay agents do not fit into --agents, they are passed as a plugin directory");
+        var teamNames = team == null ? Set.<String>of() : team.subagents().stream().map(TeamRole::name).collect(Collectors.toSet());
+        var directory = hooksDir.resolve(ccmSessionId + AGENTS_PLUGIN_SUFFIX).toAbsolutePath();
+        OwnerOnlyFiles.createDirectory(directory.resolve(".claude-plugin"));
+        OwnerOnlyFiles.createDirectory(directory.resolve("agents"));
+        OwnerOnlyFiles.write(directory.resolve(".claude-plugin").resolve("plugin.json"),
+                mapper.writeValueAsString(mapper.createObjectNode().put("name", "ccm-overlay-agents").put("description", "Agents of the project overlay")));
+        for (var agent : overlay.agents().values()) {
+            if (!teamNames.contains(agent.name())) {
+                OwnerOnlyFiles.write(directory.resolve("agents").resolve(agent.name() + ".md"), agent.markdown());
             }
-            Files.writeString(temp, content);
-            Files.move(temp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        } finally {
-            Files.deleteIfExists(temp);
         }
+        return directory;
     }
 
-    private static void restrictToOwner(Path path, String permissions) throws IOException {
-        if (path.getFileSystem().supportedFileAttributeViews().contains("posix")) {
-            Files.setPosixFilePermissions(path, PosixFilePermissions.fromString(permissions));
-        }
-    }
-
-    /** Replaces the inherited ACL (and every other entry) with one full-control entry for the file's owner. */
-    private static void restrictAclToOwner(Path file) throws IOException {
-        var view = Files.getFileAttributeView(file, AclFileAttributeView.class);
-        if (view != null) {
-            view.setAcl(List.of(AclEntry.newBuilder().setType(AclEntryType.ALLOW).setPrincipal(view.getOwner())
-                    .setPermissions(EnumSet.allOf(AclEntryPermission.class)).build()));
-        }
+    /** Windows quoting puts a backslash before every quote and may double backslashes, so each of them counts twice. */
+    private static int commandLineLength(String argument) {
+        return argument.length() + (int) argument.chars().filter(c -> c == '"' || c == '\\').count();
     }
 
     public void delete(String ccmSessionId) {
@@ -204,6 +228,11 @@ public class HookSettingsWriter {
             Files.deleteIfExists(fileOf(ccmSessionId));
             Files.deleteIfExists(mcpFileOf(ccmSessionId));
             Files.deleteIfExists(tokenFileOf(ccmSessionId));
+            Files.deleteIfExists(hooksDir.resolve(ccmSessionId + PROMPT_SUFFIX));
+            var agentsPlugin = hooksDir.resolve(ccmSessionId + AGENTS_PLUGIN_SUFFIX);
+            if (Files.exists(agentsPlugin)) {
+                TreeDeleter.delete(agentsPlugin);
+            }
         } catch (IOException e) {
             throw new UncheckedIOException("Cannot delete hook settings of " + ccmSessionId, e);
         }
@@ -215,6 +244,39 @@ public class HookSettingsWriter {
 
     ObjectNode settings(String ccmSessionId, CodeModeAccess codeMode) {
         return settings(ccmSessionId, codeMode, TrustLevel.ASK);
+    }
+
+    /**
+     * Only enabledPlugins and the deny and ask rules of the overlay settings are merged under the app's (an allowlist: defaultMode, allow rules, env,
+     * helpers and the like never reach a launch); every overlay folder becomes edit-protected and its mcp.json and settings.json unreadable.
+     * shortcut: a Bash redirect or cat is not covered by these rules, only Claude's own permission dialog guards it.
+     */
+    ObjectNode settings(String ccmSessionId, CodeModeAccess codeMode, TrustLevel trust, SessionOverlay overlay) {
+        var app = settings(ccmSessionId, codeMode, trust);
+        if (overlay.isEmpty()) {
+            return app;
+        }
+        var deny = app.withArray("/permissions/deny");
+        overlay.roots().forEach(root -> {
+            var protectedRoot = new ProjectOverlay(root);
+            deny.add("Edit(" + absoluteRule(root) + "/**)");
+            deny.add("Read(" + absoluteRule(protectedRoot.mcpFile()) + ")");
+            deny.add("Read(" + absoluteRule(protectedRoot.settingsFile()) + ")");
+        });
+        return SettingsMerge.deep(app, launchAllowed(overlay.settings()));
+    }
+
+    private ObjectNode launchAllowed(ObjectNode overlaySettings) {
+        var allowed = mapper.createObjectNode();
+        if (overlaySettings.path("enabledPlugins") instanceof ObjectNode plugins) {
+            allowed.set("enabledPlugins", plugins.deepCopy());
+        }
+        for (var rules : new String[] {"deny", "ask"}) {
+            if (overlaySettings.path("permissions").path(rules) instanceof ArrayNode list) {
+                allowed.withObject("/permissions").set(rules, list.deepCopy());
+            }
+        }
+        return allowed;
     }
 
     ObjectNode settings(String ccmSessionId, CodeModeAccess codeMode, TrustLevel trust) {

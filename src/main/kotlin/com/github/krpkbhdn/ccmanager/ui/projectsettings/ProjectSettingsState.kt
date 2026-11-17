@@ -24,6 +24,7 @@ class ProjectSettingsState(
     val skills: SkillsState,
     val codeMode: ProjectCodeModeState,
     val languages: LanguagesState,
+    val group: Boolean = false,
 ) {
     var section by mutableStateOf(section)
 

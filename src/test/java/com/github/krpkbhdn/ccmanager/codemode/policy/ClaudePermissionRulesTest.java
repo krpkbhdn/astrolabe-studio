@@ -136,4 +136,19 @@ class ClaudePermissionRulesTest {
         assertThat(verdict("browser_navigate")).isEqualTo(Verdict.ASK);
         assertThat(verdict("browser_evaluate")).isEqualTo(Verdict.DENY);
     }
+
+    @Test
+    void groupSessionHonoursMembersDenyAndAskButNotTheirAllow(@TempDir Path temp) throws IOException {
+        var member = Files.createDirectories(temp.resolve("member/.claude"));
+        Files.writeString(member.resolve("settings.json"),
+                "{\"permissions\":{\"deny\":[\"mcp__plugin_playwright_playwright__browser_evaluate\"],\"ask\":[\"mcp__plugin_playwright_playwright__browser_click\"],"
+                        + "\"allow\":[\"mcp__plugin_playwright_playwright__browser_type\"]}}");
+        when(projects.find(1)).thenReturn(Optional.of(new Project(1, "g", project.getParent(), Instant.now(), com.github.krpkbhdn.ccmanager.project.ModelSelection.DEFAULT, true, null)));
+        when(projects.list()).thenReturn(java.util.List.of(
+                new Project(2, "m", member.getParent(), Instant.now(), com.github.krpkbhdn.ccmanager.project.ModelSelection.DEFAULT, false, 1L)));
+
+        assertThat(verdict("browser_evaluate")).isEqualTo(Verdict.DENY);
+        assertThat(verdict("browser_click")).isEqualTo(Verdict.ASK);
+        assertThat(verdict("browser_type")).isEqualTo(Verdict.UNDECIDED);
+    }
 }

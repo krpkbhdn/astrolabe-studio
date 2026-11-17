@@ -84,7 +84,7 @@ class FakeGit(val data: FakeRepoData) {
     val backend = GitBackend(status(), index(), branches(), sync(), log(), stashes(), history(), conflicts(), worktrees(), watcher(), noTaskRows())
 
     /** No database behind it: nothing is recorded, so every query answers empty. */
-    private fun noTaskRows() = object : TaskWorktreeService(branches(), worktrees(), null, null) {
+    private fun noTaskRows() = object : TaskWorktreeService(branches(), worktrees(), null) {
         override fun forProject(projectId: Long): List<TaskWorktree> = emptyList()
         override fun find(path: Path): Optional<TaskWorktree> = Optional.empty()
         override fun forget(path: Path) = Unit

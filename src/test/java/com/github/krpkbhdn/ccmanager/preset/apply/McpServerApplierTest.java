@@ -38,7 +38,7 @@ class McpServerApplierTest {
     }
 
     @Test
-    void stdioServerIsInstallAndPreviewHidesEnvAndHeaderValues() {
+    void stdioServerNeedsConfirmationRemoteIsInstallAndPreviewHidesEnvAndHeaderValues() {
         var json = JsonMapper.builder().build();
         var stdio = new PresetComponent(1, PresetComponentKind.MCP_SERVER, "s",
                 json.readTree("{\"config\":{\"command\":\"npx\",\"args\":[\"-y\",\"pkg\"],\"env\":{\"TOKEN\":\"sekret\"}}}"));
@@ -48,7 +48,8 @@ class McpServerApplierTest {
         var stdioPlan = applier.plan(stdio, DIR);
         var remotePlan = applier.plan(remote, DIR);
 
-        assertThat(stdioPlan.action()).isEqualTo(ChangeAction.INSTALL);
+        assertThat(stdioPlan.action()).isEqualTo(ChangeAction.NEEDS_CONFIRMATION);
+        assertThat(stdioPlan.detail()).contains("starts a local command", "does not ask first");
         assertThat(stdioPlan.preview()).contains("command: npx", "args: -y pkg", "env keys: TOKEN").doesNotContain("sekret");
         assertThat(remotePlan.action()).isEqualTo(ChangeAction.INSTALL);
         assertThat(remotePlan.preview()).contains("headers keys: Authorization").doesNotContain("sekret");

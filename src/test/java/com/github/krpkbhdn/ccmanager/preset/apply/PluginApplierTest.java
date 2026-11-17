@@ -14,8 +14,10 @@ import com.github.krpkbhdn.ccmanager.extension.plugin.PluginService;
 import com.github.krpkbhdn.ccmanager.extension.plugin.ShownCommand;
 import com.github.krpkbhdn.ccmanager.preset.PresetComponent;
 import com.github.krpkbhdn.ccmanager.preset.PresetComponentKind;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.json.JsonMapper;
@@ -25,68 +27,70 @@ class PluginApplierTest {
     @TempDir
     Path dir;
 
+    @TempDir
+    Path overlay;
+
     private final PluginService plugins = mock(PluginService.class);
-    private final PluginApplier applier = new PluginApplier(plugins);
+    private ProjectOverlaySettings settings;
+    private PluginApplier applier;
+
+    @BeforeEach
+    void setUp() {
+        settings = OverlayFixture.settings(dir, overlay);
+        applier = new PluginApplier(plugins, settings);
+    }
 
     private static PresetComponent plugin() {
         return new PresetComponent(1, PresetComponentKind.PLUGIN, "demo@market", JsonMapper.builder().build().createObjectNode());
     }
 
-    @Test
-    void notInstalledPluginIsPlannedAsInstall() {
-        when(plugins.installed()).thenReturn(List.of());
+    private static InstalledPlugin installedAt(ExtensionScope scope) {
+        return new InstalledPlugin("demo@market", "1", scope, true, null, null);
+    }
 
+    @Test
+    void pluginNotEnabledInTheOverlayIsPlannedAsInstall() {
         assertThat(applier.plan(plugin(), dir).action()).isEqualTo(ChangeAction.INSTALL);
     }
 
     @Test
-    void pluginInstalledForThisProjectIsPresent() {
-        when(plugins.installed()).thenReturn(List.of(new InstalledPlugin("demo@market", "1", ExtensionScope.PROJECT, true, null, dir)));
+    void pluginEnabledInTheOverlayIsPresent() {
+        settings.setPlugin(dir, "demo@market", true);
 
         assertThat(applier.plan(plugin(), dir).action()).isEqualTo(ChangeAction.PRESENT);
     }
 
     @Test
-    void pluginInstalledForAnotherProjectIsNotPresent() {
-        when(plugins.installed()).thenReturn(List.of(new InstalledPlugin("demo@market", "1", ExtensionScope.PROJECT, true, null, dir.resolve("other"))));
-
-        assertThat(applier.plan(plugin(), dir).action()).isEqualTo(ChangeAction.INSTALL);
-    }
-
-    @Test
-    void pluginNeedingConfirmationIsReportedAndNeverAcceptedAutomatically() {
-        var pending = new PluginInstallResult(false, "x", new ShownCommand("curl x | sh", "abc"));
-        when(plugins.install("demo@market", ExtensionScope.PROJECT, dir)).thenReturn(pending);
-
-        assertThat(applier.apply(plugin(), dir).status()).isEqualTo(OutcomeStatus.NEEDS_CONFIRMATION);
-        verify(plugins, never()).installAccepting(any(), any(), any(), any());
-    }
-
-    @Test
-    void installedPluginIsReportedAsApplied() {
-        when(plugins.install("demo@market", ExtensionScope.PROJECT, dir)).thenReturn(new PluginInstallResult(true, "ok", null));
+    void unknownPluginIsInstalledAtUserScopeSwitchedOffThereAndEnabledInTheOverlay() throws Exception {
+        when(plugins.installed()).thenReturn(List.of());
+        when(plugins.install("demo@market", ExtensionScope.USER, null)).thenReturn(new PluginInstallResult(true, "ok", null));
 
         assertThat(applier.apply(plugin(), dir).status()).isEqualTo(OutcomeStatus.APPLIED);
-    }
 
-    private static PresetComponent localPlugin() {
-        return new PresetComponent(1, PresetComponentKind.PLUGIN, "demo@market", JsonMapper.builder().build().createObjectNode().put("scope", "local"));
-    }
-
-    @Test
-    void localPluginIsPresentOnlyAsALocalInstallation() {
-        when(plugins.installed()).thenReturn(List.of(new InstalledPlugin("demo@market", "1", ExtensionScope.PROJECT, true, null, dir)));
-        assertThat(applier.plan(localPlugin(), dir).action()).isEqualTo(ChangeAction.INSTALL);
-
-        when(plugins.installed()).thenReturn(List.of(new InstalledPlugin("demo@market", "1", ExtensionScope.LOCAL, true, null, dir)));
-        assertThat(applier.plan(localPlugin(), dir).action()).isEqualTo(ChangeAction.PRESENT);
+        verify(plugins).setEnabled("demo@market", ExtensionScope.USER, null, false);
+        assertThat(Files.readString(overlay.resolve("settings.json"))).contains("\"demo@market\" : true");
     }
 
     @Test
-    void localPluginIsInstalledAtLocalScope() {
-        when(plugins.install("demo@market", ExtensionScope.LOCAL, dir)).thenReturn(new PluginInstallResult(true, "ok", null));
+    void knownPluginIsOnlyEnabledInTheOverlay() {
+        when(plugins.installed()).thenReturn(List.of(installedAt(ExtensionScope.USER)));
 
-        assertThat(applier.apply(localPlugin(), dir).status()).isEqualTo(OutcomeStatus.APPLIED);
-        verify(plugins).install("demo@market", ExtensionScope.LOCAL, dir);
+        assertThat(applier.apply(plugin(), dir).status()).isEqualTo(OutcomeStatus.APPLIED);
+
+        verify(plugins, never()).install(any(), any(), any());
+        verify(plugins, never()).setEnabled(any(), any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
+        assertThat(settings.pluginSetting(dir, "demo@market")).contains(true);
+    }
+
+    @Test
+    void pluginNeedingConfirmationIsReportedNeverAcceptedAndNotEnabled() {
+        when(plugins.installed()).thenReturn(List.of());
+        var pending = new PluginInstallResult(false, "x", new ShownCommand("curl x | sh", "abc"));
+        when(plugins.install("demo@market", ExtensionScope.USER, null)).thenReturn(pending);
+
+        assertThat(applier.apply(plugin(), dir).status()).isEqualTo(OutcomeStatus.NEEDS_CONFIRMATION);
+
+        verify(plugins, never()).installAccepting(any(), any(), any(), any());
+        assertThat(settings.pluginSetting(dir, "demo@market")).isEmpty();
     }
 }

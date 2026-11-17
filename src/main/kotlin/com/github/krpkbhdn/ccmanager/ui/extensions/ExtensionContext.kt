@@ -20,7 +20,7 @@ sealed interface ExtensionContext {
     }
 
     /** True when something stored in [scope] (for [path] if project or local) can be changed from this context. */
-    fun owns(scope: ExtensionScope, path: Path?): Boolean = scope in writableScopes && (scope == ExtensionScope.USER || sameProject(path))
+    fun owns(scope: ExtensionScope, path: Path?): Boolean = (scope in writableScopes || scope == ExtensionScope.APP) && (scope == ExtensionScope.USER || sameProject(path))
 
     /** True when it applies here: owned, or inherited from the user scope. */
     fun sees(scope: ExtensionScope, path: Path?): Boolean = scope == ExtensionScope.USER || owns(scope, path)

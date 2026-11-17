@@ -8,11 +8,13 @@ import com.github.krpkbhdn.ccmanager.extension.mcp.McpServerDefinition;
 import com.github.krpkbhdn.ccmanager.extension.mcp.McpService;
 import com.github.krpkbhdn.ccmanager.extension.mcp.PluginMcpServers;
 import com.github.krpkbhdn.ccmanager.extension.mcp.PluginMcpServers.PluginServer;
+import com.github.krpkbhdn.ccmanager.project.Project;
 import com.github.krpkbhdn.ccmanager.project.ProjectService;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -20,7 +22,7 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 
 /**
- * Which of a project's Code Mode servers a session may use: those found in the user, local or approved project configuration of its working directory, or provided by an enabled plugin.
+ * Which of a project's Code Mode servers a session may use: those found in the user, local, app (overlay) or approved project configuration of its working directory, or provided by an enabled plugin.
  * A plugin server is saved as {@code plugin_<plugin>_<server>} and scripts see its plain key; a name that more than one server resolves to makes all of them ineligible.
  */
 @Component
@@ -30,7 +32,7 @@ public class ServerCandidates {
     static final String NOT_APPROVED = "declared in .mcp.json but not approved in Claude Code";
     static final String AMBIGUOUS = "ambiguous name: more than one server resolves to it";
     static final String NO_PROJECT = "the project is not registered";
-    private static final List<ExtensionScope> PRECEDENCE = List.of(ExtensionScope.USER, ExtensionScope.PROJECT, ExtensionScope.LOCAL);
+    private static final List<ExtensionScope> PRECEDENCE = List.of(ExtensionScope.USER, ExtensionScope.APP, ExtensionScope.PROJECT, ExtensionScope.LOCAL);
 
     public record Candidate(String name, String stored, String transport, McpServerDefinition definition, String problem) {
 
@@ -68,16 +70,22 @@ public class ServerCandidates {
 
     /** @param pinned the alias each saved name got earlier in the session; a plugin server keeps it even when the configured servers change */
     public List<Candidate> of(SessionContext session, Map<String, String> pinned) {
-        var configured = modes.get(session.projectId()).servers();
+        var configured = modes.effective(session.projectId()).servers();
         var project = projects.find(session.projectId());
         if (project.isEmpty()) {
             return configured.stream().map(name -> Candidate.ineligible(name, NO_PROJECT)).toList();
         }
         var directory = modes.directoryOf(session.sessionId()).orElse(project.get().path());
-        var definitions = reader.definitions(directory);
-        var approvals = approvals(directory);
+        var definitions = new ArrayList<>(reader.definitions(directory));
+        var memberServers = project.get().group() ? memberServers(project.get()) : MemberServers.NONE;
+        definitions.addAll(memberServers.definitions());
+        if (!project.get().group() && !directory.equals(project.get().path())) {
+            definitions.addAll(reader.overlayDefinitions(directory, project.get().path()));
+        }
+        var approvals = project.get().group() ? memberServers.approvals() : approvals(directory);
         var found = plugins.servers(directory, project.get().path());
-        var ambiguous = ambiguousNames(found, definitions);
+        var ambiguous = new HashSet<>(ambiguousNames(found, definitions));
+        ambiguous.addAll(memberServers.ambiguous());
         var pluginServers = found.stream().filter(server -> !ambiguous.contains(server.canonicalName())).collect(Collectors.toMap(PluginServer::canonicalName, server -> server));
         var aliases = aliases(configured, pluginServers);
         var result = new ArrayList<Candidate>();
@@ -85,6 +93,37 @@ public class ServerCandidates {
                 : pluginServers.containsKey(name) ? pluginCandidate(name, pinned.getOrDefault(name, aliases.get(name)), pluginServers.get(name))
                 : candidate(name, definitions, approvals)));
         return withoutAliasClashes(result);
+    }
+
+    private record MemberServers(List<McpServerDefinition> definitions, Map<String, McpApproval> approvals, Set<String> ambiguous) {
+        static final MemberServers NONE = new MemberServers(List.of(), Map.of(), Set.of());
+    }
+
+    /**
+     * What a group session gets from its members: app (overlay) servers and approved .mcp.json servers; a name that members define differently is ambiguous,
+     * an identical one counts once. An unapproved .mcp.json server is listed only when no member offers a usable one under that name.
+     */
+    private MemberServers memberServers(Project group) {
+        var usable = new ArrayList<McpServerDefinition>();
+        var unapproved = new ArrayList<McpServerDefinition>();
+        for (var member : projects.list().stream().filter(candidate -> Long.valueOf(group.id()).equals(candidate.groupId())).toList()) {
+            var approvals = approvals(member.path());
+            for (var definition : reader.definitions(member.path())) {
+                if (definition.scope() == ExtensionScope.APP || definition.scope() == ExtensionScope.PROJECT && approvals.get(definition.name()) == McpApproval.APPROVED) {
+                    usable.add(definition);
+                } else if (definition.scope() == ExtensionScope.PROJECT) {
+                    unapproved.add(definition);
+                }
+            }
+        }
+        var distinct = usable.stream().distinct().toList();
+        var ambiguous = distinct.stream().collect(Collectors.groupingBy(McpServerDefinition::name, Collectors.counting())).entrySet().stream()
+                .filter(count -> count.getValue() > 1).map(Map.Entry::getKey).collect(Collectors.toSet());
+        var definitions = new ArrayList<>(distinct);
+        var approvals = new HashMap<String, McpApproval>();
+        distinct.stream().filter(definition -> definition.scope() == ExtensionScope.PROJECT).forEach(definition -> approvals.put(definition.name(), McpApproval.APPROVED));
+        unapproved.stream().filter(definition -> distinct.stream().noneMatch(usableOne -> usableOne.name().equals(definition.name()))).forEach(definitions::add);
+        return new MemberServers(definitions, approvals, ambiguous);
     }
 
     /** Canonical names that two plugins, or a plugin and a user, local or project server, would share: none of them may be used, so nothing is shadowed. */

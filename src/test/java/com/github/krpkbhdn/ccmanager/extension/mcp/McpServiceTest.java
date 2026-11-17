@@ -3,21 +3,30 @@ package com.github.krpkbhdn.ccmanager.extension.mcp;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.github.krpkbhdn.ccmanager.extension.ExtensionException;
 import com.github.krpkbhdn.ccmanager.extension.ExtensionProperties;
 import com.github.krpkbhdn.ccmanager.extension.ExtensionScope;
+import com.github.krpkbhdn.ccmanager.extension.ProjectOverlays;
 import com.github.krpkbhdn.ccmanager.extension.RecordingCli;
+import com.github.krpkbhdn.ccmanager.overlay.ProjectOverlay;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class McpServiceTest {
 
+    @TempDir
+    Path data;
+
     private static final Path PROJECT = Path.of("/work/project");
     private final RecordingCli cli = new RecordingCli();
+    private final ProjectOverlays overlays = mock(ProjectOverlays.class);
     private final McpService service =
-            new McpService(cli, mock(McpConfigReader.class), mock(McpCredentialReader.class), new ExtensionProperties(30, 180, 90, 300, 16384));
+            new McpService(cli, mock(McpConfigReader.class), mock(McpCredentialReader.class), new ExtensionProperties(30, 180, 90, 300, 16384), overlays);
 
     @Test
     void addPassesTheJsonAsOneArgumentInTheProjectDirectory() {
@@ -128,5 +137,58 @@ class McpServiceTest {
 
         assertThatThrownBy(() -> service.remove("zz", ExtensionScope.USER, null))
                 .hasMessageContaining("No MCP server found with name: zz");
+    }
+
+    @Test
+    void projectScopeOfARegisteredProjectIsWrittenToTheOverlayWithoutCallingClaude() throws Exception {
+        var overlay = new ProjectOverlay(data.resolve("overlay"));
+        when(overlays.of(PROJECT)).thenReturn(java.util.Optional.of(overlay));
+
+        service.add("db", "{\"command\":\"x\"}", ExtensionScope.PROJECT, PROJECT);
+        service.add("web", "{\"type\":\"http\",\"url\":\"https://x\"}", ExtensionScope.APP, PROJECT);
+
+        assertThat(cli.calls).isEmpty();
+        assertThat(Files.readString(overlay.mcpFile())).contains("\"db\"", "\"web\"", "mcpServers");
+        assertThatThrownBy(() -> service.add("db", "{}", ExtensionScope.PROJECT, PROJECT)).isInstanceOf(ExtensionException.class).hasMessageContaining("already exists");
+
+        service.remove("db", ExtensionScope.APP, PROJECT);
+
+        assertThat(Files.readString(overlay.mcpFile())).doesNotContain("\"db\"").contains("\"web\"");
+        assertThat(cli.calls).isEmpty();
+    }
+
+    @Test
+    void aNameOfAnInProjectOrUserServerIsRefusedForTheOverlay() {
+        var overlay = new ProjectOverlay(data.resolve("overlay"));
+        when(overlays.of(PROJECT)).thenReturn(java.util.Optional.of(overlay));
+        var reader = mock(McpConfigReader.class);
+        when(reader.read(PROJECT)).thenReturn(java.util.List.of(
+                new McpServerConfig("inproject", ExtensionScope.PROJECT, "stdio", "x", McpApproval.NOT_REQUIRED),
+                new McpServerConfig("mine", ExtensionScope.USER, "stdio", "x", McpApproval.NOT_REQUIRED)));
+        var clashing = new McpService(cli, reader, mock(McpCredentialReader.class), new ExtensionProperties(30, 180, 90, 300, 16384), overlays);
+
+        assertThatThrownBy(() -> clashing.add("inproject", "{\"command\":\"x\"}", ExtensionScope.APP, PROJECT)).isInstanceOf(ExtensionException.class).hasMessageContaining("already exists");
+        assertThatThrownBy(() -> clashing.add("mine", "{\"command\":\"x\"}", ExtensionScope.APP, PROJECT)).isInstanceOf(ExtensionException.class).hasMessageContaining("already exists");
+        assertThat(overlay.mcpFile()).doesNotExist();
+    }
+
+    @Test
+    void removingAnInFolderServerOfARegisteredProjectStillUsesTheCliAndAppScopeNeedsAProject() {
+        when(overlays.of(PROJECT)).thenReturn(java.util.Optional.of(new ProjectOverlay(data.resolve("overlay"))));
+
+        service.remove("old", ExtensionScope.PROJECT, PROJECT);
+
+        assertThat(cli.lastCall()).containsExactly("mcp", "remove", "--scope", "project", "old");
+        assertThatThrownBy(() -> service.add("x", "{}", ExtensionScope.APP, Path.of("/unregistered"))).isInstanceOf(ExtensionException.class);
+    }
+
+    @Test
+    void anOverlayFileThatIsNotAnObjectIsRefusedAndKept() throws Exception {
+        var overlay = new ProjectOverlay(data.resolve("overlay"));
+        overlay.write(overlay.mcpFile(), "[1]");
+        when(overlays.of(PROJECT)).thenReturn(java.util.Optional.of(overlay));
+
+        assertThatThrownBy(() -> service.add("db", "{}", ExtensionScope.APP, PROJECT)).isInstanceOf(ExtensionException.class);
+        assertThat(Files.readString(overlay.mcpFile())).isEqualTo("[1]");
     }
 }

@@ -29,6 +29,7 @@ import com.github.krpkbhdn.ccmanager.ui.components.Label
 import com.github.krpkbhdn.ccmanager.ui.components.Spinner
 import com.github.krpkbhdn.ccmanager.ui.components.WithTooltip
 import com.github.krpkbhdn.ccmanager.ui.settings.SettingRow
+import com.github.krpkbhdn.ccmanager.ui.state.ConfirmRequest
 import com.github.krpkbhdn.ccmanager.ui.settings.tint
 import com.github.krpkbhdn.ccmanager.ui.theme.Spacing
 import com.github.krpkbhdn.ccmanager.ui.theme.Type
@@ -48,7 +49,7 @@ private const val ENABLE_NOTE = "Enable LSP in this project"
 
 /** Language servers for the project: the Claude Code LSP plugin toggle, server status and install; the install dialog is the shared one of [tools]. */
 @Composable
-fun LanguagesPage(languages: LanguagesState, tools: ToolsState, setup: LspSetupState, detectedTech: DetectedTechState, project: Project) {
+fun LanguagesPage(languages: LanguagesState, tools: ToolsState, setup: LspSetupState, detectedTech: DetectedTechState, project: Project, confirm: (ConfirmRequest) -> Unit = {}) {
     LaunchedEffect(Unit) {
         languages.refresh()
         tools.loadPlans()
@@ -69,8 +70,9 @@ fun LanguagesPage(languages: LanguagesState, tools: ToolsState, setup: LspSetupS
     val groups = remember(languages.rows) { languageGroups(languages.rows) }
     var othersOpen by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(pagePadding), verticalArrangement = Arrangement.spacedBy(Spacing.lg)) {
+        if (project.group) GroupInheritSwitch("language settings", languages.inherits, languages.busy, confirm, { languages.inheritFromMembers(false) }, { languages.inheritFromMembers(true) })
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
-            Label("Claude Code LSP plugins for this project. After a change, restart running sessions.", Modifier.weight(1f), color = colors.textSecondary, style = Type.small, maxLines = 2)
+            Label("Claude Code LSP plugins for this ${if (project.group) "group" else "project"}. After a change, restart running sessions.", Modifier.weight(1f), color = colors.textSecondary, style = Type.small, maxLines = 2)
             setupAllLabelOf(setup.plannedFor(project.id))?.let { AppButton(it, { setup.start(project) }, variant = ButtonVariant.PRIMARY, compact = true) }
             AppButton("Refresh", { languages.refresh(fresh = true); detectedTech.refresh(project) }, enabled = !languages.loading, loading = languages.loading, compact = true)
         }
@@ -104,7 +106,7 @@ private fun LanguageRow(row: ProjectToolRow, languages: LanguagesState, tools: T
     val tool = row.tool
     val id = tool.id()
     val working = languages.isWorking(id)
-    val toggle = toggleOf(row, working)
+    val toggle = toggleOf(row, working, languages.inherits)
     val install = installButtonOf(row.status, tools.plans[id], tool.docsUrl(), tools.isManaged(id))
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
         SettingRow(tool.name(), toggle.note ?: ENABLE_NOTE) {
@@ -115,6 +117,7 @@ private fun LanguageRow(row: ProjectToolRow, languages: LanguagesState, tools: T
                 AppSwitch(toggle.checked, { languages.setEnabled(id, it) }, enabled = toggle.enabled)
             }
         }
+        if (languages.inherits) sourceNoteOf(languages.sources[id])?.let { Label(it, color = colors.textSecondary, style = Type.caption) }
         includesNoteOf(tool)?.let { Label(it, color = colors.textTertiary, style = Type.caption) }
         val blockedReason = (install as? InstallButton.Install)?.reason?.takeIf { !install.enabled }
         blockedReason?.let { Label(it, color = colors.warning, style = Type.caption, maxLines = 2) }

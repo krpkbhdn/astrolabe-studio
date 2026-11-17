@@ -49,6 +49,7 @@ public final class ClaudeCommand {
         List<String> command = base(executable, files);
         addClaudeManager(command, files, pluginDir);
         command.addAll(selection.arguments());
+        addAgents(command, files, null);
         addModeFlag(command, mode);
         return command;
     }
@@ -58,7 +59,7 @@ public final class ClaudeCommand {
         List<String> command = base(executable, files);
         addClaudeManager(command, files, pluginDir);
         command.addAll(selection.orElse(leadSelection(team)).arguments());
-        addTeam(command, team);
+        addAgents(command, files, team);
         addModeFlag(command, mode);
         return command;
     }
@@ -70,9 +71,7 @@ public final class ClaudeCommand {
         List<String> command = base(executable, files);
         addClaudeManager(command, files, pluginDir);
         command.addAll((team == null ? selection : selection.orElse(leadSelection(team))).arguments());
-        if (team != null) {
-            addTeam(command, team);
-        }
+        addAgents(command, files, team);
         command.addAll(List.of("--resume", id));
         return command;
     }
@@ -94,7 +93,7 @@ public final class ClaudeCommand {
         List<String> command = base(executable, files);
         addClaudeManager(command, files, pluginDir);
         command.addAll(leadSelection(team).arguments());
-        addTeam(command, team);
+        addAgents(command, files, team);
         command.addAll(List.of("--", task));
         return command;
     }
@@ -104,6 +103,7 @@ public final class ClaudeCommand {
         List<String> command = base(executable, files);
         addClaudeManager(command, files, pluginDir);
         command.addAll(selection.arguments());
+        addAgents(command, files, null);
         command.addAll(List.of("--", task));
         return command;
     }
@@ -206,8 +206,15 @@ public final class ClaudeCommand {
         return team.lead().map(TeamRole::selection).orElse(ModelSelection.DEFAULT);
     }
 
-    private static void addTeam(List<String> command, Team team) {
-        command.addAll(List.of("--agents", TeamAgentsJson.agents(team), "--append-system-prompt", TeamAgentsJson.leadAddendum(team)));
+    /** [team] may be null. With a prompt file the lead addendum is inside it, because claude must not get both system prompt flags. */
+    private static void addAgents(List<String> command, SessionFiles files, Team team) {
+        if (team == null && files.inlineAgents().isEmpty()) {
+            return;
+        }
+        command.addAll(List.of("--agents", TeamAgentsJson.agents(team, files.inlineAgents())));
+        if (team != null && files.promptFile() == null) {
+            command.addAll(List.of("--append-system-prompt", TeamAgentsJson.leadAddendum(team)));
+        }
     }
 
     private static void addModeFlag(List<String> command, LaunchMode mode) {
@@ -221,6 +228,12 @@ public final class ClaudeCommand {
     /** --mcp-config is variadic, so a flag follows it. Not for attach, which is a subcommand. */
     private static void addClaudeManager(List<String> command, SessionFiles files, Path pluginDir) {
         command.addAll(List.of("--mcp-config", files.mcpConfig().toAbsolutePath().toString(), "--plugin-dir", pluginDir.toAbsolutePath().toString()));
+        if (files.agentsPlugin() != null) {
+            command.addAll(List.of("--plugin-dir", files.agentsPlugin().toAbsolutePath().toString()));
+        }
+        if (files.promptFile() != null) {
+            command.addAll(List.of("--append-system-prompt-file", files.promptFile().toAbsolutePath().toString()));
+        }
     }
 
     private static List<String> base(Path executable, SessionFiles files) {

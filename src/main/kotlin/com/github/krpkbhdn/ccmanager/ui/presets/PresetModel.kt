@@ -15,13 +15,13 @@ import com.github.krpkbhdn.ccmanager.preset.ProjectPreset
 
 /** The tabs of the preset pane; marketplaces live under Plugins because a plugin is useless without its marketplace. */
 enum class PresetTab(val label: String, val kinds: List<PresetComponentKind>, val addLabel: String, val emptyTitle: String, val emptyHint: String) {
-    INSTRUCTIONS("Instructions", listOf(INSTRUCTION), "Add instruction", "No instructions", "Rules for Claude that are written into the project's CLAUDE.md."),
-    SKILLS("Skills", listOf(SKILL), "Add skill", "No skills", "Skills Claude can use in the project, copied into its .claude/skills folder."),
+    INSTRUCTIONS("Instructions", listOf(INSTRUCTION), "Add instruction", "No instructions", "Rules for Claude, kept in the project's app folder and added to its system prompt."),
+    SKILLS("Skills", listOf(SKILL), "Add skill", "No skills", "Skills Claude can use in the project, kept in its app folder."),
     PLUGINS("Plugins", listOf(PLUGIN, MARKETPLACE), "Add plugins", "No plugins", "Plugins installed for the project, with the marketplaces they come from."),
     MCP("MCP", listOf(MCP_SERVER), "Add MCP server", "No MCP servers", "Servers that give Claude extra tools, registered for the project."),
-    AGENTS("Agents", listOf(AGENT), "Add agent", "No agents", "Subagents Claude can hand work to, copied into the project's .claude/agents folder."),
+    AGENTS("Agents", listOf(AGENT), "Add agent", "No agents", "Subagents Claude can hand work to, kept in the project's app folder."),
     FILES("Files", listOf(FILE), "Add file", "No files", "Files created in the project, optionally with lines added to its .gitignore."),
-    SETTINGS("Settings", listOf(PresetComponentKind.SETTINGS), "Add settings", "No settings", "Claude Code settings merged into the project's .claude/settings.json."),
+    SETTINGS("Settings", listOf(PresetComponentKind.SETTINGS), "Add settings", "No settings", "Claude Code settings merged into the project's app settings, outside its repository."),
     CODE_MODE("Code Mode", listOf(PresetComponentKind.CODE_MODE), "Add Code Mode", "No Code Mode", "Turns Code Mode on for the project with the MCP servers named here."),
     ;
 

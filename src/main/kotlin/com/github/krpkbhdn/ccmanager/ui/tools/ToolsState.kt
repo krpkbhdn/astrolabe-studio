@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.github.krpkbhdn.ccmanager.toolchain.GroupLspService
 import com.github.krpkbhdn.ccmanager.toolchain.LspHealthMonitor
 import com.github.krpkbhdn.ccmanager.toolchain.LspSetupService
 import com.github.krpkbhdn.ccmanager.toolchain.ProjectToolsService
@@ -27,7 +28,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /** Toolchain beans the UI talks to; [projectTools] is for the per-project tools UI. */
-data class ToolchainBackend(val catalog: ToolCatalog, val probe: ToolProbe, val installer: ToolInstallService, val projectTools: ProjectToolsService, val lspSetup: LspSetupService, val health: LspHealthMonitor)
+data class ToolchainBackend(val catalog: ToolCatalog, val probe: ToolProbe, val installer: ToolInstallService, val projectTools: ProjectToolsService, val lspSetup: LspSetupService, val health: LspHealthMonitor, val groupLsp: GroupLspService? = null)
 
 /** Where the install dialog stands: confirm the command, watch it run, read the result. */
 sealed interface InstallFlow {

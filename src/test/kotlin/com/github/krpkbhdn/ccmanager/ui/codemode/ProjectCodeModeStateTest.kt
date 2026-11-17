@@ -18,6 +18,8 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.mockito.Mockito.mock
+import org.mockito.Mockito.never
+import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when`
 import org.mockito.ArgumentMatchers.anyBoolean
 import org.mockito.ArgumentMatchers.anyList
@@ -114,6 +116,28 @@ class ProjectCodeModeStateTest {
         assertThat(state.servers).containsExactly("x")
         state.dispose()
         assertThat(unsubscribed).hasValue(1)
+    }
+
+    @Test
+    fun `a group without its own setting shows the members merge read-only and override saves it as its own`() {
+        val service = mock(ProjectCodeModeService::class.java)
+        `when`(service.effective(7)).thenReturn(ProjectCodeMode(7, true, listOf("github"), ToolCallAccess.ASK))
+        `when`(service.inherits(7)).thenReturn(true)
+        val state = ProjectCodeModeState(service, 7, scope, { emptyList() }, true, { listOf("api" to listOf("github")) }) { }
+        state.load()
+        await { state.loaded }
+
+        assertThat(state.inherits).isTrue()
+        assertThat(state.servers).containsExactly("github")
+        assertThat(state.sources["github"]).containsExactly("api")
+        state.setServer("jira", true)
+        assertThat(state.servers).containsExactly("github")
+        verify(service, never()).save(anyLong(), anyBoolean(), anyList(), org.mockito.ArgumentMatchers.any(ToolCallAccess::class.java) ?: ToolCallAccess.ASK)
+
+        `when`(service.inherits(7)).thenReturn(false)
+        state.override()
+        await { !state.inherits }
+        verify(service).override(7)
     }
 
     @Test

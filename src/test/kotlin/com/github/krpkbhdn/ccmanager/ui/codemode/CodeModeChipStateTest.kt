@@ -18,10 +18,10 @@ class CodeModeChipStateTest {
     private fun chip(available: Boolean = true) = CodeModeChipState(available, { created += mock(ProjectCodeModeState::class.java); created.last() }, { mock(McpState::class.java) })
 
     @Test
-    fun `a group project is not tracked`() {
+    fun `a group is tracked like a project`() {
         val chip = chip()
         chip.track(project(1, group = true))
-        assertThat(chip.codeMode).isNull()
+        assertThat(chip.codeMode).isNotNull()
     }
 
     @Test

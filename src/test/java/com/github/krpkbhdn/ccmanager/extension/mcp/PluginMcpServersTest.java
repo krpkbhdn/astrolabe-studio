@@ -33,7 +33,7 @@ class PluginMcpServersTest {
         host = new FakeHostEnvironment(HostEnvironment.OperatingSystem.LINUX, home).withEnv("TOKEN", "s3cret");
         config = home.resolve(".claude");
         Files.createDirectories(config.resolve("plugins"));
-        plugins = new PluginMcpServers(host, new McpConfigReader(host, new GitRunner()));
+        plugins = new PluginMcpServers(host, new McpConfigReader(host, new GitRunner(), org.mockito.Mockito.mock(com.github.krpkbhdn.ccmanager.extension.ProjectOverlays.class)));
     }
 
     private Path install(String name, String mcpJson, String manifestJson) throws IOException {
@@ -214,7 +214,7 @@ class PluginMcpServersTest {
     @Test
     void projectPathsAreComparedCaseInsensitivelyOnWindows() throws IOException {
         host = new FakeHostEnvironment(HostEnvironment.OperatingSystem.WINDOWS, home);
-        plugins = new PluginMcpServers(host, new McpConfigReader(host, new GitRunner()));
+        plugins = new PluginMcpServers(host, new McpConfigReader(host, new GitRunner(), org.mockito.Mockito.mock(com.github.krpkbhdn.ccmanager.extension.ProjectOverlays.class)));
         var path = install("p", "{\"s\":{\"command\":\"x\"}}", "{}");
         installed("{\"p@market\":[" + entry("local", path, ",\"projectPath\":" + quote(Path.of(project.toString().toUpperCase(java.util.Locale.ROOT)))) + "]}");
         enable(config.resolve("settings.json"), "{\"p@market\":true}");
@@ -253,7 +253,7 @@ class PluginMcpServersTest {
     void managedSettingsDecideAloneAndAPluginDisabledThereStaysDisabled() throws IOException {
         var programFiles = Files.createDirectories(home.resolve("programfiles"));
         host = new FakeHostEnvironment(HostEnvironment.OperatingSystem.WINDOWS, home).withEnv("ProgramFiles", programFiles.toString());
-        plugins = new PluginMcpServers(host, new McpConfigReader(host, new GitRunner()));
+        plugins = new PluginMcpServers(host, new McpConfigReader(host, new GitRunner(), org.mockito.Mockito.mock(com.github.krpkbhdn.ccmanager.extension.ProjectOverlays.class)));
         good();
         enable(config.resolve("settings.json"), "{\"good@market\":true}");
         assertThat(plugins.servers(project)).hasSize(1);

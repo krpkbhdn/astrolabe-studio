@@ -3,12 +3,14 @@ package com.github.krpkbhdn.ccmanager.codemode.policy;
 import com.github.krpkbhdn.ccmanager.codemode.CodeModeProperties;
 import com.github.krpkbhdn.ccmanager.codemode.ProjectCodeModeService;
 import com.github.krpkbhdn.ccmanager.codemode.SessionContext;
+import com.github.krpkbhdn.ccmanager.project.Project;
 import com.github.krpkbhdn.ccmanager.project.ProjectService;
 import com.github.krpkbhdn.ccmanager.workspace.HostEnvironment;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,6 +31,7 @@ public class ClaudePermissionRules implements PermissionRules {
     private static final String SEPARATOR = "__";
     private static final String WILDCARD = "*";
     private static final String GLOB_CHARACTERS = "*?[";
+    private static final String[] SETTINGS_FILES = {".claude/settings.json", ".claude/settings.local.json"};
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
     private record Settings(Set<String> allow, Set<String> deny, Set<String> ask, boolean complete) {
@@ -44,6 +47,12 @@ public class ClaudePermissionRules implements PermissionRules {
         this.host = host;
     }
 
+    /** Members' deny and ask rules also hold in a group session (stricter only); their allow rules do not. */
+    private List<Project> groupMembers(long projectId) {
+        return projects.find(projectId).filter(Project::group).map(group -> projects.list().stream().filter(member -> Long.valueOf(group.id()).equals(member.groupId())).toList())
+                .orElse(List.of());
+    }
+
     @Override
     public Verdict verdict(SessionContext session, String server, String tool) {
         var directory = modes.directoryOf(session.sessionId()).or(() -> projects.find(session.projectId()).map(project -> project.path()));
@@ -57,9 +66,17 @@ public class ClaudePermissionRules implements PermissionRules {
         deny.addAll(user.deny());
         ask.addAll(user.ask());
         if (directory.isPresent()) {
-            for (var file : new String[] {".claude/settings.json", ".claude/settings.local.json"}) {
+            for (var file : SETTINGS_FILES) {
                 var repository = read(directory.get().resolve(file));
                 allow.addAll(repository.allow());
+                deny.addAll(repository.deny());
+                ask.addAll(repository.ask());
+                complete &= repository.complete();
+            }
+        }
+        for (var member : groupMembers(session.projectId())) {
+            for (var file : SETTINGS_FILES) {
+                var repository = read(member.path().resolve(file));
                 deny.addAll(repository.deny());
                 ask.addAll(repository.ask());
                 complete &= repository.complete();

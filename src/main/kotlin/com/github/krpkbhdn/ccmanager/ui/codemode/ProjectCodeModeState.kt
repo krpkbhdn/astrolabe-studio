@@ -7,6 +7,7 @@ import com.github.krpkbhdn.ccmanager.codemode.ProjectCodeMode
 import com.github.krpkbhdn.ccmanager.codemode.ProjectCodeModeService
 import com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess
 import com.github.krpkbhdn.ccmanager.extension.mcp.PluginMcpServers.PluginServer
+import com.github.krpkbhdn.ccmanager.ui.projectsettings.sourcesOf
 import com.github.krpkbhdn.ccmanager.ui.state.io
 import com.github.krpkbhdn.ccmanager.ui.state.runGuarded
 import kotlinx.coroutines.CoroutineScope
@@ -15,12 +16,14 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.concurrent.atomic.AtomicInteger
 
-/** The Code Mode setting of one project (and the plugin MCP servers it can offer): shown at once, every change is saved at once on IO, a failed save reloads what is stored, and a load never overwrites a newer change. */
+/** The Code Mode setting of one project or group (a group that inherits shows its members' merge and is read-only until [override]) (and the plugin MCP servers it can offer): shown at once, every change is saved at once on IO, a failed save reloads what is stored, and a load never overwrites a newer change. */
 class ProjectCodeModeState(
     private val service: ProjectCodeModeService?,
     private val projectId: Long,
     private val scope: CoroutineScope,
     private val pluginServers: () -> List<PluginServer> = { emptyList() },
+    private val group: Boolean = false,
+    private val memberServers: () -> List<Pair<String, List<String>>> = { emptyList() },
     private val reportError: (String) -> Unit,
 ) {
     var enabled by mutableStateOf(false)
@@ -32,6 +35,13 @@ class ProjectCodeModeState(
     var loaded by mutableStateOf(false)
         private set
     var plugins by mutableStateOf<List<PluginServer>>(emptyList())
+        private set
+    /** A group without its own setting: shows the merge of its members and cannot be edited. */
+    var inherits by mutableStateOf(false)
+        private set
+
+    /** Member names per server while [inherits], for "From ..." notes. */
+    var sources by mutableStateOf<Map<String, List<String>>>(emptyMap())
         private set
     val available: Boolean get() = service != null
     private val saveOrder = Mutex()
@@ -49,11 +59,30 @@ class ProjectCodeModeState(
         val version = latestChange
         scope.launch {
             runGuarded(reportError) {
-                val stored = io { service?.get(projectId) }
+                val stored = io { read() }
+                val inheriting = io { group && service?.inherits(projectId) == true }
+                val from = if (inheriting) io { sourcesOf(memberServers()) } else emptyMap()
                 plugins = io { runCatching(pluginServers).getOrDefault(emptyList()) }
-                if (version == latestChange && pendingSaves.get() == 0) adopt(stored) else loaded = true
+                if (version == latestChange && pendingSaves.get() == 0) {
+                    inherits = inheriting
+                    sources = from
+                    adopt(stored)
+                } else loaded = true
             }
         }
+    }
+
+    private fun read(): ProjectCodeMode? = if (group) service?.effective(projectId) else service?.get(projectId)
+
+    /** Group only: saves the inherited values as the group's own so they can be edited. */
+    fun override() = switchInheritance { service?.override(projectId) }
+
+    /** Group only: drops the group's own setting, the members' merge applies again. */
+    fun inherit() = switchInheritance { service?.inherit(projectId) }
+
+    private fun switchInheritance(action: () -> Unit) {
+        if (!group) return
+        scope.launch { runGuarded(reportError) { io(action); load() } }
     }
 
     fun switchOn(on: Boolean) = change(on, servers, toolCalls)
@@ -63,6 +92,7 @@ class ProjectCodeModeState(
     fun setServer(name: String, on: Boolean) = change(enabled, withServer(servers, name, on), toolCalls)
 
     private fun change(newEnabled: Boolean, newServers: List<String>, newAccess: ToolCallAccess) {
+        if (inherits) return
         enabled = newEnabled
         servers = newServers
         toolCalls = newAccess
@@ -75,7 +105,7 @@ class ProjectCodeModeState(
                         try {
                             adoptIfLatest(version, io { service?.save(projectId, newEnabled, newServers, newAccess) })
                         } catch (e: RuntimeException) {
-                            adoptIfLatest(version, io { service?.get(projectId) })
+                            adoptIfLatest(version, io { read() })
                             throw e
                         }
                     }

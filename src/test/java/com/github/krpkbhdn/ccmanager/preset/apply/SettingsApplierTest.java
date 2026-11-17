@@ -2,14 +2,12 @@ package com.github.krpkbhdn.ccmanager.preset.apply;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
 
 import com.github.krpkbhdn.ccmanager.preset.PresetComponent;
 import com.github.krpkbhdn.ccmanager.preset.PresetComponentKind;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import com.github.krpkbhdn.ccmanager.git.GitLocalExclude;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -24,20 +22,26 @@ class SettingsApplierTest {
     @TempDir
     Path dir;
 
-    private final GitLocalExclude exclude = mock(GitLocalExclude.class);
-    private final SettingsApplier applier = new SettingsApplier(exclude);
+    @TempDir
+    Path overlay;
+
+    private SettingsApplier applier;
+
+    @BeforeEach
+    void setUp() {
+        applier = new SettingsApplier(OverlayFixture.settings(dir, overlay));
+    }
 
     private static PresetComponent settings(String fragmentJson) {
         return new PresetComponent(1, PresetComponentKind.SETTINGS, "s", JSON.createObjectNode().set("fragment", JSON.readTree(fragmentJson)));
     }
 
     private void existing(String json) throws Exception {
-        Files.createDirectories(dir.resolve(".claude"));
-        Files.writeString(dir.resolve(".claude/settings.json"), json);
+        Files.writeString(overlay.resolve("settings.json"), json);
     }
 
     private JsonNode written() throws Exception {
-        return JSON.readTree(Files.readString(dir.resolve(".claude/settings.json")));
+        return JSON.readTree(Files.readString(overlay.resolve("settings.json")));
     }
 
     @Test
@@ -105,7 +109,7 @@ class SettingsApplierTest {
         existing("{ not json");
 
         assertThatThrownBy(() -> applier.plan(settings("{\"a\":1}"), dir)).isInstanceOf(RuntimeException.class);
-        assertThat(Files.readString(dir.resolve(".claude/settings.json"))).isEqualTo("{ not json");
+        assertThat(Files.readString(overlay.resolve("settings.json"))).isEqualTo("{ not json");
     }
 
     private static PresetComponent localSettings(String fragmentJson) {
@@ -114,31 +118,12 @@ class SettingsApplierTest {
     }
 
     @Test
-    void localSettingsGoToTheLocalFileAndAreExcluded() throws Exception {
-        var component = localSettings("{\"model\":\"opus\"}");
+    void localScopeCollapsesIntoTheSameOverlayFileAndNothingIsWrittenInTheProject() throws Exception {
+        applier.apply(localSettings("{\"model\":\"opus\"}"), dir);
 
-        assertThat(applier.plan(component, dir).detail()).contains(".claude/settings.local.json");
-        applier.apply(component, dir);
-
-        assertThat(JSON.readTree(Files.readString(dir.resolve(".claude/settings.local.json"))).path("model").asString()).isEqualTo("opus");
-        assertThat(dir.resolve(".claude/settings.json")).doesNotExist();
-        verify(exclude).ensureExcluded(dir, ".claude/settings.local.json");
-    }
-
-    @Test
-    void executableLocalSettingsWarnThatOnlyTheUserIsAffected() throws Exception {
-        var change = applier.plan(localSettings("{\"hooks\":{}}"), dir);
-
-        assertThat(change.action()).isEqualTo(ChangeAction.NEEDS_CONFIRMATION);
-        assertThat(change.detail()).contains("for you in this project").doesNotContain("everyone");
-    }
-
-    @Test
-    void invalidLocalSettingsJsonIsReportedAndLeftUntouched() throws Exception {
-        Files.createDirectories(dir.resolve(".claude"));
-        Files.writeString(dir.resolve(".claude/settings.local.json"), "{ not json");
-
-        assertThatThrownBy(() -> applier.plan(localSettings("{\"a\":1}"), dir)).isInstanceOf(RuntimeException.class);
-        assertThat(Files.readString(dir.resolve(".claude/settings.local.json"))).isEqualTo("{ not json");
+        assertThat(written().path("model").asString()).isEqualTo("opus");
+        try (var entries = Files.list(dir)) {
+            assertThat(entries).isEmpty();
+        }
     }
 }

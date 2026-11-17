@@ -44,11 +44,11 @@ import com.github.krpkbhdn.ccmanager.ui.theme.colors
 private val panelWidth = 380.dp
 private val serverListMaxHeight = 260.dp
 
-/** Status bar Code Mode chip of the project on screen (dot = state of its Code Mode) with the quick-edit popup opening above it. */
+/** Status bar Code Mode chip of the project or group on screen (dot = state of its Code Mode) with the quick-edit popup opening above it. */
 @Composable
 internal fun CodeModeIndicatorSegment(state: AppState) {
     val route = state.route as? Route.Project ?: return
-    val project = state.projects.all.firstOrNull { it.id == route.id }?.takeUnless { it.group } ?: return
+    val project = state.projects.all.firstOrNull { it.id == route.id }?: return
     val chip = state.codeModeChip
     val codeMode = chip.codeMode ?: return
     val mcp = chip.mcp ?: return
@@ -66,14 +66,14 @@ internal fun CodeModeIndicatorSegment(state: AppState) {
             AnchoredPopup({ chip.open = false }, alignEnd = true, modifier = Modifier.width(panelWidth)) {
                 Column(Modifier.padding(Spacing.lg), verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
-                        AppSwitch(codeMode.enabled, codeMode::switchOn, enabled = codeMode.available)
-                        Label("Code Mode for this project", Modifier.weight(1f), style = Type.bodyMedium)
+                        AppSwitch(codeMode.enabled, codeMode::switchOn, enabled = codeMode.available && !codeMode.inherits)
+                        Label(if (project.group) "Code Mode for this group" else "Code Mode for this project", Modifier.weight(1f), style = Type.bodyMedium)
                     }
                     sandboxLines(sandbox, status).forEachIndexed { index, line ->
                         Label(line, color = if (index == 0) colors.textSecondary else colors.warning, style = Type.small, maxLines = Int.MAX_VALUE)
                     }
-                    ToolCallAccessControl(codeMode, rows)
-                    ServerList(rows, missing, codeMode.enabled) { name, on -> codeMode.setServer(name, on) }
+                    ToolCallAccessControl(codeMode, rows, onOpenGroupSettings = { chip.open = false; openSettings(state, project) })
+                    ServerList(rows, missing, codeMode.enabled, !codeMode.inherits) { name, on -> codeMode.setServer(name, on) }
                     AppButton("Open settings", { chip.open = false; openSettings(state, project) }, Modifier.fillMaxWidth())
                 }
             }
@@ -82,10 +82,10 @@ internal fun CodeModeIndicatorSegment(state: AppState) {
 }
 
 @Composable
-private fun ServerList(rows: List<CodeModeRow>, missing: List<String>, codeModeOn: Boolean, onChange: (String, Boolean) -> Unit) {
+private fun ServerList(rows: List<CodeModeRow>, missing: List<String>, codeModeOn: Boolean, editable: Boolean, onChange: (String, Boolean) -> Unit) {
     Column(Modifier.heightIn(max = serverListMaxHeight).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
         if (rows.isEmpty()) Label("This project sees no MCP servers yet.", color = colors.textTertiary, style = Type.small, maxLines = 2)
-        rows.forEach { row -> ServerRow(row, codeModeOn) { onChange(row.name, it) } }
+        rows.forEach { row -> ServerRow(row, codeModeOn, editable) { onChange(row.name, it) } }
         if (missing.isNotEmpty()) Label("Saved but not found any more: ${missing.joinToString()}", color = colors.warning, style = Type.small, maxLines = 3)
     }
 }

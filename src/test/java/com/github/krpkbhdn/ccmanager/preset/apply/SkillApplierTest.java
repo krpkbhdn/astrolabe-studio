@@ -7,6 +7,7 @@ import com.github.krpkbhdn.ccmanager.preset.PresetComponent;
 import com.github.krpkbhdn.ccmanager.preset.PresetComponentKind;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.json.JsonMapper;
@@ -18,7 +19,19 @@ class SkillApplierTest {
     @TempDir
     Path dir;
 
-    private final SkillApplier applier = new SkillApplier();
+    @TempDir
+    Path data;
+
+    private SkillApplier applier;
+
+    private Path target() {
+        return data.resolve("projects/3/context/.claude/skills");
+    }
+
+    @BeforeEach
+    void setUp() {
+        applier = new SkillApplier(OverlayInstructions.settings(data, 3, dir));
+    }
 
     private static PresetComponent skill(String name, String... pathAndContent) {
         var files = JSON.createObjectNode();
@@ -35,17 +48,18 @@ class SkillApplierTest {
         assertThat(applier.plan(component, dir).action()).isEqualTo(ChangeAction.CREATE);
         applier.apply(component, dir);
 
-        assertThat(Files.readString(dir.resolve(".claude/skills/demo/SKILL.md"))).isEqualTo("body");
-        assertThat(Files.readString(dir.resolve(".claude/skills/demo/ref/notes.md"))).isEqualTo("echo");
+        assertThat(Files.readString(target().resolve("demo/SKILL.md"))).isEqualTo("body");
+        assertThat(Files.readString(target().resolve("demo/ref/notes.md"))).isEqualTo("echo");
+        assertThat(dir.resolve(".claude")).doesNotExist();
     }
 
     @Test
     void existingDifferentSkillIsAConflictAndLeftAlone() throws Exception {
-        Files.createDirectories(dir.resolve(".claude/skills/demo"));
-        Files.writeString(dir.resolve(".claude/skills/demo/SKILL.md"), "mine");
+        Files.createDirectories(target().resolve("demo"));
+        Files.writeString(target().resolve("demo/SKILL.md"), "mine");
 
         assertThat(applier.plan(skill("demo", "SKILL.md", "other"), dir).action()).isEqualTo(ChangeAction.CONFLICT);
-        assertThat(Files.readString(dir.resolve(".claude/skills/demo/SKILL.md"))).isEqualTo("mine");
+        assertThat(Files.readString(target().resolve("demo/SKILL.md"))).isEqualTo("mine");
     }
 
     @Test
@@ -67,8 +81,8 @@ class SkillApplierTest {
             var component = skill("demo", "SKILL.md", "ok", bad, "x");
             assertThatThrownBy(() -> applier.apply(component, dir)).as(bad).isInstanceOf(IllegalArgumentException.class);
         }
-        assertThat(dir.resolve(".claude/skills/demo")).doesNotExist();
-        assertThat(dir.resolve(".claude/skills/x.md")).doesNotExist();
+        assertThat(target().resolve("demo")).doesNotExist();
+        assertThat(target().resolve("x.md")).doesNotExist();
     }
 
     @Test

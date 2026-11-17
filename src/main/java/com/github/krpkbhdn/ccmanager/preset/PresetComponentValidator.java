@@ -2,7 +2,6 @@ package com.github.krpkbhdn.ccmanager.preset;
 
 import com.github.krpkbhdn.ccmanager.codemode.ProjectCodeModeService;
 import com.github.krpkbhdn.ccmanager.config.NameRules;
-import com.github.krpkbhdn.ccmanager.preset.apply.LocalConfigFiles;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -19,7 +18,8 @@ import tools.jackson.databind.node.ObjectNode;
 final class PresetComponentValidator {
 
     static final JsonMapper MAPPER = JsonMapper.builder().build();
-    private static final Set<String> SCOPES = Set.of("shared", LocalConfigFiles.SCOPE);
+    private static final String LOCAL_SCOPE = "local";
+    private static final Set<String> SCOPES = Set.of("shared", LOCAL_SCOPE);
     private static final Set<PresetComponentKind> SCOPED_KINDS = Set.of(PresetComponentKind.INSTRUCTION, PresetComponentKind.PLUGIN, PresetComponentKind.SETTINGS);
     private static final Pattern PLUGIN = Pattern.compile("[^@\\s]+@[^@\\s]+");
     private static final Pattern FOLDER_NAME = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]*");
@@ -111,7 +111,7 @@ final class PresetComponentValidator {
         if (!scope.isString() || !SCOPES.contains(scope.asString())) {
             throw new IllegalArgumentException("The scope must be \"shared\" or \"local\".");
         }
-        return scope.asString().equals(LocalConfigFiles.SCOPE) ? result.put("scope", LocalConfigFiles.SCOPE) : result;
+        return scope.asString().equals(LOCAL_SCOPE) ? result.put("scope", LOCAL_SCOPE) : result;
     }
 
     private static ObjectNode plugin(String name, JsonNode body) {

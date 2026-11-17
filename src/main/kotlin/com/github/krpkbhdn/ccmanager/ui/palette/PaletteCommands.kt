@@ -148,6 +148,7 @@ private fun projectOnlyActions(state: AppState, project: Project, here: String):
 
 private fun groupActions(state: AppState, group: Project, here: String) = listOf(
     PaletteItem("edit-group", "Edit group", PaletteGroup.ACTIONS, here, Icons.Settings) { state.projects.groupDialog = GroupDialogRequest(group) },
+    PaletteItem("group-settings", "Group settings", PaletteGroup.ACTIONS, "$here: Code Mode, languages", Icons.Settings) { state.extensions.openProjectSettings(group, ProjectSettingsSection.CODE_MODE) },
 )
 
 private fun runItem(state: AppState, entry: RunEntry, here: String) =

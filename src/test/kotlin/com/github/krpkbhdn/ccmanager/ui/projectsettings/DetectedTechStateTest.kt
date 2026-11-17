@@ -18,6 +18,7 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.mockito.ArgumentMatchers.any
+import org.mockito.ArgumentMatchers.eq
 import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.verify
@@ -92,14 +93,14 @@ class DetectedTechStateTest {
     }
 
     @Test
-    fun `a group project is never watched or probed`() {
+    fun `a group is watched and probed like a project`() {
         val group = Project(2, "g", dir, Instant.EPOCH, null, true, null)
         val state = DetectedTechState(health, scope)
         state.track(group)
         state.refresh(group)
         Thread.sleep(100)
-        assertThat(state.of(2)).isEmpty()
-        verifyNoInteractions(health)
+        verify(health).watch(eq(dir), any())
+        verify(health, org.mockito.Mockito.times(2)).checkNow(dir)
     }
 
     @Test

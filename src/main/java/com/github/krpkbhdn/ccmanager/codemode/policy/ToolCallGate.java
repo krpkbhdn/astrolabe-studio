@@ -80,7 +80,7 @@ public class ToolCallGate {
             if (verdict == PermissionRules.Verdict.ALLOW || tool.isSafeToRunUnasked()) {
                 return Decision.AUTO;
             }
-            if (projectModes.get(session.projectId()).toolCalls().allows(tool.server(), definition.name())) {
+            if (projectModes.effective(session.projectId()).toolCalls().allows(tool.server(), definition.name())) {
                 return Decision.PROJECT_SETTING;
             }
             if (isServerGranted(session, tool, definition) || !preview.truncated() && isGranted(session, tool, definition)) {

@@ -4,6 +4,7 @@ import com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess
 import com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.Mode
 
 const val TOOL_CALLS_TITLE = "Tool calls without asking"
+const val INHERITED_LABEL = "Inherited"
 private const val CHIP_LABEL = "Code Mode"
 
 /** Chip text: the plain name for Ask, a short suffix when tool calls run without asking. */

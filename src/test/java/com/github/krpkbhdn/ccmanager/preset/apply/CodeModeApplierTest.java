@@ -43,7 +43,7 @@ class CodeModeApplierTest {
         var jdbc = JdbcClient.create(dataSource);
         dir = temp.resolve("project");
         jdbc.sql("INSERT INTO project (id, name, path, created_at) VALUES (?, 'p', ?, 'now')").param(PROJECT_ID).param(dir.toString()).update();
-        codeMode = new ProjectCodeModeService(jdbc);
+        codeMode = new ProjectCodeModeService(jdbc, org.mockito.Mockito.mock(com.github.krpkbhdn.ccmanager.project.ProjectGroupService.class));
         var projects = mock(ProjectService.class);
         when(projects.list()).thenReturn(List.of(new Project(PROJECT_ID, "p", dir, Instant.now())));
         mcp = mock(McpService.class);

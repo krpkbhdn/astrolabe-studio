@@ -44,7 +44,7 @@ class ToolCallGateTest {
 
     @BeforeEach
     void projectSettingIsOffByDefault() {
-        when(projectModes.get(anyLong())).thenReturn(new ProjectCodeMode(1, true, List.of("db"), ToolCallAccess.ASK));
+        when(projectModes.effective(anyLong())).thenReturn(new ProjectCodeMode(1, true, List.of("db"), ToolCallAccess.ASK));
     }
     private static final McpServerDefinition DEFINITION = definition("db-server");
 
@@ -529,7 +529,7 @@ class ToolCallGateTest {
     }
 
     private Decision decideWithProjectSetting(ToolCallAccess access, PermissionRules.Verdict verdict, RemoteTool tool, JsonNode arguments) {
-        when(projectModes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of("db"), access));
+        when(projectModes.effective(1)).thenReturn(new ProjectCodeMode(1, true, List.of("db"), access));
         var ruled = new ToolCallGate(proposals, (session, names, name) -> verdict, projectModes);
         return ruled.decide(tool, DEFINITION, arguments, SESSION);
     }
@@ -570,10 +570,10 @@ class ToolCallGateTest {
     void theProjectSettingIsReadAtCallTimeSoAChangeReachesRunningSessions() {
         var ruled = new ToolCallGate(proposals, PermissionRules.NONE, projectModes);
         answerWith(AppDecision.Unanswered.TIMED_OUT);
-        when(projectModes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of("db"), ToolCallAccess.ASK));
+        when(projectModes.effective(1)).thenReturn(new ProjectCodeMode(1, true, List.of("db"), ToolCallAccess.ASK));
         assertThat(ruled.decide(toolOf("db", "wipe", true), DEFINITION, args("{}"), SESSION).allowed()).isFalse();
 
-        when(projectModes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of("db"), ToolCallAccess.ALL));
+        when(projectModes.effective(1)).thenReturn(new ProjectCodeMode(1, true, List.of("db"), ToolCallAccess.ALL));
 
         assertThat(ruled.decide(toolOf("db", "wipe", true), DEFINITION, args("{}"), SESSION).kind()).isEqualTo(Decision.Kind.ALLOWED_PROJECT_SETTING);
     }

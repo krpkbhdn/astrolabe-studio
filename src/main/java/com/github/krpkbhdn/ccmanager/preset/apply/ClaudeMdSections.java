@@ -8,7 +8,7 @@ import java.util.regex.Pattern;
  * Pure planning of the managed blocks in a CLAUDE.md: a block is replaced only between its own markers, text outside them is never touched.
  * Marker text inside a fenced code block is not a marker, and a block whose markers are unclosed or doubled is a conflict, never rewritten.
  */
-final class ClaudeMdSections {
+public final class ClaudeMdSections {
 
     private static final String CLAUDE_MD = "CLAUDE.md";
     private static final Pattern ANY_BLOCK = Pattern.compile("<!-- cc-manager:begin (\\S+) -->.*?<!-- cc-manager:end \\1 -->", Pattern.DOTALL);
@@ -71,7 +71,7 @@ final class ClaudeMdSections {
     }
 
     /** @return the file without the managed block of {@code title}, or unchanged when that block is missing, unclosed or repeated */
-    static String remove(String file, String title) {
+    public static String remove(String file, String title) {
         var visible = withoutFences(file);
         var slug = Pattern.quote(slug(title));
         var begin = Pattern.compile("<!-- cc-manager:begin " + slug + " -->").matcher(visible);

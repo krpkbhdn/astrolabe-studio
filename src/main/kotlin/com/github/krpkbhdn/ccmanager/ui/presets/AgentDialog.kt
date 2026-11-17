@@ -21,7 +21,7 @@ private val starter = """
     You review code changes. Report problems by severity and point at the line.
 """.trimIndent() + "\n"
 
-/** A subagent definition (markdown with front matter) copied to the project's .claude/agents folder. */
+/** A subagent definition (markdown with front matter) kept in the project's app folder, outside its repository. */
 @Composable
 fun AgentDialog(open: ComponentDialog, state: PresetsState) {
     val editing = open.editing
@@ -37,7 +37,7 @@ fun AgentDialog(open: ComponentDialog, state: PresetsState) {
         state::closeDialog,
         hasInput = { name.text.toString() != initialName || content.text.toString() != initialContent },
     ) {
-        FormField("Name", error = nameError, hint = "Also the file name: .claude/agents/<name>.md") {
+        FormField("Name", error = nameError, hint = "Also the file name: <name>.md") {
             AppTextField(name, Modifier.fillMaxWidth(), placeholder = "reviewer", mono = true, height = inputHeight)
         }
         FormField("Definition", hint = "Markdown with front matter (name, description, tools, model); the body is the agent's system prompt") {

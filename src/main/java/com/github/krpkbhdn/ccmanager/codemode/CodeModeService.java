@@ -189,7 +189,7 @@ public class CodeModeService {
     }
 
     private void requireEnabled(SessionContext session) {
-        if (!modes.get(session.projectId()).enabled()) {
+        if (!modes.effective(session.projectId()).enabled()) {
             throw new IllegalStateException(NOT_ENABLED);
         }
     }

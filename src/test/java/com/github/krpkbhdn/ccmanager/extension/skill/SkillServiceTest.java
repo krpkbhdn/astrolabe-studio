@@ -9,6 +9,8 @@ import static org.mockito.Mockito.when;
 import com.github.krpkbhdn.ccmanager.extension.ExtensionException;
 import com.github.krpkbhdn.ccmanager.extension.ExtensionProperties;
 import com.github.krpkbhdn.ccmanager.extension.ExtensionScope;
+import com.github.krpkbhdn.ccmanager.extension.ProjectOverlays;
+import com.github.krpkbhdn.ccmanager.overlay.ProjectOverlay;
 import com.github.krpkbhdn.ccmanager.extension.plugin.InstalledPlugin;
 import com.github.krpkbhdn.ccmanager.extension.plugin.PluginService;
 import com.github.krpkbhdn.ccmanager.workspace.FakeHostEnvironment;
@@ -33,9 +35,10 @@ class SkillServiceTest {
     Path pluginDirectory;
 
     private final PluginService plugins = mock(PluginService.class);
+    private final ProjectOverlays overlays = mock(ProjectOverlays.class);
 
     private SkillService service() {
-        return new SkillService(new FakeHostEnvironment(HostEnvironment.OperatingSystem.LINUX, home), plugins, new ExtensionProperties(30, 180, 90, 300, 16384));
+        return new SkillService(new FakeHostEnvironment(HostEnvironment.OperatingSystem.LINUX, home), plugins, new ExtensionProperties(30, 180, 90, 300, 16384), overlays);
     }
 
     private static void skill(Path root, String directory, String content) throws IOException {
@@ -219,7 +222,7 @@ class SkillServiceTest {
         var configDirectory = project.resolve("custom-config");
         var host = new FakeHostEnvironment(HostEnvironment.OperatingSystem.LINUX, home).withEnv("CLAUDE_CONFIG_DIR", configDirectory.toString());
         when(plugins.installed(null)).thenReturn(List.of());
-        var service = new SkillService(host, plugins, new ExtensionProperties(30, 180, 90, 300, 16384));
+        var service = new SkillService(host, plugins, new ExtensionProperties(30, 180, 90, 300, 16384), overlays);
 
         var created = service.create(ExtensionScope.USER, null, "mine", "d");
 
@@ -227,5 +230,31 @@ class SkillServiceTest {
         assertThat(service.list(null)).extracting(Skill::name).containsExactly("mine");
         service.delete(created);
         assertThat(created.directory()).doesNotExist();
+    }
+
+    @Test
+    void projectSkillOfARegisteredProjectGoesToTheOverlayAndTheFolderIsLeftAlone() throws IOException {
+        var overlay = new ProjectOverlay(home.resolve("overlay"));
+        when(overlays.of(project)).thenReturn(java.util.Optional.of(overlay));
+        when(plugins.installed(project)).thenReturn(List.of());
+        skill(project.resolve(".claude/skills"), "in-repo", "---\ndescription: Old\n---\n");
+
+        var created = service().create(ExtensionScope.PROJECT, project, "fresh", "New");
+
+        assertThat(created.scope()).isEqualTo(ExtensionScope.APP);
+        assertThat(created.file()).isEqualTo(overlay.contextDirectory().resolve(".claude/skills/fresh/SKILL.md"));
+        assertThat(project.resolve(".claude/skills/fresh")).doesNotExist();
+        assertThat(service().list(project)).extracting(Skill::name, Skill::scope)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("fresh", ExtensionScope.APP), org.assertj.core.groups.Tuple.tuple("in-repo", ExtensionScope.PROJECT));
+        service().delete(created);
+        assertThat(created.directory()).doesNotExist();
+    }
+
+    @Test
+    void projectSkillOfAnUnregisteredFolderStaysInTheFolder() {
+        var created = service().create(ExtensionScope.PROJECT, project, "fresh", "New");
+
+        assertThat(created.file()).isEqualTo(project.resolve(".claude/skills/fresh/SKILL.md"));
+        assertThatThrownBy(() -> service().create(ExtensionScope.APP, project, "x", "d")).isInstanceOf(ExtensionException.class);
     }
 }

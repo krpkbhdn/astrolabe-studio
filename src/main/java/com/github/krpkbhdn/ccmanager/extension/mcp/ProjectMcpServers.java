@@ -68,7 +68,7 @@ public class ProjectMcpServers {
      * arguments starting with ./ or ../ become absolute; URLs, connection strings, bare words and paths that leave the member
      * stay as written, as do env values.
      */
-    private static ObjectNode absolutized(ObjectNode server, Path directory) {
+    public static ObjectNode absolutized(ObjectNode server, Path directory) {
         var root = directory.toAbsolutePath().normalize();
         var command = server.path(COMMAND).asString("");
         if ((command.contains("/") || command.contains("\\")) && !command.startsWith("-")) {

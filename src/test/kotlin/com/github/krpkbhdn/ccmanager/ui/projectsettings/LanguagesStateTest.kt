@@ -1,5 +1,7 @@
 package com.github.krpkbhdn.ccmanager.ui.projectsettings
 
+import com.github.krpkbhdn.ccmanager.toolchain.DetectedTechnology
+import com.github.krpkbhdn.ccmanager.toolchain.GroupLspService
 import com.github.krpkbhdn.ccmanager.toolchain.ProjectToolRow
 import com.github.krpkbhdn.ccmanager.toolchain.ProjectToolsService
 import com.github.krpkbhdn.ccmanager.toolchain.ToolDefinition
@@ -169,5 +171,45 @@ class LanguagesStateTest {
 
         assertThat(highest.get()).isEqualTo(1)
         verify(service, times(2)).enableLsp(any(), anyString())
+    }
+
+    private fun detected(id: String) = DetectedTechnology(row(id).tool, ToolState.INSTALLED)
+
+    @Test
+    fun `an inheriting group loads read-only with the members as the source of each language`() {
+        val groupLsp = mock(GroupLspService::class.java)
+        val a = Path.of("a")
+        val b = Path.of("b")
+        `when`(groupLsp.inherits(7)).thenReturn(true)
+        `when`(service.rows(dir)).thenReturn(listOf(row("ts")))
+        `when`(service.detected(a)).thenReturn(listOf(detected("ts")))
+        `when`(service.detected(b)).thenReturn(listOf(detected("ts"), detected("go")))
+        val languages = LanguagesState(service, dir, scope, groupLsp, 7) { listOf("A" to a, "B" to b) }
+
+        languages.refresh()
+        await { languages.inherits }
+
+        assertThat(languages.sources).containsEntry("ts", listOf("A", "B")).containsEntry("go", listOf("B"))
+    }
+
+    @Test
+    fun `inheritFromMembers switches the group service and reloads`() {
+        val groupLsp = mock(GroupLspService::class.java)
+        var inheriting = false
+        `when`(groupLsp.inherits(7)).thenAnswer { inheriting }
+        doAnswer { inheriting = true; null }.`when`(groupLsp).inherit(7)
+        doAnswer { inheriting = false; null }.`when`(groupLsp).override(7)
+        `when`(service.rows(dir)).thenReturn(listOf(row("ts")))
+        val languages = LanguagesState(service, dir, scope, groupLsp, 7)
+        languages.refresh()
+        await { languages.rows.isNotEmpty() }
+
+        languages.inheritFromMembers(true)
+        await { languages.inherits }
+        verify(groupLsp).inherit(7)
+
+        languages.inheritFromMembers(false)
+        await { !languages.inherits && !languages.busy }
+        verify(groupLsp).override(7)
     }
 }

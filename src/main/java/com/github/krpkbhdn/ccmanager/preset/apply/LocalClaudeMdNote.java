@@ -1,6 +1,6 @@
 package com.github.krpkbhdn.ccmanager.preset.apply;
 
-import com.github.krpkbhdn.ccmanager.git.GitLocalExclude;
+import com.github.krpkbhdn.ccmanager.extension.ExtensionException;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -8,41 +8,41 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-/** Keeps one managed note in the project's CLAUDE.local.md (kept out of git); the note is a hint, so a failure is logged and never thrown. */
+/** Keeps one managed note in the project's overlay instructions (outside the repository); the note is a hint, so a failure is logged and never thrown. */
 @Component
 public final class LocalClaudeMdNote {
 
     private static final Logger log = LoggerFactory.getLogger(LocalClaudeMdNote.class);
+    private static final String FILE_NAME = "instructions.md";
 
-    private final GitLocalExclude localExclude;
+    private final ProjectOverlaySettings overlays;
 
-    public LocalClaudeMdNote(GitLocalExclude localExclude) {
-        this.localExclude = localExclude;
+    public LocalClaudeMdNote(ProjectOverlaySettings overlays) {
+        this.overlays = overlays;
     }
 
     /** Creates or updates the block of {@code title}; a hand-written section of that title or broken markers leave the file untouched. */
     public void write(Path projectDir, String title, String body) {
         try {
-            var file = ProjectFiles.resolve(projectDir, LocalConfigFiles.CLAUDE_MD);
+            var overlay = overlays.overlayOf(projectDir);
+            var file = overlay.instructionsFile();
             var seen = ProjectFiles.read(file);
-            var plan = ClaudeMdSections.plan(LocalConfigFiles.CLAUDE_MD, seen, title, body);
+            var plan = ClaudeMdSections.plan(FILE_NAME, seen, title, body);
             if (plan.action() == ChangeAction.CONFLICT) {
                 log.debug("Note '{}' not written: {}", title, plan.detail());
-                return;
+            } else if (plan.text() != null) {
+                overlay.write(file, plan.text());
             }
-            localExclude.ensureExcluded(projectDir, LocalConfigFiles.CLAUDE_MD);
-            if (plan.text() != null) {
-                ProjectFiles.replaceIfUnchanged(file, seen, plan.text());
-            }
-        } catch (IOException | IllegalArgumentException e) {
-            log.warn("Could not write the note '{}' to {}: {}", title, LocalConfigFiles.CLAUDE_MD, e.getClass().getSimpleName());
+        } catch (IOException | IllegalArgumentException | ExtensionException e) {
+            log.warn("Could not write the note '{}' to the project instructions: {}", title, e.getClass().getSimpleName());
         }
     }
 
     /** Removes the block of {@code title} and deletes the file when nothing else is left in it. */
     public void remove(Path projectDir, String title) {
         try {
-            var file = ProjectFiles.resolve(projectDir, LocalConfigFiles.CLAUDE_MD);
+            var overlay = overlays.overlayOf(projectDir);
+            var file = overlay.instructionsFile();
             var seen = ProjectFiles.read(file);
             var without = ClaudeMdSections.remove(seen, title);
             if (without.equals(seen)) {
@@ -51,10 +51,10 @@ public final class LocalClaudeMdNote {
             if (without.isBlank()) {
                 Files.deleteIfExists(file);
             } else {
-                ProjectFiles.replaceIfUnchanged(file, seen, without);
+                overlay.write(file, without);
             }
-        } catch (IOException | IllegalArgumentException e) {
-            log.warn("Could not remove the note '{}' from {}: {}", title, LocalConfigFiles.CLAUDE_MD, e.getClass().getSimpleName());
+        } catch (IOException | IllegalArgumentException | ExtensionException e) {
+            log.warn("Could not remove the note '{}' from the project instructions: {}", title, e.getClass().getSimpleName());
         }
     }
 }

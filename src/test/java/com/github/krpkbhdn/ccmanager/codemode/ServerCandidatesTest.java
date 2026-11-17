@@ -1,5 +1,9 @@
 package com.github.krpkbhdn.ccmanager.codemode;
 
+import java.util.stream.Collectors;
+import com.github.krpkbhdn.ccmanager.project.ModelSelection;
+import com.github.krpkbhdn.ccmanager.extension.mcp.McpServerConfig;
+import com.github.krpkbhdn.ccmanager.extension.mcp.McpApproval;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -52,7 +56,7 @@ class ServerCandidatesTest {
     }
 
     private void configured(String... names) {
-        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of(names), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
+        when(modes.effective(1)).thenReturn(new ProjectCodeMode(1, true, List.of(names), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
     }
 
     @Test
@@ -167,5 +171,57 @@ class ServerCandidatesTest {
         when(reader.definitions(directory)).thenReturn(List.of(user("jira"), user("my-server_2")));
 
         assertThat(candidates.of(SESSION)).allSatisfy(candidate -> assertThat(candidate.problem()).isNull());
+    }
+
+    private void groupWithTwoMembers(Path first, Path second) {
+        var group = new Project(7, "g", directory, Instant.now(), ModelSelection.DEFAULT, true, null);
+        when(projects.find(7)).thenReturn(Optional.of(group));
+        when(projects.list()).thenReturn(List.of(group, new Project(8, "a", first, Instant.now(), ModelSelection.DEFAULT, false, 7L),
+                new Project(9, "b", second, Instant.now(), ModelSelection.DEFAULT, false, 7L)));
+        when(modes.effective(7)).thenReturn(new ProjectCodeMode(7, true, List.of("shared", "own", "same"), ToolCallAccess.ASK));
+        when(modes.directoryOf("g1")).thenReturn(Optional.empty());
+    }
+
+    private static McpServerDefinition app(String name, String command) {
+        return new McpServerDefinition(name, ExtensionScope.APP, Transport.STDIO, command, List.of(), Map.of(), "", Map.of(), null);
+    }
+
+    private Map<String, Candidate> groupCandidates() {
+        return candidates.of(new SessionContext(7, "g1")).stream().collect(Collectors.toMap(Candidate::name, c -> c));
+    }
+
+    @Test
+    void aGroupOffersTheMembersAppServersAndTreatsDifferingDuplicatesAsAmbiguous(@TempDir Path other) {
+        var first = directory.resolve("a");
+        groupWithTwoMembers(first, other);
+        when(reader.definitions(first)).thenReturn(List.of(app("shared", "one"), app("own", "x"), app("same", "s")));
+        when(reader.definitions(other)).thenReturn(List.of(app("shared", "two"), app("same", "s")));
+
+        var found = groupCandidates();
+
+        assertThat(found.get("shared").problem()).isEqualTo(ServerCandidates.AMBIGUOUS);
+        assertThat(found.get("own").problem()).isNull();
+        assertThat(found.get("own").definition().scope()).isEqualTo(ExtensionScope.APP);
+        assertThat(found.get("same").problem()).isNull();
+    }
+
+    @Test
+    void aGroupUsesAnApprovedProjectFileServerOfAMemberAndNamesAnUnapprovedOne(@TempDir Path other) {
+        var first = directory.resolve("a");
+        groupWithTwoMembers(first, other);
+        when(reader.definitions(first)).thenReturn(List.of(projectFile("own", "x")));
+        when(reader.definitions(other)).thenReturn(List.of(projectFile("shared", "y")));
+        when(mcp.servers(first)).thenReturn(List.of(new McpServerConfig("own", ExtensionScope.PROJECT, "stdio", "x", McpApproval.APPROVED)));
+        when(mcp.servers(other)).thenReturn(List.of(new McpServerConfig("shared", ExtensionScope.PROJECT, "stdio", "y", McpApproval.PENDING)));
+
+        var found = groupCandidates();
+
+        assertThat(found.get("own").problem()).isNull();
+        assertThat(found.get("shared").problem()).isEqualTo(ServerCandidates.NOT_APPROVED);
+        assertThat(found.get("same").problem()).isEqualTo(ServerCandidates.NOT_FOUND);
+    }
+
+    private static McpServerDefinition projectFile(String name, String command) {
+        return new McpServerDefinition(name, ExtensionScope.PROJECT, Transport.STDIO, command, List.of(), Map.of(), "", Map.of(), null);
     }
 }

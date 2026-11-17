@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.github.krpkbhdn.ccmanager.claude.hook.SessionFiles;
+import com.github.krpkbhdn.ccmanager.overlay.OverlayAgent;
+import com.github.krpkbhdn.ccmanager.overlay.SessionOverlay;
 import com.github.krpkbhdn.ccmanager.project.ModelSelection;
 import com.github.krpkbhdn.ccmanager.team.RoleDraft;
 import com.github.krpkbhdn.ccmanager.team.Team;
@@ -296,5 +298,91 @@ class ClaudeCommandTest {
     void labelsAreShort() {
         assertThat(ClaudeCommand.label(LaunchMode.NEW)).isEqualTo("claude");
         assertThat(ClaudeCommand.label(LaunchMode.CONTINUE)).isEqualTo("claude (continue)");
+    }
+
+    private static final Team TEAM = new Team(1, "T", List.of(new TeamRole(1, new RoleDraft("boss", "d", "Lead it.", "opus", "high", null, true), 0),
+            new TeamRole(2, new RoleDraft("dev", "Writes code", "Code.", null, null, "Read,Edit", false), 1)));
+    private static final Path PROMPT = Path.of("s.prompt.md").toAbsolutePath();
+
+    private static SessionFiles overlayFiles(Path promptFile, Path agentsPlugin, String... agentFiles) {
+        var agents = new java.util.LinkedHashMap<String, OverlayAgent>();
+        for (var name : agentFiles) {
+            agents.put(name, OverlayAgent.parse(name + ".md", String.join("\n", "---", "description: from overlay", "tools: Read", "---", "Overlay body.")).orElseThrow());
+        }
+        var overlay = new SessionOverlay(Map.of(), SessionOverlay.EMPTY.settings(), "", agents, List.of(), List.of(Path.of("overlay").toAbsolutePath()));
+        return new SessionFiles(SETTINGS, MCP, promptFile, agentsPlugin, overlay);
+    }
+
+    @Test
+    void aTeamWithAPromptFileGetsTheFileAndNeverBothSystemPromptFlags() {
+        var command = ClaudeCommand.teamArguments(EXE, overlayFiles(PROMPT, null), PLUGIN, TEAM, "t");
+
+        assertThat(command).containsSequence("--append-system-prompt-file", PROMPT.toString()).contains("--agents").doesNotContain("--append-system-prompt");
+    }
+
+    @Test
+    void aTeamWithoutOverlayInstructionsKeepsTheInlineAddendum() {
+        var command = ClaudeCommand.teamArguments(EXE, FILES, PLUGIN, TEAM, "t");
+
+        assertThat(command).containsSequence("--append-system-prompt", TeamAgentsJson.leadAddendum(TEAM)).doesNotContain("--append-system-prompt-file");
+    }
+
+    @Test
+    void overlayAgentsJoinTheTeamAgentsAndTheTeamWinsOnAClash() throws Exception {
+        var command = ClaudeCommand.teamArguments(EXE, overlayFiles(null, null, "dev", "docs"), PLUGIN, TEAM, "t");
+
+        var agents = tools.jackson.databind.json.JsonMapper.builder().build().readTree(command.get(command.indexOf("--agents") + 1));
+        assertThat(agents.path("dev").path("description").asString()).isEqualTo("Writes code");
+        assertThat(agents.path("docs").path("description").asString()).isEqualTo("from overlay");
+        assertThat(agents.path("docs").path("tools").get(0).asString()).isEqualTo("Read");
+        assertThat(command.stream().filter("--agents"::equals)).hasSize(1);
+    }
+
+    @Test
+    void overlayAgentsWithoutATeamStillGetTheAgentsFlagOnEveryLaunchKind() {
+        var files = overlayFiles(null, null, "docs");
+        var id = "123e4567-e89b-12d3-a456-426614174000";
+
+        assertThat(ClaudeCommand.launchArguments(EXE, files, PLUGIN, LaunchMode.NEW, ModelSelection.DEFAULT)).contains("--agents");
+        assertThat(ClaudeCommand.taskArguments(EXE, files, PLUGIN, ModelSelection.DEFAULT, "t")).contains("--agents").endsWith("--", "t");
+        assertThat(ClaudeCommand.resumeArguments(EXE, files, PLUGIN, id, ModelSelection.DEFAULT, null)).contains("--agents").endsWith("--resume", id);
+    }
+
+    @Test
+    void agentsThatDidNotFitTravelAsASecondPluginDirectoryAndStayOutOfTheJson() {
+        var plugin = Path.of("agents-plugin").toAbsolutePath();
+        var command = ClaudeCommand.launchArguments(EXE, overlayFiles(null, plugin, "docs"), PLUGIN, LaunchMode.NEW, ModelSelection.DEFAULT);
+
+        assertThat(command).containsSequence("--plugin-dir", PLUGIN.toString(), "--plugin-dir", plugin.toString()).doesNotContain("--agents");
+    }
+
+    @Test
+    void withoutAnOverlayNoOverlayFlagAppears() {
+        assertThat(ClaudeCommand.launchArguments(EXE, FILES, PLUGIN, LaunchMode.NEW, ModelSelection.DEFAULT))
+                .doesNotContain("--agents", "--append-system-prompt-file", "--append-system-prompt");
+    }
+
+    @Test
+    void theFirstPromptNeverDirectlyFollowsAVariadicFlagValue() {
+        var plugin = Path.of("agents-plugin").toAbsolutePath();
+        var files = overlayFiles(PROMPT, plugin, "docs");
+        var directories = List.of(Path.of("member").toAbsolutePath(), Path.of("context").toAbsolutePath());
+        var commands = List.of(
+                ClaudeCommand.taskArguments(EXE, files, PLUGIN, new ModelSelection("sonnet", "low"), "task"),
+                ClaudeCommand.taskArguments(EXE, files, PLUGIN, ModelSelection.DEFAULT, "task"),
+                ClaudeCommand.teamArguments(EXE, files, PLUGIN, TEAM, "task"));
+
+        for (var arguments : commands) {
+            var command = new java.util.ArrayList<>(arguments);
+            ClaudeCommand.addDirectories(command, directories);
+            assertThat(command).endsWith("--", "task");
+            for (var flag : List.of("--add-dir", "--plugin-dir", "--mcp-config")) {
+                for (int i = 0; i < command.size(); i++) {
+                    if (command.get(i).equals(flag)) {
+                        assertThat(command.get(i + 2)).as("token after the value of " + flag).startsWith("--");
+                    }
+                }
+            }
+        }
     }
 }

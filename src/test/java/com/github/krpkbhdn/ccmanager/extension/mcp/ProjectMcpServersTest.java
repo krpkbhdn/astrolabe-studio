@@ -26,7 +26,7 @@ class ProjectMcpServersTest {
     Path second;
 
     private ProjectMcpServers servers() {
-        return new ProjectMcpServers(new McpConfigReader(new FakeHostEnvironment(HostEnvironment.OperatingSystem.LINUX, home), new GitRunner()));
+        return new ProjectMcpServers(new McpConfigReader(new FakeHostEnvironment(HostEnvironment.OperatingSystem.LINUX, home), new GitRunner(), org.mockito.Mockito.mock(com.github.krpkbhdn.ccmanager.extension.ProjectOverlays.class)));
     }
 
     private static String json(Path path) {

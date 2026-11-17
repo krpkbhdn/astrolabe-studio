@@ -29,6 +29,7 @@ import com.github.krpkbhdn.ccmanager.ui.components.PopupMenu
 import com.github.krpkbhdn.ccmanager.ui.components.Pressable
 import com.github.krpkbhdn.ccmanager.ui.components.StatusDot
 import com.github.krpkbhdn.ccmanager.ui.icons.Icons
+import com.github.krpkbhdn.ccmanager.ui.projectsettings.ProjectSettingsSection
 import com.github.krpkbhdn.ccmanager.ui.state.AppState
 import com.github.krpkbhdn.ccmanager.ui.state.GroupDialogRequest
 import com.github.krpkbhdn.ccmanager.ui.state.RenameRequest
@@ -45,6 +46,7 @@ class GroupActions(
     val onOpen: () -> Unit,
     val onStartTask: () -> Unit,
     val onEdit: () -> Unit,
+    val onSettings: () -> Unit,
     val onRename: () -> Unit,
     val onRemove: () -> Unit,
 )
@@ -53,6 +55,7 @@ fun AppState.groupActions(group: Project) = GroupActions(
     onOpen = { navigate(Route.Project(group.id)) },
     onStartTask = { tasks.open(group.id) },
     onEdit = { projects.groupDialog = GroupDialogRequest(group) },
+    onSettings = { extensions.openProjectSettings(group, ProjectSettingsSection.CODE_MODE) },
     onRename = { projects.renaming = RenameRequest(group) },
     onRemove = { projects.requestRemove(group) },
 )
@@ -60,6 +63,7 @@ fun AppState.groupActions(group: Project) = GroupActions(
 private fun groupMenu(actions: GroupActions): List<MenuEntry> = listOf(
     MenuEntry("Start task with team", Icons.Users) { actions.onStartTask() },
     MenuEntry("Edit group", Icons.FolderTree) { actions.onEdit() },
+    MenuEntry("Group settings...", Icons.Settings) { actions.onSettings() },
     MenuEntry("Rename", Icons.Edit) { actions.onRename() },
     MenuEntry("Remove group", Icons.Trash, danger = true) { actions.onRemove() },
 )

@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.flywaydb.core.Flyway;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -30,7 +29,7 @@ class TaskWorktreeServiceTest {
         jdbc = JdbcClient.create(dataSource);
         jdbc.sql("INSERT INTO project (name, path, created_at) VALUES ('app', ?, 'now')").param(sandbox.repo.toString()).update();
         projectId = jdbc.sql("SELECT id FROM project").query(Long.class).single();
-        service = new TaskWorktreeService(new GitBranchService(sandbox.runner), new GitWorktreeService(sandbox.runner), new GitLocalExclude(sandbox.runner), jdbc);
+        service = new TaskWorktreeService(new GitBranchService(sandbox.runner), new GitWorktreeService(sandbox.runner), jdbc);
         sandbox.write("a.txt", "base\n");
         sandbox.commitAll("base");
     }
@@ -42,60 +41,6 @@ class TaskWorktreeServiceTest {
         assertThat(worktree.path()).isEqualTo(Path.of(WorktreeNames.defaultPath(sandbox.repo, "task/fix-the-login-bug")));
         assertThat(worktree.branch()).isEqualTo("task/fix-the-login-bug");
         assertThat(Files.exists(worktree.path().resolve("a.txt"))).isTrue();
-    }
-
-    @Test
-    void copiesLocalConfigIntoTheWorktreeAndKeepsItUntracked() throws Exception {
-        Files.writeString(sandbox.repo.resolve("CLAUDE.local.md"), "mine\n");
-        Files.createDirectories(sandbox.repo.resolve(".claude"));
-        Files.writeString(sandbox.repo.resolve(".claude/settings.local.json"), "{}");
-
-        var worktree = service.create(projectId, sandbox.repo, "copy");
-
-        assertThat(worktree.path().resolve("CLAUDE.local.md")).hasContent("mine\n");
-        assertThat(worktree.path().resolve(".claude/settings.local.json")).hasContent("{}");
-        assertThat(sandbox.runIn(worktree.path(), "status", "--porcelain")).isBlank();
-    }
-
-    @Test
-    void localConfigAlreadyInTheWorktreeIsNotOverwritten() throws Exception {
-        Files.writeString(sandbox.repo.resolve("CLAUDE.local.md"), "mine\n");
-        Files.writeString(sandbox.repo.resolve("a.txt"), "base\n");
-        sandbox.git("add", "-f", "CLAUDE.local.md");
-        sandbox.git("commit", "-m", "tracked");
-        Files.writeString(sandbox.repo.resolve("CLAUDE.local.md"), "changed\n");
-
-        var worktree = service.create(projectId, sandbox.repo, "keep");
-
-        assertThat(worktree.path().resolve("CLAUDE.local.md")).hasContent("mine\n");
-    }
-
-    @Test
-    void localConfigIsNotCopiedThroughATrackedLinkLeavingTheWorktree() throws Exception {
-        var outside = Files.createDirectory(root.resolve("outside"));
-        try {
-            Files.createSymbolicLink(sandbox.repo.resolve(".claude"), outside);
-        } catch (java.io.IOException | UnsupportedOperationException e) {
-            Assumptions.abort("symbolic links are not available");
-        }
-        sandbox.git("add", ".claude");
-        sandbox.git("commit", "-m", "link");
-        Files.delete(sandbox.repo.resolve(".claude"));
-        Files.createDirectory(sandbox.repo.resolve(".claude"));
-        Files.writeString(sandbox.repo.resolve(".claude/settings.local.json"), "{}");
-
-        var worktree = service.create(projectId, sandbox.repo, "link");
-
-        Assumptions.assumeTrue(Files.isSymbolicLink(worktree.path().resolve(".claude")), "git did not check out the link");
-        assertThat(outside.resolve("settings.local.json")).doesNotExist();
-    }
-
-    @Test
-    void missingLocalConfigIsFine() {
-        var worktree = service.create(projectId, sandbox.repo, "none");
-
-        assertThat(worktree.path().resolve("CLAUDE.local.md")).doesNotExist();
-        assertThat(worktree.path().resolve(".claude")).doesNotExist();
     }
 
     @Test
@@ -196,7 +141,7 @@ class TaskWorktreeServiceTest {
                 throw new GitException(GitException.Kind.OTHER, "cannot remove", "");
             }
         };
-        var broken = new TaskWorktreeService(new GitBranchService(sandbox.runner), failing, new GitLocalExclude(sandbox.runner), jdbc);
+        var broken = new TaskWorktreeService(new GitBranchService(sandbox.runner), failing, jdbc);
 
         var thrown = org.assertj.core.api.Assertions.catchThrowable(() -> broken.create(projectId, sandbox.repo, "x"));
 

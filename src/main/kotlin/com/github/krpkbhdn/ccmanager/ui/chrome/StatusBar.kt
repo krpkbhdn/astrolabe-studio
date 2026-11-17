@@ -92,11 +92,11 @@ private fun ContextMeterSegment(state: AppState) {
     ContextMeter(view) { state.contextSessionId = id }
 }
 
-/** Language server health of the project on screen; absent for groups and projects with no detected language. */
+/** Language server health of the project or group on screen; absent when nothing is detected for it. Projects with no detected language. */
 @Composable
 private fun LspIndicatorSegment(state: AppState) {
     val route = state.route as? Route.Project ?: return
-    val project = state.projects.all.firstOrNull { it.id == route.id }?.takeUnless { it.group } ?: return
+    val project = state.projects.all.firstOrNull { it.id == route.id }?: return
     val indicator = lspIndicatorOf(state.detectedTech.of(project.id)) ?: return
     LspChip(indicator) { state.extensions.openProjectSettings(project, ProjectSettingsSection.LANGUAGES) }
 }

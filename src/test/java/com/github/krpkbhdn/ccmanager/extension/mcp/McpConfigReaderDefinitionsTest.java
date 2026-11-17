@@ -30,7 +30,7 @@ class McpConfigReaderDefinitionsTest {
                 """);
         var host = new FakeHostEnvironment(HostEnvironment.OperatingSystem.LINUX, home).withEnv("TOKEN", "s3cret").withEnv("HOME_DIR", "/home/u");
 
-        var definitions = new McpConfigReader(host, new GitRunner()).definitions(project);
+        var definitions = new McpConfigReader(host, new GitRunner(), org.mockito.Mockito.mock(com.github.krpkbhdn.ccmanager.extension.ProjectOverlays.class)).definitions(project);
 
         assertThat(definitions).hasSize(2);
         var remote = definitions.get(0);
@@ -49,7 +49,7 @@ class McpConfigReaderDefinitionsTest {
     void everyScopeStartsInTheGivenDirectoryAndNoneWithoutOne() throws IOException {
         Files.writeString(home.resolve(".claude.json"), "{\"mcpServers\":{\"u\":{\"command\":\"x\"}}}");
         Files.writeString(project.resolve(".mcp.json"), "{\"mcpServers\":{\"p\":{\"command\":\"y\"}}}");
-        var reader = new McpConfigReader(new FakeHostEnvironment(HostEnvironment.OperatingSystem.LINUX, home), new GitRunner());
+        var reader = new McpConfigReader(new FakeHostEnvironment(HostEnvironment.OperatingSystem.LINUX, home), new GitRunner(), org.mockito.Mockito.mock(com.github.krpkbhdn.ccmanager.extension.ProjectOverlays.class));
 
         assertThat(reader.definitions(project)).extracting(McpServerDefinition::workingDirectory).containsExactly(project, project);
         assertThat(reader.definitions(null)).extracting(McpServerDefinition::workingDirectory).containsOnlyNulls();
@@ -63,7 +63,7 @@ class McpConfigReaderDefinitionsTest {
                 """);
         var host = new FakeHostEnvironment(HostEnvironment.OperatingSystem.LINUX, home);
 
-        var text = new McpConfigReader(host, new GitRunner()).definitions(project).toString();
+        var text = new McpConfigReader(host, new GitRunner(), org.mockito.Mockito.mock(com.github.krpkbhdn.ccmanager.extension.ProjectOverlays.class)).definitions(project).toString();
 
         assertThat(text).contains("KEY", "Authorization").doesNotContain("envsecret", "headersecret", "argsecret", "urlsecret");
     }

@@ -1,6 +1,5 @@
 package com.github.krpkbhdn.ccmanager.preset.apply;
 
-import com.github.krpkbhdn.ccmanager.preset.PresetComponent;
 import com.github.krpkbhdn.ccmanager.preset.ProjectPathRules;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -10,7 +9,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 
-/** File access inside a project folder. Relative paths come from user input, so every one is checked here again before it is touched. */
+/** File access inside a project folder or an app folder that may not exist yet. Relative paths come from user input, so every one is checked here again before it is touched. */
 final class ProjectFiles {
 
     static final long MAX_READ_BYTES = 2L * 1024 * 1024;
@@ -43,7 +42,7 @@ final class ProjectFiles {
             while (!Files.exists(existing, LinkOption.NOFOLLOW_LINKS)) {
                 existing = existing.getParent();
             }
-            if (!existing.toRealPath().startsWith(root.toRealPath())) {
+            if (existing.startsWith(root) && !existing.toRealPath().startsWith(root.toRealPath())) {
                 throw new IllegalArgumentException("The path leaves the project through a link: " + relative);
             }
         } catch (IOException e) {
@@ -98,11 +97,6 @@ final class ProjectFiles {
         } finally {
             Files.deleteIfExists(temp);
         }
-    }
-
-    /** True for a component whose payload asks for the user-only ("local") target. */
-    static boolean isLocal(PresetComponent component) {
-        return LocalConfigFiles.SCOPE.equals(component.payload().path("scope").asString(""));
     }
 
     static String lineEnding(String text) {

@@ -1,6 +1,7 @@
 package com.github.krpkbhdn.ccmanager.codemode;
 
 import com.github.krpkbhdn.ccmanager.config.NameRules;
+import com.github.krpkbhdn.ccmanager.project.ProjectGroupService;
 import com.github.krpkbhdn.ccmanager.workspace.ChangeListeners;
 import java.util.HashSet;
 import java.nio.file.Path;
@@ -14,7 +15,7 @@ import org.springframework.stereotype.Service;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 
-/** Per-project Code Mode setting in SQLite; a project without a row is disabled with no servers. */
+/** Per-project Code Mode setting in SQLite; a project without a row is disabled with no servers, a group without a row inherits its members' settings. */
 @Service
 public class ProjectCodeModeService {
 
@@ -26,8 +27,41 @@ public class ProjectCodeModeService {
     private final Map<String, Path> sessionDirectories = new ConcurrentHashMap<>();
     private final ChangeListeners listeners = new ChangeListeners("Code mode");
 
-    public ProjectCodeModeService(JdbcClient jdbc) {
+    private final ProjectGroupService groups;
+
+    public ProjectCodeModeService(JdbcClient jdbc, ProjectGroupService groups) {
         this.jdbc = jdbc;
+        this.groups = groups;
+    }
+
+    /** What applies to the project: its own row; for a group without a row, the merge over its members. {@link #get} stays the stored row. */
+    public ProjectCodeMode effective(long id) {
+        if (hasRow(id)) {
+            return get(id);
+        }
+        return GroupCodeModeMerge.of(id, groups.members(id).stream().map(member -> get(member.id())).toList());
+    }
+
+    public boolean inherits(long groupId) {
+        return !hasRow(groupId);
+    }
+
+    /** Saves the inherited values as the group's own, so they can be changed independently of the members. */
+    public ProjectCodeMode override(long groupId) {
+        if (hasRow(groupId)) {
+            return get(groupId);
+        }
+        var inherited = effective(groupId);
+        return save(groupId, inherited.enabled(), inherited.servers(), inherited.toolCalls());
+    }
+
+    public void inherit(long groupId) {
+        jdbc.sql("DELETE FROM project_code_mode WHERE project_id = ?").param(groupId).update();
+        listeners.fire();
+    }
+
+    private boolean hasRow(long id) {
+        return jdbc.sql("SELECT COUNT(*) FROM project_code_mode WHERE project_id = ?").param(id).query(Integer.class).single() > 0;
     }
 
     public ProjectCodeMode get(long projectId) {

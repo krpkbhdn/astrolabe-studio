@@ -14,6 +14,7 @@ import com.github.krpkbhdn.ccmanager.ui.extensions.skills.SkillsState
 import com.github.krpkbhdn.ccmanager.ui.projectsettings.LanguagesState
 import com.github.krpkbhdn.ccmanager.ui.projectsettings.ProjectSettingsSection
 import com.github.krpkbhdn.ccmanager.ui.projectsettings.ProjectSettingsState
+import com.github.krpkbhdn.ccmanager.ui.projectsettings.sectionFor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -35,15 +36,18 @@ internal class ProjectSettingsHost(
         val dialogScope = CoroutineScope(scope.coroutineContext + SupervisorJob(scope.coroutineContext[Job]))
         state = ProjectSettingsState(
             ExtensionContext.ForProject(project.id, project.name, project.path),
-            section,
+            sectionFor(project.group, section),
             dialogScope,
             PluginsState(backend.plugins, dialogScope, requestConfirm, notifications::toast, project.path),
             McpState(backend.mcp, project.path, dialogScope, requestConfirm, notifications::toast),
             SkillsState(backend.skills, project.path, dialogScope, requestConfirm, notifications::toast, skillHost),
-            ProjectCodeModeState(backend.projectCodeMode, project.id, dialogScope, { backend.pluginMcpServers?.servers(project.path) ?: emptyList() }, notifications::reportError),
-            LanguagesState(backend.toolchain?.projectTools, project.path, dialogScope),
+            ProjectCodeModeState(backend.projectCodeMode, project.id, dialogScope, { backend.pluginMcpServers?.servers(project.path) ?: emptyList() }, project.group, { backend.memberCodeModeServers(project) }, notifications::reportError),
+            LanguagesState(backend.toolchain?.projectTools, project.path, dialogScope, backend.toolchain?.groupLsp, project.id) { memberFolders(project) },
+            project.group,
         )
     }
+
+    private fun memberFolders(group: Project) = backend.groups.members(group.id).map { it.name to it.path }
 
     fun dispose() {
         state?.dispose()

@@ -15,6 +15,8 @@ import com.github.krpkbhdn.ccmanager.extension.ExtensionScope;
 import com.github.krpkbhdn.ccmanager.extension.mcp.McpConfigReader;
 import com.github.krpkbhdn.ccmanager.extension.mcp.McpServerConfig;
 import com.github.krpkbhdn.ccmanager.extension.mcp.ProjectMcpServers;
+import com.github.krpkbhdn.ccmanager.overlay.ProjectOverlayService;
+import com.github.krpkbhdn.ccmanager.overlay.SessionOverlay;
 import com.github.krpkbhdn.ccmanager.project.GroupWorkspace;
 import com.github.krpkbhdn.ccmanager.project.Project;
 import com.github.krpkbhdn.ccmanager.project.TrustLevel;
@@ -25,10 +27,12 @@ import com.github.krpkbhdn.ccmanager.project.ProjectService;
 import com.github.krpkbhdn.ccmanager.team.Team;
 import com.github.krpkbhdn.ccmanager.toolchain.ExecutableLookup;
 import com.pty4j.PtyProcess;
+import tools.jackson.databind.JsonNode;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -64,13 +68,15 @@ public class ClaudeLauncher {
     private final ExecutableLookup executableLookup;
     private final SessionTrust sessionTrust;
     private final TrustSettingsService trustSettings;
+    private final ProjectOverlayService overlays;
 
     public ClaudeLauncher(ProjectService projects, ClaudeInstallationService installation,
             HookSettingsWriter hookSettings, ClaudePluginWriter plugin, SessionRegistry sessions, AppProperties properties,
             ProjectGroupService groups, GroupWorkspace groupWorkspace, ProjectMcpServers projectMcpServers,
             AssistantMcpServer assistantMcp, WorkDirectories workDirectories,
             ProjectCodeModeService codeModes, McpConfigReader mcpConfigs, ExecutableLookup executableLookup, SessionTrust sessionTrust,
-            TrustSettingsService trustSettings) {
+            TrustSettingsService trustSettings, ProjectOverlayService overlays) {
+        this.overlays = overlays;
         this.trustSettings = trustSettings;
         this.sessionTrust = sessionTrust;
         this.executableLookup = executableLookup;
@@ -91,19 +97,19 @@ public class ClaudeLauncher {
 
     /** @throws IllegalStateException with a user-readable message (Claude missing, project gone, spawn failed) */
     public LaunchedSession launch(long projectId, LaunchMode mode) {
-        return start(projectId, ClaudeCommand.label(mode),
+        return start(projectId, ClaudeCommand.label(mode), null,
                 (files, exe, selection) -> ClaudeCommand.launchArguments(exe, files, plugin.directory(), mode, selection));
     }
 
     /** Like {@link #launch(long, LaunchMode)} but with [team] as agents, so the team also applies to a new, continued or resumed conversation. */
     public LaunchedSession launch(long projectId, LaunchMode mode, Team team) {
-        return start(projectId, ClaudeCommand.label(mode, team),
+        return start(projectId, ClaudeCommand.label(mode, team), team,
                 (files, exe, selection) -> ClaudeCommand.launchArguments(exe, files, plugin.directory(), mode, selection, team));
     }
 
     /** Like {@link #launch(long, LaunchMode, Team)} in [directory], the project folder or one of its git worktrees; the session still belongs to the project. */
     public LaunchedSession launchIn(long projectId, Path directory, LaunchMode mode, Team team) {
-        return startIn(projectId, directory, ClaudeCommand.label(mode, team), (files, exe, selection) -> team == null
+        return startIn(projectId, directory, ClaudeCommand.label(mode, team), team, (files, exe, selection) -> team == null
                 ? ClaudeCommand.launchArguments(exe, files, plugin.directory(), mode, selection)
                 : ClaudeCommand.launchArguments(exe, files, plugin.directory(), mode, selection, team));
     }
@@ -111,10 +117,10 @@ public class ClaudeLauncher {
     /** A task session in [directory] (project folder or git worktree); with a [team] as {@link #launchTeam}, without as {@link #launchTask}. */
     public LaunchedSession launchTaskIn(long projectId, Path directory, Team team, String task) {
         if (team == null) {
-            return startIn(projectId, directory, ClaudeCommand.label(LaunchMode.NEW),
+            return startIn(projectId, directory, ClaudeCommand.label(LaunchMode.NEW), null,
                     (files, exe, selection) -> ClaudeCommand.taskArguments(exe, files, plugin.directory(), selection, task));
         }
-        return startIn(projectId, directory, ClaudeCommand.label(LaunchMode.NEW, team),
+        return startIn(projectId, directory, ClaudeCommand.label(LaunchMode.NEW, team), team,
                 (files, exe, selection) -> ClaudeCommand.teamArguments(exe, files, plugin.directory(), team, task));
     }
 
@@ -124,9 +130,9 @@ public class ClaudeLauncher {
         Project project = project(projectId);
         boolean keepsCwd = insideProject(cwd, project.path()) || cwd != null && workDirectories.accepts(project, cwd);
         Path directory = keepsCwd ? cwd : project.path();
-        return start(projectId, directory, project.modelSelection(), trustSettings.effective(project), ClaudeCommand.label(LaunchMode.RESUME_PICKER, team),
-                (files, exe, selection) -> ClaudeCommand.resumeArguments(exe, files, plugin.directory(), claudeSessionId, selection, team),
-                project.group() ? members(project) : List.of());
+        List<Project> members = project.group() ? members(project) : List.of();
+        return start(projectId, directory, project.modelSelection(), trustSettings.effective(project), ClaudeCommand.label(LaunchMode.RESUME_PICKER, team), team,
+                overlayOf(project, members), (files, exe, selection) -> ClaudeCommand.resumeArguments(exe, files, plugin.directory(), claudeSessionId, selection, team), members);
     }
 
     static boolean insideProject(Path cwd, Path projectPath) {
@@ -139,24 +145,25 @@ public class ClaudeLauncher {
 
     /** A lead session with the team's roles as subagents; the task is its first prompt. */
     public LaunchedSession launchTeam(long projectId, Team team, String task) {
-        return start(projectId, ClaudeCommand.label(LaunchMode.NEW, team),
+        return start(projectId, ClaudeCommand.label(LaunchMode.NEW, team), team,
                 (files, exe, selection) -> ClaudeCommand.teamArguments(exe, files, plugin.directory(), team, task));
     }
 
     /** A plain session without an agent team; the task is its first prompt. */
     public LaunchedSession launchTask(long projectId, String task) {
-        return start(projectId, ClaudeCommand.label(LaunchMode.NEW),
+        return start(projectId, ClaudeCommand.label(LaunchMode.NEW), null,
                 (files, exe, selection) -> ClaudeCommand.taskArguments(exe, files, plugin.directory(), selection, task));
     }
 
     /** claude attach ID for a background agent; not for a group, whose variadic --add-dir would swallow the subcommand. */
     public LaunchedSession attach(long projectId, String backgroundSessionId) {
         ClaudeCommand.requireSafeBackgroundId(backgroundSessionId);
-        if (project(projectId).group()) {
+        Project project = project(projectId);
+        if (project.group()) {
             throw new IllegalStateException("Background agents cannot be attached to a project group.");
         }
-        return start(projectId, "attach " + backgroundSessionId,
-                (files, exe, selection) -> ClaudeCommand.attachArguments(exe, files, backgroundSessionId));
+        return start(projectId, project.path(), project.modelSelection(), trustSettings.effective(project), "attach " + backgroundSessionId, null, SessionOverlay.EMPTY,
+                (files, exe, selection) -> ClaudeCommand.attachArguments(exe, files, backgroundSessionId), List.of());
     }
 
     /** A general session outside any project, started in the assistant directory under {@link #ASSISTANT_PROJECT_ID}. */
@@ -167,24 +174,35 @@ public class ClaudeLauncher {
         } catch (IOException e) {
             throw new IllegalStateException("Could not create the assistant folder: " + e.getMessage(), e);
         }
-        return start(ASSISTANT_PROJECT_ID, directory, ModelSelection.DEFAULT, TrustLevel.ASK, ClaudeCommand.label(LaunchMode.NEW),
-                (files, exe, selection) -> ClaudeCommand.assistantArguments(exe, files, selection, assistantMcp.toolNames()), List.of());
+        return start(ASSISTANT_PROJECT_ID, directory, ModelSelection.DEFAULT, TrustLevel.ASK, ClaudeCommand.label(LaunchMode.NEW), null,
+                SessionOverlay.EMPTY, (files, exe, selection) -> ClaudeCommand.assistantArguments(exe, files, selection, assistantMcp.toolNames()), List.of());
     }
 
-    private LaunchedSession start(long projectId, String label, CommandFactory commandFactory) {
+    private LaunchedSession start(long projectId, String label, Team team, CommandFactory commandFactory) {
         Project project = project(projectId);
-        return start(projectId, project.path(), project.modelSelection(), trustSettings.effective(project), label, commandFactory,
-                project.group() ? members(project) : List.of());
+        List<Project> members = project.group() ? members(project) : List.of();
+        return start(projectId, project.path(), project.modelSelection(), trustSettings.effective(project), label, team, overlayOf(project, members), commandFactory,
+                members);
     }
 
-    private LaunchedSession startIn(long projectId, Path directory, String label, CommandFactory commandFactory) {
+    private LaunchedSession startIn(long projectId, Path directory, String label, Team team, CommandFactory commandFactory) {
         Project project = project(projectId);
-        return start(projectId, workDirectories.validate(project, directory), project.modelSelection(), trustSettings.effective(project), label, commandFactory,
-                List.of());
+        return start(projectId, workDirectories.validate(project, directory), project.modelSelection(), trustSettings.effective(project), label, team,
+                overlayOf(project, List.of()), commandFactory, List.of());
     }
 
-    private LaunchedSession start(long projectId, Path directory, ModelSelection modelSelection, TrustLevel trust, String label,
-            CommandFactory commandFactory, List<Project> members) {
+    /** A failure to read the overlay means a launch without it, never a failed launch. */
+    private SessionOverlay overlayOf(Project project, List<Project> members) {
+        try {
+            return members.isEmpty() ? overlays.forProject(project.id()) : overlays.forGroup(project.id(), members);
+        } catch (RuntimeException e) {
+            log.warn("Project overlay of {} skipped: {}", project.id(), e.getClass().getSimpleName());
+            return SessionOverlay.EMPTY;
+        }
+    }
+
+    private LaunchedSession start(long projectId, Path directory, ModelSelection modelSelection, TrustLevel trust, String label, Team team,
+            SessionOverlay overlay, CommandFactory commandFactory, List<Project> members) {
         boolean group = !members.isEmpty();
         Path executable = executable();
         String ccmSessionId = sessions.register(projectId);
@@ -195,11 +213,13 @@ public class ClaudeLauncher {
                 groupWorkspace.prepare(directory, members);
             }
             SessionFiles files = projectId == ASSISTANT_PROJECT_ID ? hookSettings.writeAssistant(ccmSessionId)
-                    : group ? hookSettings.write(ccmSessionId, projectMcpServers.approved(memberPaths))
-                    : writeProjectFiles(ccmSessionId, codeModeAccess(ccmSessionId, projectId, directory), trust, directory);
+                    : group ? writeGroupFiles(ccmSessionId, projectMcpServers.approved(memberPaths), codeModeAccess(ccmSessionId, projectId, directory, false), overlay, team)
+                    : writeProjectFiles(ccmSessionId, codeModeAccess(ccmSessionId, projectId, directory, true), trust, directory, overlay, team);
             List<String> command = new ArrayList<>(commandFactory.build(files, executable, modelSelection));
-            if (group) {
-                ClaudeCommand.addDirectories(command, memberPaths);
+            List<Path> addedDirectories = new ArrayList<>(memberPaths);
+            addedDirectories.addAll(overlay.contextDirectories());
+            if (!addedDirectories.isEmpty()) {
+                ClaudeCommand.addDirectories(command, addedDirectories);
             }
             String sessionToken = hookSettings.sessionToken(ccmSessionId);
             Map<String, String> parent = ClaudeCommand.withSearchPath(System.getenv(), executableLookup.searchPath());
@@ -218,24 +238,38 @@ public class ClaudeLauncher {
         }
     }
 
-    private SessionFiles writeProjectFiles(String ccmSessionId, CodeModeAccess codeMode, TrustLevel trust, Path directory) {
+    private SessionFiles writeGroupFiles(String ccmSessionId, Map<String, JsonNode> memberServers, CodeModeAccess codeMode, SessionOverlay overlay, Team team) {
+        var servers = new LinkedHashMap<>(memberServers);
+        codeMode.deniedServers().forEach(servers::remove);
+        if (overlay.isEmpty() && codeMode == CodeModeAccess.OFF) {
+            return hookSettings.write(ccmSessionId, servers);
+        }
+        return hookSettings.write(ccmSessionId, servers, codeMode, TrustLevel.ASK, overlay, team);
+    }
+
+    private SessionFiles writeProjectFiles(String ccmSessionId, CodeModeAccess codeMode, TrustLevel trust, Path directory, SessionOverlay overlay, Team team) {
         if (trust != TrustLevel.ASK) {
             sessionTrust.set(ccmSessionId, trust, directory);
+        }
+        if (!overlay.isEmpty()) {
+            return hookSettings.write(ccmSessionId, Map.of(), codeMode, trust, overlay, team);
+        }
+        if (trust != TrustLevel.ASK) {
             return hookSettings.write(ccmSessionId, Map.of(), codeMode, trust);
         }
         return codeMode == CodeModeAccess.OFF ? hookSettings.write(ccmSessionId) : hookSettings.write(ccmSessionId, Map.of(), codeMode);
     }
 
-    /** Single-project sessions only; the Assistant and group sessions get no Code Mode in v1. A failure to read the setting means no Code Mode, never a failed launch. */
-    private CodeModeAccess codeModeAccess(String ccmSessionId, long projectId, Path directory) {
+    /** Not for the Assistant. A group's folder has no .mcp.json to read (its member servers are dropped from the mcp file and denied instead); a failure to read the setting means no Code Mode, never a failed launch. */
+    private CodeModeAccess codeModeAccess(String ccmSessionId, long projectId, Path directory, boolean readsProjectFile) {
         try {
-            var codeMode = codeModes.get(projectId);
+            var codeMode = codeModes.effective(projectId);
             if (!codeMode.enabled() || codeMode.servers().isEmpty()) {
                 return CodeModeAccess.OFF;
             }
             codeModes.rememberDirectory(ccmSessionId, directory);
-            var inProjectFile = mcpConfigs.read(directory).stream().filter(server -> server.scope() == ExtensionScope.PROJECT)
-                    .map(McpServerConfig::name).toList();
+            var inProjectFile = readsProjectFile ? mcpConfigs.read(directory).stream().filter(server -> server.scope() == ExtensionScope.PROJECT)
+                    .map(McpServerConfig::name).toList() : List.<String>of();
             return new CodeModeAccess(codeMode.servers().stream().filter(inProjectFile::contains).toList(), codeMode.servers());
         } catch (RuntimeException e) {
             log.warn("Code Mode skipped for project {}: {}", projectId, e.getMessage());

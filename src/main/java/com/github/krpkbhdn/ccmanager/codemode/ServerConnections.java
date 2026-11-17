@@ -147,7 +147,7 @@ public class ServerConnections extends ScheduledSweep {
     /** @throws IllegalStateException with the reason when the server is not a usable Code Mode server of the project */
     public McpClient client(SessionContext session, String server) {
         var pool = pool(session);
-        var mode = modes.get(session.projectId());
+        var mode = modes.effective(session.projectId());
         if (!mode.enabled()) {
             drop(pool, server);
             throw new IllegalStateException("'" + server + "' is not a Code Mode server of this project");

@@ -11,6 +11,8 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.LongConsumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +31,7 @@ public class ProjectService {
     private final JdbcClient jdbc;
     private final GroupWorkspace groupWorkspace;
     private final ChangeListeners listeners = new ChangeListeners("Project");
+    private final List<LongConsumer> removalListeners = new CopyOnWriteArrayList<>();
 
     @Autowired
     public ProjectService(JdbcClient jdbc, GroupWorkspace groupWorkspace) {
@@ -119,8 +122,22 @@ public class ProjectService {
             if (removed.get(0) != null) {
                 deleteGroupDirectory(Path.of(removed.get(0)));
             }
+            removalListeners.forEach(listener -> notifyRemoved(listener, id));
             fireChanged();
         }
+    }
+
+    private static void notifyRemoved(LongConsumer listener, long id) {
+        try {
+            listener.accept(id);
+        } catch (RuntimeException e) {
+            log.warn("A project removal listener failed for {}", id, e);
+        }
+    }
+
+    /** [onRemoved] gets the id of every project or group deleted from now on, before the change callbacks fire. */
+    public void subscribeRemoval(LongConsumer onRemoved) {
+        removalListeners.add(onRemoved);
     }
 
     private void deleteGroupDirectory(Path directory) {
@@ -135,6 +152,15 @@ public class ProjectService {
     /** @return unsubscribe handle; callback fires after any add/rename/remove */
     public Runnable subscribe(Runnable onChange) {
         return listeners.add(onChange);
+    }
+
+    /** The registered project or group whose folder is [directory], matched on the real path the row was stored with. */
+    public Optional<Project> findByDirectory(Path directory) {
+        try {
+            return findByPath(directory.toRealPath());
+        } catch (IOException e) {
+            return findByPath(directory.toAbsolutePath().normalize());
+        }
     }
 
     private Optional<Project> findByPath(Path path) {

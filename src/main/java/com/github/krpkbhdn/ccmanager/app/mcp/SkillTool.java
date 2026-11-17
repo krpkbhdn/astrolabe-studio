@@ -1,6 +1,7 @@
 package com.github.krpkbhdn.ccmanager.app.mcp;
 
 import com.github.krpkbhdn.ccmanager.claude.mcp.McpToolDescriptor;
+import com.github.krpkbhdn.ccmanager.extension.ExtensionScope;
 import com.github.krpkbhdn.ccmanager.extension.skill.Skill;
 import com.github.krpkbhdn.ccmanager.extension.skill.SkillService;
 import com.github.krpkbhdn.ccmanager.project.ProjectService;
@@ -24,7 +25,7 @@ abstract class SkillTool extends ExtensionScopeTool {
         var name = McpToolDescriptor.requiredText(arguments, "name");
         var scope = scopeOf(arguments);
         var matches = skills.list(projectDirectory(arguments)).stream()
-                .filter(skill -> !skill.readOnly() && skill.scope() == scope && skill.directory().getFileName().toString().equals(name))
+                .filter(skill -> !skill.readOnly() && (skill.scope() == scope || scope == ExtensionScope.PROJECT && skill.scope() == ExtensionScope.APP) && skill.directory().getFileName().toString().equals(name))
                 .toList();
         if (matches.size() > 1) {
             throw new IllegalArgumentException("More than one skill folder is named " + name + ", see list_skills");

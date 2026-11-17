@@ -34,6 +34,7 @@ import com.github.krpkbhdn.ccmanager.preset.ProjectPresetService
 import com.github.krpkbhdn.ccmanager.preset.BundledPresetLoader
 import com.github.krpkbhdn.ccmanager.preset.PresetRecommendation
 import com.github.krpkbhdn.ccmanager.preset.apply.PresetApplyService
+import com.github.krpkbhdn.ccmanager.project.Project
 import com.github.krpkbhdn.ccmanager.project.ProjectGroupService
 import com.github.krpkbhdn.ccmanager.project.ProjectService
 import com.github.krpkbhdn.ccmanager.project.TrustSettingsService
@@ -54,6 +55,7 @@ import com.github.krpkbhdn.ccmanager.usage.RateLimitService
 import com.github.krpkbhdn.ccmanager.update.UpdateService
 import com.github.krpkbhdn.ccmanager.usage.SessionUsageService
 import com.github.krpkbhdn.ccmanager.usage.context.ContextBreakdownService
+import com.github.krpkbhdn.ccmanager.toolchain.GroupLspService
 import com.github.krpkbhdn.ccmanager.toolchain.LspHealthMonitor
 import com.github.krpkbhdn.ccmanager.toolchain.LspSetupService
 import com.github.krpkbhdn.ccmanager.toolchain.ProjectToolsService
@@ -132,6 +134,10 @@ class Backend(
     val toolchain: ToolchainBackend? = null,
     val taskAttachments: TaskAttachmentProperties = TaskAttachmentProperties(10, 20L * 1024 * 1024, Duration.ofDays(7), 10, 1000),
 ) {
+    /** Code Mode servers each member of [group] has saved, by member name, for the group's inherited view. */
+    fun memberCodeModeServers(group: Project): List<Pair<String, List<String>>> =
+        groups.members(group.id).map { it.name to (projectCodeMode?.get(it.id)?.servers() ?: emptyList()) }
+
     companion object {
         fun from(context: ConfigurableApplicationContext) = Backend(
             projects = context.getBean(ProjectService::class.java),
@@ -194,6 +200,7 @@ class Backend(
                 context.getBean(ProjectToolsService::class.java),
                 context.getBean(LspSetupService::class.java),
                 context.getBean(LspHealthMonitor::class.java),
+                context.getBean(GroupLspService::class.java),
             ),
             projectCodeMode = context.getBean(ProjectCodeModeService::class.java),
             pluginMcpServers = context.getBean(PluginMcpServers::class.java),

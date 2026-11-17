@@ -29,7 +29,7 @@ fun SkillEditDialog(open: ComponentDialog, state: PresetsState) {
         state::closeDialog,
         hasInput = { name.text.toString() != initialName || text.text.toString() != initialText },
     ) {
-        FormField("Name", error = nameError, hint = "Also the folder name: .claude/skills/<name>") {
+        FormField("Name", error = nameError, hint = "Also the skill folder name") {
             AppTextField(name, Modifier.fillMaxWidth(), mono = true, height = inputHeight)
         }
         FormField(SKILL_FILE, hint = if (others > 0) "$others more ${if (others == 1) "file" else "files"} in the skill folder stay unchanged" else null) {

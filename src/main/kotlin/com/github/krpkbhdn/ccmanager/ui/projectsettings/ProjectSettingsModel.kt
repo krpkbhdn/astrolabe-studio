@@ -29,9 +29,9 @@ fun installHintOf(row: ProjectToolRow, installBlocked: Boolean = false): String?
 /** The plugin is on for the user but not for this project: nothing to switch here. */
 fun enabledOnlyForUser(row: ProjectToolRow): Boolean = row.userLevelEnabled() && !row.pluginEnabled()
 
-fun toggleOf(row: ProjectToolRow, working: Boolean): ToggleView = ToggleView(
+fun toggleOf(row: ProjectToolRow, working: Boolean, readOnly: Boolean = false): ToggleView = ToggleView(
     checked = row.pluginEnabled(),
-    enabled = hasPlugin(row) && !working && !enabledOnlyForUser(row),
+    enabled = hasPlugin(row) && !working && !readOnly && !enabledOnlyForUser(row),
     note = when {
         !hasPlugin(row) -> NO_PLUGIN_NOTE
         enabledOnlyForUser(row) -> USER_LEVEL_NOTE

@@ -21,7 +21,7 @@ class CodeModeChipState(
 
     /** Follows [project] from now on; the same project again keeps what is loaded. */
     fun track(project: Project) {
-        if (!available || project.group || projectId == project.id) return
+        if (!available || projectId == project.id) return
         stop()
         projectId = project.id
         codeMode = newCodeMode(project).also { it.load() }

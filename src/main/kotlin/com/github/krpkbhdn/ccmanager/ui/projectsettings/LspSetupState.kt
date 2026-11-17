@@ -51,7 +51,6 @@ class LspSetupState(
     /** Loads the plan behind the page button. */
     fun loadPlan(project: Project) {
         val setup = service ?: return
-        if (project.group) return
         val request = newRequest(project)
         scope.launch {
             try {

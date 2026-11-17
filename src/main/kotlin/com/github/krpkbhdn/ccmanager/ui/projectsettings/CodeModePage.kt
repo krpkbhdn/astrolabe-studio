@@ -25,6 +25,7 @@ import com.github.krpkbhdn.ccmanager.ui.extensions.ListSkeleton
 import com.github.krpkbhdn.ccmanager.ui.extensions.ScopeBadge
 import com.github.krpkbhdn.ccmanager.ui.extensions.mcp.McpState
 import com.github.krpkbhdn.ccmanager.ui.extensions.mcp.canAuthenticate
+import com.github.krpkbhdn.ccmanager.ui.state.ConfirmRequest
 import com.github.krpkbhdn.ccmanager.ui.theme.Spacing
 import com.github.krpkbhdn.ccmanager.ui.theme.Type
 import com.github.krpkbhdn.ccmanager.ui.theme.colors
@@ -33,9 +34,9 @@ private const val WHEN_IT_HELPS = "Code Mode lets Claude write one short script 
 private const val WHEN_NOT = "It adds little with a few tools or small outputs, and Claude Code already defers MCP tool schemas, so idle servers cost little context."
 private const val ENABLE_NOTE = "Takes effect for newly started sessions. The isolation environment is chosen in Settings > Code Mode."
 
-/** Per-project Code Mode: the switch and which of the project's MCP servers its scripts reach. Changes are saved at once. */
+/** Per-project Code Mode (for a group, with the switch that inherits it from the member projects): the switch and which of the project's MCP servers its scripts reach. Changes are saved at once. */
 @Composable
-fun CodeModePage(codeMode: ProjectCodeModeState, mcp: McpState) {
+fun CodeModePage(codeMode: ProjectCodeModeState, mcp: McpState, group: Boolean = false, confirm: (ConfirmRequest) -> Unit = {}) {
     LaunchedEffect(Unit) {
         codeMode.load()
         mcp.ensureLoaded()
@@ -47,12 +48,13 @@ fun CodeModePage(codeMode: ProjectCodeModeState, mcp: McpState) {
         return
     }
     ExtensionList {
+        if (group) item(key = "inherit") { GroupInheritSwitch("Code Mode settings", codeMode.inherits, !codeMode.available, confirm, codeMode::override, codeMode::inherit) }
         item(key = "intro") { Intro(codeMode, rows) }
         item(key = "heading") { Label("MCP servers", Modifier.padding(top = Spacing.sm), style = Type.bodyMedium) }
         if (rows.isEmpty()) item(key = "none") {
             Label("This project sees no MCP servers yet. Add one on the MCP servers page.", color = colors.textTertiary, maxLines = 2)
         }
-        items(rows, key = { it.key }) { ServerRow(it, codeMode.enabled) { on -> codeMode.setServer(it.name, on) } }
+        items(rows, key = { it.key }) { ServerRow(it, codeMode.enabled, !codeMode.inherits, sourceNoteOf(codeMode.sources[it.name])) { on -> codeMode.setServer(it.name, on) } }
         unlistedServers(codeMode.servers, rows).takeIf { it.isNotEmpty() }?.let { missing ->
             item(key = "missing") { Label("Saved but not found any more: ${missing.joinToString()}", color = colors.warning, style = Type.small, maxLines = 3) }
         }
@@ -65,7 +67,7 @@ private fun Intro(codeMode: ProjectCodeModeState, rows: List<CodeModeRow>) {
         Label(WHEN_IT_HELPS, color = colors.textSecondary, style = Type.small, maxLines = Int.MAX_VALUE)
         Label(WHEN_NOT, color = colors.textSecondary, style = Type.small, maxLines = Int.MAX_VALUE)
         Row(Modifier.padding(top = Spacing.xs), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
-            AppSwitch(codeMode.enabled, codeMode::switchOn, enabled = codeMode.available)
+            AppSwitch(codeMode.enabled, codeMode::switchOn, enabled = codeMode.available && !codeMode.inherits)
             Label("Enable Code Mode for this project", style = Type.bodyMedium)
         }
         Label(if (codeMode.available) ENABLE_NOTE else "Code Mode is not available in this build.", color = colors.textTertiary, style = Type.caption, maxLines = Int.MAX_VALUE)
@@ -74,15 +76,16 @@ private fun Intro(codeMode: ProjectCodeModeState, rows: List<CodeModeRow>) {
 }
 
 @Composable
-internal fun ServerRow(row: CodeModeRow, codeModeOn: Boolean, onChange: (Boolean) -> Unit) {
+internal fun ServerRow(row: CodeModeRow, codeModeOn: Boolean, editable: Boolean = true, source: String? = null, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().card().padding(Spacing.md), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
-        AppCheckbox(row.selected, onChange, enabled = row.canChange)
+        AppCheckbox(row.selected, onChange, enabled = row.canChange && editable)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 Label(row.title, style = Type.bodyMedium, tooltipWhenTruncated = true)
                 ScopeBadge(row.scope)
             }
             Label("Run through Code Mode", color = if (codeModeOn) colors.textSecondary else colors.textTertiary, style = Type.small)
+            source?.let { Label(it, color = colors.textSecondary, style = Type.caption) }
             row.message?.let { note ->
                 Label(note, color = if (row.eligible) colors.textTertiary else colors.warning, style = Type.caption, maxLines = Int.MAX_VALUE)
             }

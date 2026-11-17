@@ -1,5 +1,6 @@
 package com.github.krpkbhdn.ccmanager.claude.launch;
 
+import com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -21,6 +22,8 @@ import com.github.krpkbhdn.ccmanager.config.AppProperties;
 import com.github.krpkbhdn.ccmanager.extension.mcp.ProjectMcpServers;
 import com.github.krpkbhdn.ccmanager.git.GitWorktreeService;
 import com.github.krpkbhdn.ccmanager.git.Worktree;
+import com.github.krpkbhdn.ccmanager.overlay.ProjectOverlayService;
+import com.github.krpkbhdn.ccmanager.overlay.SessionOverlay;
 import com.github.krpkbhdn.ccmanager.project.GroupWorkspace;
 import com.github.krpkbhdn.ccmanager.project.ModelSelection;
 import com.github.krpkbhdn.ccmanager.project.ProjectGroupService;
@@ -58,12 +61,15 @@ class ClaudeLauncherTest {
     private final GitWorktreeService worktrees = mock(GitWorktreeService.class);
     private final SessionTrust sessionTrust = mock(SessionTrust.class);
     private final TrustSettingsService trustSettings = mock(TrustSettingsService.class, org.mockito.Mockito.CALLS_REAL_METHODS);
+    private final ProjectOverlayService overlays = mock(ProjectOverlayService.class);
     private final Path dataDir = Path.of("build", "launcher-test-data").toAbsolutePath();
     private final ClaudeLauncher launcher = new ClaudeLauncher(projects, installation, hooks, mock(ClaudePluginWriter.class), sessions, new AppProperties(dataDir),
             groups, mock(GroupWorkspace.class), mock(ProjectMcpServers.class), assistantEndpoint, new WorkDirectories(worktrees),
-            codeModes, mcpConfigs, mock(ExecutableLookup.class), sessionTrust, trustSettings);
+            codeModes, mcpConfigs, mock(ExecutableLookup.class), sessionTrust, trustSettings, overlays);
 
     {
+        when(overlays.forProject(anyLong())).thenReturn(SessionOverlay.EMPTY);
+        when(overlays.forGroup(anyLong(), org.mockito.ArgumentMatchers.anyList())).thenReturn(SessionOverlay.EMPTY);
         org.mockito.Mockito.doReturn(TrustLevel.ASK).when(trustSettings).defaultLevel();
     }
 
@@ -254,7 +260,7 @@ class ClaudeLauncherTest {
     private CodeModeAccess launchWithCodeMode(ProjectCodeMode mode, List<McpServerConfig> servers) throws Exception {
         claudeInstalledAndSpawnFails();
         var files = new SessionFiles(directory.resolve("s.json"), directory.resolve("m.json"));
-        when(codeModes.get(1)).thenReturn(mode);
+        when(codeModes.effective(1)).thenReturn(mode);
         when(mcpConfigs.read(directory)).thenReturn(servers);
         when(hooks.write(org.mockito.ArgumentMatchers.eq("ccm-1"), org.mockito.ArgumentMatchers.anyMap(), org.mockito.ArgumentMatchers.any())).thenReturn(files);
         assertThatThrownBy(() -> launcher.launchTask(1, "t")).isInstanceOf(IllegalStateException.class);
@@ -279,7 +285,7 @@ class ClaudeLauncherTest {
     @Test
     void codeModeOffOrWithoutServersWritesTheUnchangedFiles() throws Exception {
         claudeInstalledAndSpawnFails();
-        when(codeModes.get(1)).thenReturn(new ProjectCodeMode(1, false, List.of("jira"), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
+        when(codeModes.effective(1)).thenReturn(new ProjectCodeMode(1, false, List.of("jira"), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
 
         assertThatThrownBy(() -> launcher.launchTask(1, "t")).isInstanceOf(IllegalStateException.class);
         verify(hooks).write("ccm-1");
@@ -317,7 +323,7 @@ class ClaudeLauncherTest {
     void aTrustedProjectRegistersItsLevelAndFolderAndWritesTrustedSettings() throws Exception {
         claudeInstalledAndSpawnFails();
         when(projects.find(1)).thenReturn(Optional.of(new Project(1, "p", directory, Instant.now(), ModelSelection.DEFAULT, false, null, TrustLevel.TRUSTED)));
-        when(codeModes.get(1)).thenReturn(new ProjectCodeMode(1, false, List.of(), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
+        when(codeModes.effective(1)).thenReturn(new ProjectCodeMode(1, false, List.of(), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
         when(hooks.write("ccm-1", Map.of(), CodeModeAccess.OFF, TrustLevel.TRUSTED))
                 .thenReturn(new SessionFiles(directory.resolve("s.json"), directory.resolve("m.json")));
 
@@ -332,7 +338,7 @@ class ClaudeLauncherTest {
         claudeInstalledAndSpawnFails();
         org.mockito.Mockito.doReturn(TrustLevel.AUTONOMOUS).when(trustSettings).defaultLevel();
         when(projects.find(1)).thenReturn(Optional.of(new Project(1, "p", directory, Instant.now())));
-        when(codeModes.get(1)).thenReturn(new ProjectCodeMode(1, false, List.of(), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
+        when(codeModes.effective(1)).thenReturn(new ProjectCodeMode(1, false, List.of(), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
         when(hooks.write("ccm-1", Map.of(), CodeModeAccess.OFF, TrustLevel.AUTONOMOUS))
                 .thenReturn(new SessionFiles(directory.resolve("s.json"), directory.resolve("m.json")));
 
@@ -346,11 +352,90 @@ class ClaudeLauncherTest {
         claudeInstalledAndSpawnFails();
         org.mockito.Mockito.doReturn(TrustLevel.AUTONOMOUS).when(trustSettings).defaultLevel();
         when(projects.find(1)).thenReturn(Optional.of(new Project(1, "p", directory, Instant.now(), ModelSelection.DEFAULT, false, null, TrustLevel.ASK)));
-        when(codeModes.get(1)).thenReturn(new ProjectCodeMode(1, false, List.of(), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
+        when(codeModes.effective(1)).thenReturn(new ProjectCodeMode(1, false, List.of(), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
         when(hooks.write("ccm-1")).thenReturn(new SessionFiles(directory.resolve("s.json"), directory.resolve("m.json")));
 
         assertThatThrownBy(() -> launcher.launch(1, LaunchMode.NEW)).isInstanceOf(IllegalStateException.class);
 
         verify(sessionTrust, never()).set(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    private SessionOverlay overlayWithInstructions() {
+        return new SessionOverlay(Map.of(), SessionOverlay.EMPTY.settings(), "Use tabs.", Map.of(), List.of(), List.of(directory));
+    }
+
+    @Test
+    void resumeWritesTheProjectOverlayAndThePassedTeamIntoTheSessionFiles() throws Exception {
+        claudeInstalledAndSpawnFails();
+        var overlay = overlayWithInstructions();
+        when(overlays.forProject(1)).thenReturn(overlay);
+        when(codeModes.effective(1)).thenReturn(new ProjectCodeMode(1, false, List.of(), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
+        when(hooks.write("ccm-1", Map.of(), CodeModeAccess.OFF, TrustLevel.ASK, overlay, null))
+                .thenReturn(new SessionFiles(directory.resolve("s.json"), directory.resolve("m.json")));
+
+        assertThatThrownBy(() -> launcher.resume(1, "123e4567-e89b-12d3-a456-426614174000", null, null)).hasMessageStartingWith("Could not start Claude");
+
+        verify(hooks).write("ccm-1", Map.of(), CodeModeAccess.OFF, TrustLevel.ASK, overlay, null);
+    }
+
+    @Test
+    void aGroupSessionGetsTheMergedOverlayOfTheGroupAndItsMembers() throws Exception {
+        Path notExecutable = Files.createFile(directory.resolve("claude-fake"));
+        when(installation.current()).thenReturn(new ClaudeInstallation(true, notExecutable, "1", null, null));
+        var member = new Project(3, "m", directory, Instant.now());
+        var overlay = overlayWithInstructions();
+        when(projects.find(2)).thenReturn(Optional.of(group()));
+        when(groups.members(2)).thenReturn(List.of(member));
+        when(sessions.register(2)).thenReturn("ccm-2");
+        when(overlays.forGroup(2, List.of(member))).thenReturn(overlay);
+        when(hooks.write(org.mockito.ArgumentMatchers.eq("ccm-2"), org.mockito.ArgumentMatchers.anyMap(), org.mockito.ArgumentMatchers.eq(CodeModeAccess.OFF),
+                org.mockito.ArgumentMatchers.eq(TrustLevel.ASK), org.mockito.ArgumentMatchers.eq(overlay), org.mockito.ArgumentMatchers.isNull()))
+                .thenReturn(new SessionFiles(directory.resolve("s.json"), directory.resolve("m.json")));
+
+        assertThatThrownBy(() -> launcher.launch(2, LaunchMode.NEW)).hasMessageStartingWith("Could not start Claude");
+
+        verify(hooks).write(org.mockito.ArgumentMatchers.eq("ccm-2"), org.mockito.ArgumentMatchers.anyMap(), org.mockito.ArgumentMatchers.eq(CodeModeAccess.OFF),
+                org.mockito.ArgumentMatchers.eq(TrustLevel.ASK), org.mockito.ArgumentMatchers.eq(overlay), org.mockito.ArgumentMatchers.isNull());
+    }
+
+    @Test
+    void anOverlayThatCannotBeReadMeansALaunchWithoutIt() throws Exception {
+        claudeInstalledAndSpawnFails();
+        when(overlays.forProject(1)).thenThrow(new IllegalStateException("broken"));
+        when(codeModes.effective(1)).thenReturn(new ProjectCodeMode(1, false, List.of(), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
+
+        assertThatThrownBy(() -> launcher.launch(1, LaunchMode.NEW)).hasMessageStartingWith("Could not start Claude");
+
+        verify(hooks).write("ccm-1");
+    }
+
+    @Test
+    void aGroupSessionDeniesTheCodeModeServersAndDropsThemFromTheMcpFile() throws Exception {
+        Path notExecutable = Files.createFile(directory.resolve("claude-fake"));
+        when(installation.current()).thenReturn(new ClaudeInstallation(true, notExecutable, "1", null, null));
+        var member = new Project(3, "m", directory, Instant.now());
+        var memberServers = Map.<String, tools.jackson.databind.JsonNode>of("jira", tools.jackson.databind.json.JsonMapper.builder().build().createObjectNode(),
+                "files", tools.jackson.databind.json.JsonMapper.builder().build().createObjectNode());
+        var projectServers = mock(ProjectMcpServers.class);
+        when(projectServers.approved(List.of(directory))).thenReturn(memberServers);
+        var groupLauncher = new ClaudeLauncher(projects, installation, hooks, mock(ClaudePluginWriter.class), sessions, new AppProperties(dataDir),
+                groups, mock(GroupWorkspace.class), projectServers, assistantEndpoint, new WorkDirectories(worktrees),
+                codeModes, mcpConfigs, mock(ExecutableLookup.class), sessionTrust, trustSettings, overlays);
+        when(projects.find(2)).thenReturn(Optional.of(group()));
+        when(groups.members(2)).thenReturn(List.of(member));
+        when(sessions.register(2)).thenReturn("ccm-2");
+        when(codeModes.effective(2)).thenReturn(new ProjectCodeMode(2, true, List.of("jira"), ToolCallAccess.ASK));
+        var access = new CodeModeAccess(List.of(), List.of("jira"));
+        when(hooks.write(org.mockito.ArgumentMatchers.eq("ccm-2"), org.mockito.ArgumentMatchers.anyMap(), org.mockito.ArgumentMatchers.eq(access),
+                org.mockito.ArgumentMatchers.eq(TrustLevel.ASK), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.isNull()))
+                .thenReturn(new SessionFiles(directory.resolve("s.json"), directory.resolve("m.json")));
+
+        assertThatThrownBy(() -> groupLauncher.launch(2, LaunchMode.NEW)).hasMessageStartingWith("Could not start Claude");
+
+        var servers = org.mockito.ArgumentCaptor.<Map<String, tools.jackson.databind.JsonNode>>captor();
+        verify(hooks).write(org.mockito.ArgumentMatchers.eq("ccm-2"), servers.capture(), org.mockito.ArgumentMatchers.eq(access),
+                org.mockito.ArgumentMatchers.eq(TrustLevel.ASK), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.isNull());
+        assertThat(servers.getValue()).containsOnlyKeys("files");
+        verify(codeModes).rememberDirectory("ccm-2", directory);
     }
 }

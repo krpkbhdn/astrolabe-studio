@@ -1,4 +1,4 @@
-Tidy the Claude instruction files of this project: CLAUDE.md and CLAUDE.local.md (whichever exist).
+Tidy the Claude instruction files of this project: CLAUDE.md and CLAUDE.local.md (whichever exist). Instructions, skills, agents and settings that the app manages for this project live outside the project folder; do not look for or edit them.
 
 1. Read both files completely.
 2. Find sections that say the same thing in different words. Compare hand-written sections with each other and with the blocks between `<!-- cc-manager:begin ... -->` and `<!-- cc-manager:end ... -->` markers, and across the two files.

@@ -94,6 +94,29 @@ class ProjectServiceTest {
     }
 
     @Test
+    void removalListenersGetTheIdOfTheRemovedProjectAndAFailingOneDoesNotBreakRemoval() throws IOException {
+        var project = service.add(directory("alpha"));
+        var seen = new java.util.ArrayList<Long>();
+        service.subscribeRemoval(id -> {
+            throw new IllegalStateException("boom");
+        });
+        service.subscribeRemoval(seen::add);
+
+        service.remove(project.id());
+
+        assertThat(seen).containsExactly(project.id());
+        assertThat(service.list()).isEmpty();
+    }
+
+    @Test
+    void findByDirectoryMatchesTheRegisteredFolder() throws IOException {
+        var project = service.add(directory("alpha"));
+
+        assertThat(service.findByDirectory(temp.resolve("alpha").resolve("..").resolve("alpha"))).map(Project::id).contains(project.id());
+        assertThat(service.findByDirectory(temp.resolve("other"))).isEmpty();
+    }
+
+    @Test
     void removingGroupDeletesRowAndFolderEvenWhenFolderDeleteFails() throws IOException {
         var folder = directory("group-folder");
         jdbc.sql("INSERT INTO project (name, path, created_at, is_group) VALUES ('g', ?, 'now', 1)")

@@ -99,13 +99,12 @@ class LspSetupStateTest {
     }
 
     @Test
-    fun `a group project never loads a plan`() {
+    fun `a group loads a plan like a project`() {
         val group = Project(2, "g", dir, Instant.EPOCH, null, true, null)
         val setup = state()
         setup.loadPlan(group)
         Thread.sleep(100)
-        assertThat(setup.plannedFor(2)).isEmpty()
-        org.mockito.Mockito.verifyNoInteractions(service)
+        org.mockito.Mockito.verify(service).plan(dir)
     }
 
     @Test

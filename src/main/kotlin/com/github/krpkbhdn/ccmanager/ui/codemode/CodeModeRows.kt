@@ -52,7 +52,7 @@ private fun pluginRowOf(server: PluginServer, selected: Boolean, needsSignIn: Bo
     "Provided by plugin ${server.plugin()}; Claude Code still starts it, hidden from the model.", server.key(),
 )
 
-private fun precedence(scope: ExtensionScope) = listOf(ExtensionScope.USER, ExtensionScope.PROJECT, ExtensionScope.LOCAL).indexOf(scope)
+private fun precedence(scope: ExtensionScope) = listOf(ExtensionScope.USER, ExtensionScope.APP, ExtensionScope.PROJECT, ExtensionScope.LOCAL).indexOf(scope)
 
 private fun rowOf(server: McpServerConfig, selected: Boolean, needsSignIn: Boolean, ambiguous: Boolean): CodeModeRow {
     val reason = when {

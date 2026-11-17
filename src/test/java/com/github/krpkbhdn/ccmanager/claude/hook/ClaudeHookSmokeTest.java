@@ -50,7 +50,7 @@ class ClaudeHookSmokeTest {
         server.start();
         try {
             var settings = new HookSettingsWriter(server, new AppProperties(workDir.resolve("data")), mapper, hookProperties, new HookHelperCommand(), installation(),
-                    com.github.krpkbhdn.ccmanager.codemode.TestProperties.of(java.time.Duration.ofMinutes(1), 1000, 1000, 10, java.time.Duration.ofMinutes(1), "img", "64m", 1, java.time.Duration.ofDays(1), java.time.Duration.ofSeconds(10))).write(CCM_ID).settings();
+                    com.github.krpkbhdn.ccmanager.codemode.TestProperties.of(java.time.Duration.ofMinutes(1), 1000, 1000, 10, java.time.Duration.ofMinutes(1), "img", "64m", 1, java.time.Duration.ofDays(1), java.time.Duration.ofSeconds(10)), new com.github.krpkbhdn.ccmanager.overlay.OverlayProperties(java.time.Duration.ofDays(1), 20_000)).write(CCM_ID).settings();
             writeProjectHook();
 
             var output = runClaude(settings, server.sessionToken(CCM_ID));

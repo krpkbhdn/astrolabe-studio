@@ -217,7 +217,7 @@ class AppState(
     val trust = TrustState(backend.trust, scope) { notifications.reportError(it) }
     val codeModeChip = CodeModeChipState(
         backend.projectCodeMode != null,
-        { ProjectCodeModeState(backend.projectCodeMode, it.id, scope, { backend.pluginMcpServers?.servers(it.path) ?: emptyList() }, notifications::reportError) },
+        { ProjectCodeModeState(backend.projectCodeMode, it.id, scope, { backend.pluginMcpServers?.servers(it.path) ?: emptyList() }, it.group, { backend.memberCodeModeServers(it) }, notifications::reportError) },
         { McpState(backend.mcp, it.path, scope, { request -> confirm = request }, notifications::toast) },
     )
     val tools: ToolsState = ToolsState(backend.toolchain, scope, { lspSetup.running }, notifications::reportError)

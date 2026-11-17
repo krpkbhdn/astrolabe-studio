@@ -62,7 +62,7 @@ fun ProjectSettingsDialog(state: ProjectSettingsState, app: AppState, onClose: (
     BoxWithConstraints {
         ModalHost({ if (!innerDialogOpen) onClose() }, width = maxWidth * WINDOW_SHARE, escapeDismisses = !innerDialogOpen) {
             Column(Modifier.height(maxHeight * WINDOW_SHARE)) {
-                SettingsHeader(state.context.name, onClose)
+                SettingsHeader(state.context.name, state.group, onClose)
                 HorizontalRule()
                 Row(Modifier.weight(1f)) {
                     SectionPanel(state)
@@ -76,10 +76,10 @@ fun ProjectSettingsDialog(state: ProjectSettingsState, app: AppState, onClose: (
 }
 
 @Composable
-private fun SettingsHeader(projectName: String, onClose: () -> Unit) {
+private fun SettingsHeader(name: String, group: Boolean, onClose: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(start = Spacing.xl, end = Spacing.md, top = Spacing.md, bottom = Spacing.md), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
         Glyph(Icons.Settings, colors.textSecondary, size = IconSize.large)
-        Label("Project settings — $projectName", Modifier.weight(1f), style = Type.subtitle, tooltipWhenTruncated = true)
+        Label((if (group) "Group settings" else "Project settings") + " — $name", Modifier.weight(1f), style = Type.subtitle, tooltipWhenTruncated = true)
         IconButton(Icons.Close, onClose, tooltip = "Close", hint = "Esc")
     }
 }
@@ -87,7 +87,7 @@ private fun SettingsHeader(projectName: String, onClose: () -> Unit) {
 @Composable
 private fun SectionPanel(state: ProjectSettingsState) {
     Column(Modifier.width(navWidth).fillMaxHeight().background(colors.sidebar).padding(Spacing.md), verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
-        ProjectSettingsSection.entries.forEach { section ->
+        sectionsOf(state.group).forEach { section ->
             SectionRow(section, state.section == section, sectionCount(state, section)) { state.section = section }
         }
     }
@@ -122,10 +122,10 @@ private fun SectionRow(section: ProjectSettingsSection, selected: Boolean, count
 private fun SectionPage(state: ProjectSettingsState, app: AppState) {
     when (state.section) {
         ProjectSettingsSection.GENERAL -> GeneralPage(app, state.context.id)
-        ProjectSettingsSection.LANGUAGES -> app.projects.all.firstOrNull { it.id == state.context.id }?.let { LanguagesPage(state.languages, app.tools, app.lspSetup, app.detectedTech, it) }
+        ProjectSettingsSection.LANGUAGES -> app.projects.all.firstOrNull { it.id == state.context.id }?.let { LanguagesPage(state.languages, app.tools, app.lspSetup, app.detectedTech, it) { request -> app.confirm = request } }
         ProjectSettingsSection.PLUGINS -> PluginsPage(state.context, state.plugins)
         ProjectSettingsSection.MCP -> McpPage(state.context, state.mcp)
         ProjectSettingsSection.SKILLS -> SkillsPage(state.context, state.skills)
-        ProjectSettingsSection.CODE_MODE -> CodeModePage(state.codeMode, state.mcp)
+        ProjectSettingsSection.CODE_MODE -> CodeModePage(state.codeMode, state.mcp, state.group) { request -> app.confirm = request }
     }
 }

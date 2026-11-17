@@ -43,6 +43,9 @@ public class LspSetupService {
         var steps = new ArrayList<LspSetupStep>();
         prerequisites.forEach(id -> steps.add(installStep(Kind.PREREQUISITE, id)));
         missing.forEach(row -> steps.add(installStep(Kind.SERVER, row.tool().id())));
+        if (projectTools.inheritsLsp(projectDir)) {
+            return List.copyOf(steps);
+        }
         detected.stream()
                 .filter(row -> !row.tool().lspPlugin().isEmpty()
                         && !row.pluginEnabled() && !row.userLevelEnabled())

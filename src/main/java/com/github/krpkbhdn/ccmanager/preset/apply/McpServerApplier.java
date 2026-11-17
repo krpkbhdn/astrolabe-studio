@@ -55,9 +55,13 @@ class McpServerApplier implements PresetComponentApplier {
         }
         var config = effectiveConfig(component);
         var stdio = !config.isObject() || config.hasNonNull("command");
-        var detail = "Written to .mcp.json in the project, which is usually committed: check it contains no secrets. Server: " + component.name()
-                + (stdio ? ". Starts a local command; Claude Code asks to approve it when a session starts." : "");
-        return PlannedChange.of(component, ChangeAction.INSTALL, detail).withPreview(describe(config));
+        if (stdio) {
+            return PlannedChange.of(component, ChangeAction.NEEDS_CONFIRMATION,
+                    CodeExecutingPaths.runsCode("MCP server " + component.name() + " (starts a local command in every session, Claude Code does not ask first)"))
+                    .withPreview(describe(config));
+        }
+        return PlannedChange.of(component, ChangeAction.INSTALL, "Kept in the project's app folder, outside the repository. Server: " + component.name())
+                .withPreview(describe(config));
     }
 
     private static JsonNode config(PresetComponent component) {
@@ -96,7 +100,7 @@ class McpServerApplier implements PresetComponentApplier {
     @Override
     public ComponentOutcome apply(PresetComponent component, Path projectDir) {
         var config = effectiveConfig(component);
-        mcp.add(component.name(), config.isString() ? config.asString() : config.toString(), ExtensionScope.PROJECT, projectDir);
+        mcp.add(component.name(), config.isString() ? config.asString() : config.toString(), ExtensionScope.APP, projectDir);
         return ComponentOutcome.of(component, OutcomeStatus.APPLIED, "MCP server added");
     }
 

@@ -3,6 +3,7 @@ package com.github.krpkbhdn.ccmanager.extension.skill;
 import com.github.krpkbhdn.ccmanager.extension.ExtensionException;
 import com.github.krpkbhdn.ccmanager.extension.ExtensionProperties;
 import com.github.krpkbhdn.ccmanager.extension.ExtensionScope;
+import com.github.krpkbhdn.ccmanager.extension.ProjectOverlays;
 import com.github.krpkbhdn.ccmanager.extension.plugin.InstalledPlugin;
 import com.github.krpkbhdn.ccmanager.extension.plugin.PluginService;
 import com.github.krpkbhdn.ccmanager.workspace.HostEnvironment;
@@ -25,7 +26,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /**
- * Skills are plain directories with a SKILL.md: ~/.claude/skills (user), PROJECT/.claude/skills (project) and the
+ * Skills are plain directories with a SKILL.md: ~/.claude/skills (user), the project's overlay (APP: what the app creates for a
+ * registered project, outside its folder), PROJECT/.claude/skills (already in the project's folder, still listed and editable) and the
  * skills folder of each enabled plugin (read-only). There is no CLI for them, so this service works on the files.
  */
 @Service
@@ -41,8 +43,10 @@ public class SkillService {
     private final HostEnvironment host;
     private final PluginService plugins;
     private final ExtensionProperties properties;
+    private final ProjectOverlays overlays;
 
-    public SkillService(HostEnvironment host, PluginService plugins, ExtensionProperties properties) {
+    public SkillService(HostEnvironment host, PluginService plugins, ExtensionProperties properties, ProjectOverlays overlays) {
+        this.overlays = overlays;
         this.host = host;
         this.plugins = plugins;
         this.properties = properties;
@@ -52,6 +56,9 @@ public class SkillService {
     public List<Skill> list(Path projectDirectory) {
         var skills = new ArrayList<>(readDirectory(skillsRoot(ExtensionScope.USER, null), ExtensionScope.USER, ""));
         if (projectDirectory != null) {
+            if (overlays.of(projectDirectory).isPresent()) {
+                skills.addAll(readDirectory(skillsRoot(ExtensionScope.APP, projectDirectory), ExtensionScope.APP, ""));
+            }
             skills.addAll(readDirectory(skillsRoot(ExtensionScope.PROJECT, projectDirectory), ExtensionScope.PROJECT, ""));
         }
         activePlugins(projectDirectory).forEach(plugin ->
@@ -91,15 +98,23 @@ public class SkillService {
         }
     }
 
-    /** @param scope USER or PROJECT; LOCAL has no skills folder */
-    public Skill create(ExtensionScope scope, Path projectDirectory, String name, String description) {
+    /** @param scope USER, APP or PROJECT (which is APP for a registered project: the project's folder is left alone); LOCAL has no skills folder */
+    public Skill create(ExtensionScope requested, Path projectDirectory, String name, String description) {
+        var scope = effective(requested, projectDirectory);
         description = description.replaceAll("\\s+", " ").strip();
         requireValid(name, description);
         var directory = skillsRoot(scope, projectDirectory).resolve(name);
         var file = directory.resolve(SKILL_FILE);
         try {
-            Files.createDirectories(directory);
-            Files.writeString(file, SkillFrontmatter.render(name, description), StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+            if (scope == ExtensionScope.APP) {
+                if (Files.exists(directory)) {
+                    throw new FileAlreadyExistsException(directory.toString());
+                }
+                overlays.of(projectDirectory).orElseThrow(() -> new ExtensionException("app scope needs a registered project")).write(file, SkillFrontmatter.render(name, description));
+            } else {
+                Files.createDirectories(directory);
+                Files.writeString(file, SkillFrontmatter.render(name, description), StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+            }
         } catch (FileAlreadyExistsException e) {
             throw new ExtensionException("A skill named " + name + " already exists");
         } catch (IOException e) {
@@ -134,13 +149,19 @@ public class SkillService {
 
     /** Where a skill of this name lives in the scope, whether or not it exists yet. */
     public Path skillDirectory(ExtensionScope scope, Path projectDirectory, String name) {
-        return skillsRoot(scope, projectDirectory).resolve(name);
+        return skillsRoot(effective(scope, projectDirectory), projectDirectory).resolve(name);
+    }
+
+    private ExtensionScope effective(ExtensionScope scope, Path projectDirectory) {
+        return scope == ExtensionScope.PROJECT && overlays.of(projectDirectory).isPresent() ? ExtensionScope.APP : scope;
     }
 
     private Path skillsRoot(ExtensionScope scope, Path projectDirectory) {
         return switch (scope) {
             case USER -> host.claudeConfigDirectory().resolve(SKILLS_DIRECTORY);
             case PROJECT -> ExtensionScope.PROJECT.workingDirectory(projectDirectory).resolve(CLAUDE_DIRECTORY).resolve(SKILLS_DIRECTORY);
+            case APP -> overlays.of(projectDirectory).orElseThrow(() -> new ExtensionException("app scope needs a registered project"))
+                    .contextDirectory().resolve(CLAUDE_DIRECTORY).resolve(SKILLS_DIRECTORY);
             case LOCAL, PLUGIN -> throw new ExtensionException("Skills exist only in user and project scope");
         };
     }

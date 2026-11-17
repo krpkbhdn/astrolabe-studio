@@ -5,25 +5,25 @@ import com.github.krpkbhdn.ccmanager.extension.ExtensionException;
 import com.github.krpkbhdn.ccmanager.extension.ExtensionScope;
 import com.github.krpkbhdn.ccmanager.extension.plugin.InstalledPlugin;
 import com.github.krpkbhdn.ccmanager.extension.plugin.PluginService;
-import com.github.krpkbhdn.ccmanager.git.GitLocalExclude;
 import com.github.krpkbhdn.ccmanager.preset.apply.LocalClaudeMdNote;
-import com.github.krpkbhdn.ccmanager.preset.apply.LocalConfigFiles;
+import com.github.krpkbhdn.ccmanager.preset.apply.ProjectOverlaySettings;
+import com.github.krpkbhdn.ccmanager.project.Project;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.List;
 import java.time.Instant;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 /** Language servers of the catalog for one project: what it uses, what is installed, which Claude LSP plugin is on. */
@@ -33,10 +33,7 @@ public class ProjectToolsService {
     private record CachedPlugins(Instant readAt, List<InstalledPlugin> plugins) {
     }
 
-    private static final Logger LOG = LoggerFactory.getLogger(ProjectToolsService.class);
-    /** The app owns these entries and they depend on this machine, so they never go into the shared project settings. */
-    private static final ExtensionScope LSP_SCOPE = ExtensionScope.LOCAL;
-    private static final String NAVIGATION_TITLE = "LSP navigation";
+    public static final String NAVIGATION_TITLE = "LSP navigation";
     private static final String NAVIGATION_RESOURCE = "/toolchain/lsp-navigation.md";
     private static final String OFFICIAL_MARKETPLACE = "claude-plugins-official";
     private static final String OFFICIAL_MARKETPLACE_SOURCE = "anthropics/claude-plugins-official";
@@ -47,22 +44,25 @@ public class ProjectToolsService {
     private final PluginService plugins;
     private final ClaudePluginWriter pluginWriter;
     private final LocalClaudeMdNote note;
-    private final GitLocalExclude localExclude;
+    private final ProjectOverlaySettings overlaySettings;
     private final String navigationText;
     private final ToolchainProperties properties;
+    private final GroupLspService groupLsp;
     private final Map<Path, CachedPlugins> pluginCache = new ConcurrentHashMap<>();
     private final ReentrantLock pluginWrites = new ReentrantLock();
 
     public ProjectToolsService(ToolCatalog catalog, ToolProbe probe, TechnologyDetector detector, PluginService plugins,
-            ClaudePluginWriter pluginWriter, LocalClaudeMdNote note, GitLocalExclude localExclude, ToolchainProperties properties) {
+            ClaudePluginWriter pluginWriter, LocalClaudeMdNote note, ProjectOverlaySettings overlaySettings, ToolchainProperties properties,
+            GroupLspService groupLsp) {
         this.catalog = catalog;
         this.probe = probe;
         this.detector = detector;
         this.plugins = plugins;
         this.pluginWriter = pluginWriter;
         this.note = note;
-        this.localExclude = localExclude;
+        this.overlaySettings = overlaySettings;
         this.properties = properties;
+        this.groupLsp = groupLsp;
         this.navigationText = readNavigationText();
     }
 
@@ -93,16 +93,50 @@ public class ProjectToolsService {
      */
     public List<DetectedTechnology> detected(Path projectDir) {
         var tools = catalog.all().stream().filter(tool -> tool.kind() != ToolKind.PREREQUISITE).toList();
-        var found = detector.detect(projectDir, tools);
+        var group = groupLsp.groupAt(projectDir);
+        var found = detectIn(group.map(g -> groupLsp.memberFolders(g.id())).orElse(List.of(projectDir)), tools);
         var foundTools = tools.stream().filter(tool -> found.contains(tool.id())).toList();
         if (foundTools.isEmpty()) {
             return List.of();
         }
         var installed = foundTools.stream().anyMatch(tool -> !tool.lspPlugin().isEmpty()) ? cachedPlugins(projectDir) : List.<InstalledPlugin>of();
         return foundTools.stream().map(tool -> {
-            var pluginState = pluginState(installed, tool.lspPlugin(), projectDir);
+            var pluginState = group.isPresent() ? groupPluginState(group.get(), tool.lspPlugin(), projectDir) : pluginState(installed, tool.lspPlugin(), projectDir);
             return new DetectedTechnology(tool, pluginState.serverMatters() ? probe.probe(tool.id()).state() : null, pluginState);
         }).toList();
+    }
+
+    private Set<String> detectIn(List<Path> folders, List<ToolDefinition> tools) {
+        var found = new HashSet<String>();
+        folders.forEach(folder -> found.addAll(detector.detect(folder, tools)));
+        return found;
+    }
+
+    /** A group that inherits is on when any member (or the group) has the plugin on; one that overrides looks at its own settings alone. */
+    private LspPluginState groupPluginState(Project group, String pluginId, Path groupDir) {
+        if (pluginId.isEmpty()) {
+            return LspPluginState.NOT_NEEDED;
+        }
+        return groupStateDirs(group, groupDir).stream().map(dir -> pluginState(cachedPlugins(dir), pluginId, dir))
+                .min(Comparator.naturalOrder()).orElse(LspPluginState.NOT_INSTALLED);
+    }
+
+    private List<Path> groupStateDirs(Project group, Path groupDir) {
+        var dirs = new ArrayList<Path>();
+        dirs.add(groupDir);
+        if (groupLsp.inherits(group.id())) {
+            dirs.addAll(groupLsp.memberFolders(group.id()));
+        }
+        return dirs;
+    }
+
+    private boolean isEnabledForGroup(Project group, String pluginId, Path groupDir) {
+        return groupStateDirs(group, groupDir).stream().anyMatch(dir -> isEnabledForProject(plugins.installed(dir), pluginId, dir));
+    }
+
+    /** True while the folder is a group that takes its LSP plugins from its members, so they cannot be edited on the group. */
+    public boolean inheritsLsp(Path dir) {
+        return groupLsp.groupAt(dir).map(group -> groupLsp.inherits(group.id())).orElse(false);
     }
 
     private List<InstalledPlugin> cachedPlugins(Path projectDir) {
@@ -116,43 +150,48 @@ public class ProjectToolsService {
         return fresh;
     }
 
-    /** The one rule for "is this LSP plugin on for the project": the CLI reports each entry's effective enabled flag, so a local false already shows the project entry as off. */
-    private static boolean isEffectivelyEnabled(List<InstalledPlugin> installed, String pluginId, Path projectDir) {
+    /** The one rule for "is this LSP plugin on for the project": user level, else the app's project settings, which override what an in-project file says. */
+    private boolean isEffectivelyEnabled(List<InstalledPlugin> installed, String pluginId, Path projectDir) {
         return isEnabledAtUserLevel(installed, pluginId) || isEnabledForProject(installed, pluginId, projectDir);
     }
 
-    static LspPluginState pluginState(List<InstalledPlugin> installed, String pluginId, Path projectDir) {
+    private boolean isEnabledForProject(List<InstalledPlugin> installed, String pluginId, Path projectDir) {
+        return overlaySettings.pluginSetting(projectDir, pluginId).orElseGet(() -> installed.stream()
+                .anyMatch(plugin -> plugin.enabled() && plugin.id().equals(pluginId) && isProjectOrLocalInstallation(plugin, projectDir)));
+    }
+
+    LspPluginState pluginState(List<InstalledPlugin> installed, String pluginId, Path projectDir) {
         if (pluginId.isEmpty()) {
             return LspPluginState.NOT_NEEDED;
         }
         if (isEffectivelyEnabled(installed, pluginId, projectDir)) {
             return LspPluginState.ENABLED;
         }
-        var present = installed.stream().anyMatch(plugin -> plugin.id().equals(pluginId)
+        var present = overlaySettings.pluginSetting(projectDir, pluginId).isPresent() || installed.stream().anyMatch(plugin -> plugin.id().equals(pluginId)
                 && (isProjectOrLocalInstallation(plugin, projectDir) || plugin.isInstallationOf(pluginId, ExtensionScope.USER, null)));
         return present ? LspPluginState.DISABLED : LspPluginState.NOT_INSTALLED;
     }
 
     private List<ProjectToolRow> buildRows(Path projectDir, List<ToolStatus> probed) {
         var tools = catalog.all().stream().filter(tool -> tool.kind() != ToolKind.PREREQUISITE).toList();
-        var detected = detector.detect(projectDir, tools);
+        var group = groupLsp.groupAt(projectDir);
+        var detected = detectIn(group.map(g -> groupLsp.memberFolders(g.id())).orElse(List.of(projectDir)), tools);
         var statuses = probed.stream().collect(Collectors.toMap(ToolStatus::id, Function.identity(), (a, b) -> a));
         var installedPlugins = plugins.installed(projectDir);
-        var enabledPlugins = installedPlugins.stream()
-                .filter(plugin -> plugin.enabled() && isProjectOrLocalInstallation(plugin, projectDir))
-                .map(InstalledPlugin::id).collect(Collectors.toSet());
         var userPlugins = installedPlugins.stream()
                 .filter(plugin -> plugin.enabled() && plugin.isInstallationOf(plugin.id(), ExtensionScope.USER, null))
                 .map(InstalledPlugin::id).collect(Collectors.toSet());
         return tools.stream()
                 .map(tool -> new ProjectToolRow(tool, statuses.getOrDefault(tool.id(), new ToolStatus(tool.id(), ToolState.MISSING, "", "")),
-                        detected.contains(tool.id()), enabledPlugins.contains(tool.lspPlugin()), userPlugins.contains(tool.lspPlugin())))
+                        detected.contains(tool.id()), !tool.lspPlugin().isEmpty() && (group.isPresent()
+                                ? isEnabledForGroup(group.get(), tool.lspPlugin(), projectDir) : isEnabledForProject(installedPlugins, tool.lspPlugin(), projectDir)),
+                        userPlugins.contains(tool.lspPlugin())))
                 .sorted(Comparator.comparing((ProjectToolRow row) -> row.tool().group())
                         .thenComparing(row -> !row.detected()))
                 .toList();
     }
 
-    /** Installs the tool's LSP plugin for the project, or turns it on when it is installed but disabled; a tool without a plugin does nothing. */
+    /** Turns the tool's LSP plugin on for the project in the app's own settings, installing it for Claude first when it is not known yet; a tool without a plugin does nothing. */
     public void enableLsp(Path projectDir, String toolId) {
         requireProjectDir(projectDir);
         var pluginId = requireTool(toolId).lspPlugin();
@@ -163,8 +202,9 @@ public class ProjectToolsService {
         try {
             var installedPlugins = plugins.installed(projectDir);
             if (!isEffectivelyEnabled(installedPlugins, pluginId, projectDir)) {
-                installOrEnable(installedPlugins, pluginId, projectDir);
-                excludeFromGit(projectDir, LocalConfigFiles.SETTINGS);
+                ensureMarketplace(pluginId);
+                installForClaude(installedPlugins, pluginId);
+                overlaySettings.setPlugin(projectDir, pluginId, true);
             }
             note.write(projectDir, NAVIGATION_TITLE, navigationText);
         } finally {
@@ -173,24 +213,18 @@ public class ProjectToolsService {
         }
     }
 
-    private void installOrEnable(List<InstalledPlugin> installedPlugins, String pluginId, Path projectDir) {
-        ensureMarketplace(pluginId);
-        if (findInstallation(installedPlugins, pluginId, projectDir).isPresent()) {
-            plugins.setEnabled(pluginId, LSP_SCOPE, projectDir, true);
-        } else if (plugins.install(pluginId, LSP_SCOPE, projectDir).needsConfirmation()) {
+    /** A first install goes in at user scope and is switched off there, so the plugin is on only where a project's settings turn it on. */
+    private void installForClaude(List<InstalledPlugin> installedPlugins, String pluginId) {
+        if (installedPlugins.stream().anyMatch(plugin -> plugin.id().equals(pluginId))) {
+            return;
+        }
+        if (plugins.install(pluginId, ExtensionScope.USER, null).needsConfirmation()) {
             throw new ExtensionException("The plugin " + pluginId + " runs a command that needs your confirmation, install it on the Plugins page");
         }
+        plugins.setEnabled(pluginId, ExtensionScope.USER, null, false);
     }
 
-    private void excludeFromGit(Path projectDir, String relativePath) {
-        try {
-            localExclude.ensureExcluded(projectDir, relativePath);
-        } catch (IOException e) {
-            LOG.warn("Could not exclude {} from git: {}", relativePath, e.getClass().getSimpleName());
-        }
-    }
-
-    /** Disables the plugin at the scope of each of the project's enabled entries (project and local), so it ends up off; a tool without a plugin does nothing. */
+    /** Turns the plugin off for the project in the app's own settings, which also wins over an in-project entry; a user-level plugin and a tool without a plugin are left alone. */
     public void disableLsp(Path projectDir, String toolId) {
         requireProjectDir(projectDir);
         var tool = requireTool(toolId);
@@ -201,9 +235,9 @@ public class ProjectToolsService {
         pluginWrites.lock();
         try {
             var installed = plugins.installed(projectDir);
-            installed.stream()
-                    .filter(plugin -> plugin.enabled() && plugin.id().equals(pluginId) && isProjectOrLocalInstallation(plugin, projectDir))
-                    .forEach(plugin -> plugins.setEnabled(pluginId, plugin.scope(), projectDir, false));
+            if (isEnabledForProject(installed, pluginId, projectDir)) {
+                overlaySettings.setPlugin(projectDir, pluginId, false);
+            }
             if (!anotherLspPluginEnabled(installed, pluginId, projectDir)) {
                 note.remove(projectDir, NAVIGATION_TITLE);
             }
@@ -215,13 +249,15 @@ public class ProjectToolsService {
 
     private boolean anotherLspPluginEnabled(List<InstalledPlugin> installed, String disabledId, Path projectDir) {
         var lspPlugins = catalog.all().stream().map(ToolDefinition::lspPlugin).filter(id -> !id.isEmpty() && !id.equals(disabledId)).collect(Collectors.toSet());
-        return installed.stream().anyMatch(plugin -> plugin.enabled() && lspPlugins.contains(plugin.id())
-                && (isProjectOrLocalInstallation(plugin, projectDir) || plugin.isInstallationOf(plugin.id(), ExtensionScope.USER, null)));
+        return lspPlugins.stream().anyMatch(id -> isEffectivelyEnabled(installed, id, projectDir));
     }
 
-    private static void requireProjectDir(Path projectDir) {
+    private void requireProjectDir(Path projectDir) {
         if (!Files.isDirectory(projectDir)) {
             throw new ExtensionException("Project folder not found: " + projectDir.getFileName());
+        }
+        if (inheritsLsp(projectDir)) {
+            throw new ExtensionException("This group uses the LSP plugins of its projects, switch it to its own set (override) to change them");
         }
     }
 
@@ -230,19 +266,9 @@ public class ProjectToolsService {
                 .anyMatch(plugin -> plugin.enabled() && plugin.isInstallationOf(pluginId, ExtensionScope.USER, null));
     }
 
-    private Optional<InstalledPlugin> findInstallation(List<InstalledPlugin> installedPlugins, String pluginId, Path projectDir) {
-        return installedPlugins.stream()
-                .filter(plugin -> plugin.isInstallationOf(pluginId, LSP_SCOPE, projectDir)).findFirst();
-    }
-
-    /** A local install of the same project is on for it too; it is only read, writes use `installScope`. */
+    /** An in-project entry of the same folder (project or local scope) is only read, never written. */
     private static boolean isProjectOrLocalInstallation(InstalledPlugin plugin, Path projectDir) {
         return plugin.isInstallationOf(plugin.id(), ExtensionScope.PROJECT, projectDir) || plugin.isInstallationOf(plugin.id(), ExtensionScope.LOCAL, projectDir);
-    }
-
-    private static boolean isEnabledForProject(List<InstalledPlugin> installedPlugins, String pluginId, Path projectDir) {
-        return installedPlugins.stream()
-                .anyMatch(plugin -> plugin.enabled() && plugin.id().equals(pluginId) && isProjectOrLocalInstallation(plugin, projectDir));
     }
 
     private static boolean isOwnMarketplace(String pluginId) {

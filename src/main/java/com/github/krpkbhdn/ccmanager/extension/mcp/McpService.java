@@ -5,19 +5,25 @@ import com.github.krpkbhdn.ccmanager.extension.ExtensionException;
 import com.github.krpkbhdn.ccmanager.extension.ExtensionProperties;
 import com.github.krpkbhdn.ccmanager.extension.ExtensionScope;
 import com.github.krpkbhdn.ccmanager.extension.Json;
+import com.github.krpkbhdn.ccmanager.extension.ProjectOverlays;
+import com.github.krpkbhdn.ccmanager.overlay.ProjectOverlay;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
- * MCP servers: configuration is read from Claude's files, changes go through {@code claude mcp}.
+ * MCP servers: configuration is read from Claude's files, changes go through {@code claude mcp}. Project-level servers of a registered
+ * project (scope PROJECT or APP) are kept in the project's overlay instead, never written into the project folder.
  * Server configs hold secrets, so nothing here logs them. Blocking; throws {@link ExtensionException}.
  */
 @Service
@@ -29,8 +35,10 @@ public class McpService {
     private final McpConfigReader configReader;
     private final McpCredentialReader credentials;
     private final ExtensionProperties properties;
+    private final ProjectOverlays overlays;
 
-    McpService(ClaudeCli cli, McpConfigReader configReader, McpCredentialReader credentials, ExtensionProperties properties) {
+    McpService(ClaudeCli cli, McpConfigReader configReader, McpCredentialReader credentials, ExtensionProperties properties, ProjectOverlays overlays) {
+        this.overlays = overlays;
         this.cli = cli;
         this.configReader = configReader;
         this.credentials = credentials;
@@ -60,6 +68,11 @@ public class McpService {
         }
         if (!Json.parse(json).isObject()) {
             throw new ExtensionException("The server config must be a JSON object");
+        }
+        var overlay = overlayFor(scope, projectDirectory);
+        if (overlay.isPresent()) {
+            addToOverlay(overlay.get(), projectDirectory, name, json);
+            return;
         }
         try {
             cli.executeChecked(scope.workingDirectory(projectDirectory), properties.queryTimeout(),
@@ -129,8 +142,68 @@ public class McpService {
     }
 
     public void remove(String name, ExtensionScope scope, Path projectDirectory) {
+        var overlay = overlayFor(scope, projectDirectory);
+        if (overlay.isPresent() && (scope == ExtensionScope.APP || overlayServers(overlay.get()).has(name))) {
+            removeFromOverlay(overlay.get(), requireValidName(name));
+            return;
+        }
         cli.executeChecked(scope.workingDirectory(projectDirectory), properties.queryTimeout(),
                 List.of("mcp", "remove", "--scope", scope.cliValue(), requireValidName(name)));
+    }
+
+    /** The overlay a project-level change goes to: that of the registered project at the directory; none (the CLI writes the folder) for an unregistered one unless the scope is APP. */
+    private Optional<ProjectOverlay> overlayFor(ExtensionScope scope, Path projectDirectory) {
+        if (scope != ExtensionScope.PROJECT && scope != ExtensionScope.APP) {
+            return Optional.empty();
+        }
+        var overlay = overlays.of(projectDirectory);
+        if (overlay.isEmpty() && scope == ExtensionScope.APP) {
+            throw new ExtensionException("app scope needs a registered project");
+        }
+        return overlay;
+    }
+
+    /** A name that Claude already resolves to an in-project .mcp.json or user-scope server would be shadowed or shadow it, so it is refused. */
+    private void addToOverlay(ProjectOverlay overlay, Path projectDirectory, String name, String json) {
+        var root = overlayConfig(overlay);
+        var servers = root.withObject("/mcpServers");
+        if (servers.has(name) || configReader.read(projectDirectory).stream()
+                .anyMatch(server -> server.name().equals(name) && (server.scope() == ExtensionScope.PROJECT || server.scope() == ExtensionScope.USER))) {
+            throw new ExtensionException("An MCP server named " + name + " already exists for this project");
+        }
+        servers.set(name, Json.parse(json));
+        writeOverlay(overlay, root);
+    }
+
+    private void removeFromOverlay(ProjectOverlay overlay, String name) {
+        var root = overlayConfig(overlay);
+        if (root.withObject("/mcpServers").remove(name) == null) {
+            throw new ExtensionException("No MCP server named " + name + " in this project");
+        }
+        writeOverlay(overlay, root);
+    }
+
+    private static JsonNode overlayServers(ProjectOverlay overlay) {
+        return overlayConfig(overlay).path("mcpServers");
+    }
+
+    /** A file that is not a JSON object is refused, never overwritten. */
+    private static ObjectNode overlayConfig(ProjectOverlay overlay) {
+        try {
+            return overlay.readObject(overlay.mcpFile());
+        } catch (IOException e) {
+            throw new ExtensionException("Cannot read the project's MCP servers: " + e.getClass().getSimpleName());
+        } catch (IllegalArgumentException e) {
+            throw new ExtensionException("The project's MCP server file is not a JSON object, fix or delete mcp.json in its app folder");
+        }
+    }
+
+    private static void writeOverlay(ProjectOverlay overlay, ObjectNode root) {
+        try {
+            overlay.write(overlay.mcpFile(), root.toPrettyString());
+        } catch (IOException e) {
+            throw new ExtensionException("Cannot write the project's MCP servers: " + e.getMessage());
+        }
     }
 
     private static String requireValidName(String name) {

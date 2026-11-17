@@ -1,17 +1,12 @@
 package com.github.krpkbhdn.ccmanager.git;
 
-import com.github.krpkbhdn.ccmanager.preset.apply.LocalConfigFiles;
-import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
@@ -22,19 +17,15 @@ public class TaskWorktreeService {
 
     private static final String SELECT = "SELECT id, project_id, path, branch, base_branch, task FROM task_worktree";
 
-    private static final Logger LOG = LoggerFactory.getLogger(TaskWorktreeService.class);
-    private static final List<String> LOCAL_CONFIG_FILES = List.of(LocalConfigFiles.CLAUDE_MD, LocalConfigFiles.SETTINGS);
 
     private final GitBranchService branches;
     private final GitWorktreeService worktrees;
-    private final GitLocalExclude localExclude;
     private final JdbcClient jdbc;
 
     @Autowired
-    public TaskWorktreeService(GitBranchService branches, GitWorktreeService worktrees, GitLocalExclude localExclude, JdbcClient jdbc) {
+    public TaskWorktreeService(GitBranchService branches, GitWorktreeService worktrees, JdbcClient jdbc) {
         this.branches = branches;
         this.worktrees = worktrees;
-        this.localExclude = localExclude;
         this.jdbc = jdbc;
     }
 
@@ -55,7 +46,6 @@ public class TaskWorktreeService {
             throw new IllegalArgumentException("Cannot create a task worktree for this project folder: " + e.getMessage(), e);
         }
         worktrees.add(repo, branch, "", target);
-        carryOverLocalConfig(repo, target);
         try {
             jdbc.sql("INSERT INTO task_worktree (project_id, path, branch, base_branch, task) VALUES (?, ?, ?, ?, ?)")
                     .param(projectId).param(target.toString()).param(branch).param(base).param(task).update();
@@ -64,35 +54,6 @@ public class TaskWorktreeService {
             throw e;
         }
         return find(target).orElseThrow();
-    }
-
-    /** Gitignored machine-local config is not part of a new worktree; copied once, never over an existing file, failures only logged. */
-    private void carryOverLocalConfig(Path repo, Path target) {
-        for (var relative : LOCAL_CONFIG_FILES) {
-            var source = repo.resolve(relative);
-            var copy = target.resolve(relative);
-            try {
-                if (Files.isRegularFile(source, LinkOption.NOFOLLOW_LINKS) && !Files.exists(copy, LinkOption.NOFOLLOW_LINKS) && staysInside(target, copy.getParent())) {
-                    Files.createDirectories(copy.getParent());
-                    Files.copy(source, copy, LinkOption.NOFOLLOW_LINKS);
-                }
-            } catch (IOException | RuntimeException e) {
-                LOG.warn("Could not copy {} into the task worktree: {}", relative, e.getClass().getSimpleName());
-            }
-        }
-        try {
-            localExclude.ensureExcluded(target, LOCAL_CONFIG_FILES.toArray(String[]::new));
-        } catch (IOException | RuntimeException e) {
-            LOG.warn("Could not exclude local config in the task worktree: {}", e.getClass().getSimpleName());
-        }
-    }
-
-    /** A tracked link such as .claude must not send the copy outside the worktree; a missing folder is fine. */
-    private static boolean staysInside(Path worktree, Path folder) throws IOException {
-        if (!Files.exists(folder, LinkOption.NOFOLLOW_LINKS)) {
-            return true;
-        }
-        return !Files.isSymbolicLink(folder) && folder.toRealPath().startsWith(worktree.toRealPath());
     }
 
     /** Best effort: the folder and the branch this call created; a failure here never hides the original one. */

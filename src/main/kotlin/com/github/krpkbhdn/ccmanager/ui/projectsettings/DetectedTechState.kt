@@ -26,7 +26,6 @@ class DetectedTechState(
     fun track(project: Project) {
         stop()
         val monitor = health ?: return
-        if (project.group) return
         trackedId = project.id
         unsubscribe = monitor.watch(project.path) { byProject[project.id] = it }
         refresh(project)
@@ -47,7 +46,6 @@ class DetectedTechState(
     /** Probes now; the result arrives through the watch of [project], so a project that is not tracked is not updated. */
     fun refresh(project: Project) {
         val monitor = health ?: return
-        if (project.group) return
         scope.launch {
             try {
                 withContext(Dispatchers.IO) { monitor.checkNow(project.path) }
