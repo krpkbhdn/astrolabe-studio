@@ -102,7 +102,9 @@ public class ProjectToolsService {
         var installed = foundTools.stream().anyMatch(tool -> !tool.lspPlugin().isEmpty()) ? cachedPlugins(projectDir) : List.<InstalledPlugin>of();
         return foundTools.stream().map(tool -> {
             var pluginState = group.isPresent() ? groupPluginState(group.get(), tool.lspPlugin(), projectDir) : pluginState(installed, tool.lspPlugin(), projectDir);
-            return new DetectedTechnology(tool, pluginState.serverMatters() ? probe.probe(tool.id()).state() : null, pluginState);
+            var status = pluginState.serverMatters() ? probe.probe(tool.id()) : null;
+            var detected = new DetectedTechnology(tool, status == null ? null : status.state(), pluginState);
+            return status != null && status.state() == ToolState.FAILED ? detected.withFailure(status.detail()) : detected;
         }).toList();
     }
 

@@ -229,9 +229,14 @@ public class ToolProbe {
         return switch (result.outcome()) {
             case RESPONDED -> new ToolStatus(tool.id(), ToolState.RESPONDING, installed.version(), "");
             case NO_RESPONSE_IN_TIME -> installed;
-            case FAILED -> new ToolStatus(tool.id(), ToolState.FAILED, installed.version(),
-                    truncate(latestPrefix(tool, installed.version()) + result.detail(), MAX_DETAIL_LENGTH));
+            case FAILED -> failedHandshake(tool, installed, result.detail());
         };
+    }
+
+    private ToolStatus failedHandshake(ToolDefinition tool, ToolStatus installed, String detail) {
+        var shown = truncate(latestPrefix(tool, installed.version()) + detail, MAX_DETAIL_LENGTH);
+        log.warn("Language server {} handshake failed: {}", tool.id(), shown);
+        return new ToolStatus(tool.id(), ToolState.FAILED, installed.version(), shown);
     }
 
     private String latestPrefix(ToolDefinition tool, String version) {

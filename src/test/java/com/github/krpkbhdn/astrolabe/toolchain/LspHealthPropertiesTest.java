@@ -22,13 +22,17 @@ class LspHealthPropertiesTest {
         assertThat(properties.recoveryAttempts()).isEqualTo(2);
         assertThat(properties.recoveryBackoff()).isEqualTo(Duration.ofSeconds(10));
         assertThat(properties.reinstallCooldown()).isEqualTo(Duration.ofHours(1));
+        assertThat(properties.markerRecheck()).isEqualTo(Duration.ofSeconds(30));
+        assertThat(properties.markerWait()).isEqualTo(Duration.ofMinutes(10));
     }
 
     @Test
     void everyValueMustBePositive() {
-        assertThatThrownBy(() -> new LspHealthProperties(Duration.ZERO, 1, ONE, ONE)).hasMessageContaining("interval");
-        assertThatThrownBy(() -> new LspHealthProperties(ONE, 0, ONE, ONE)).hasMessageContaining("recovery-attempts");
-        assertThatThrownBy(() -> new LspHealthProperties(ONE, 1, Duration.ofSeconds(-1), ONE)).hasMessageContaining("recovery-backoff");
-        assertThatThrownBy(() -> new LspHealthProperties(ONE, 1, ONE, Duration.ZERO)).hasMessageContaining("reinstall-cooldown");
+        assertThatThrownBy(() -> new LspHealthProperties(Duration.ZERO, 1, ONE, ONE, ONE, ONE)).hasMessageContaining("interval");
+        assertThatThrownBy(() -> new LspHealthProperties(ONE, 0, ONE, ONE, ONE, ONE)).hasMessageContaining("recovery-attempts");
+        assertThatThrownBy(() -> new LspHealthProperties(ONE, 1, Duration.ofSeconds(-1), ONE, ONE, ONE)).hasMessageContaining("recovery-backoff");
+        assertThatThrownBy(() -> new LspHealthProperties(ONE, 1, ONE, Duration.ZERO, ONE, ONE)).hasMessageContaining("reinstall-cooldown");
+        assertThatThrownBy(() -> new LspHealthProperties(ONE, 1, ONE, ONE, Duration.ZERO, ONE)).hasMessageContaining("marker-recheck");
+        assertThatThrownBy(() -> new LspHealthProperties(ONE, 1, ONE, ONE, ONE, Duration.ZERO)).hasMessageContaining("marker-wait");
     }
 }

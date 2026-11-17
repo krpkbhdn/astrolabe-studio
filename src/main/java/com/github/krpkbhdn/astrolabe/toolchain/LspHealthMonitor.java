@@ -11,8 +11,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +36,11 @@ public class LspHealthMonitor extends ScheduledSweep {
     @FunctionalInterface
     interface Pause {
         void pause(Duration duration) throws InterruptedException;
+    }
+
+    @FunctionalInterface
+    interface Later {
+        void run(Runnable task, Duration delay);
     }
 
     private static final class Watcher {
@@ -73,18 +80,24 @@ public class LspHealthMonitor extends ScheduledSweep {
     private final Map<String, Instant> lastReinstall = new ConcurrentHashMap<>();
     private final Set<String> notRepairedByReinstall = ConcurrentHashMap.newKeySet();
     private final Map<String, String> details = new ConcurrentHashMap<>();
+    private final Set<Path> awaitingImport = ConcurrentHashMap.newKeySet();
+    private final Map<Path, Instant> pendingSince = new ConcurrentHashMap<>();
     private final ManagedToolsDirectory managedTools;
+    private final Later later;
 
     @Autowired
     public LspHealthMonitor(ProjectToolsService projectTools, ToolProbe probe, ToolInstallService installer,
                             LspHealthProperties properties, ManagedToolsDirectory managedTools) {
         this(projectTools, probe, installer, properties, managedTools, Clock.systemUTC(),
-                duration -> Thread.sleep(duration.toMillis()));
+                duration -> Thread.sleep(duration.toMillis()),
+                (task, delay) -> CompletableFuture.runAsync(task,
+                        CompletableFuture.delayedExecutor(delay.toMillis(), TimeUnit.MILLISECONDS)));
     }
 
     LspHealthMonitor(ProjectToolsService projectTools, ToolProbe probe, ToolInstallService installer,
-                     LspHealthProperties properties, ManagedToolsDirectory managedTools, Clock clock, Pause pause) {
+                     LspHealthProperties properties, ManagedToolsDirectory managedTools, Clock clock, Pause pause, Later later) {
         super("lsp-health", properties.interval());
+        this.later = later;
         this.managedTools = managedTools;
         this.projectTools = projectTools;
         this.probe = probe;
@@ -96,6 +109,7 @@ public class LspHealthMonitor extends ScheduledSweep {
 
     /** @return unsubscribe handle; the first state arrives with the next check, or call {@link #checkNow}. */
     public Runnable watch(Path projectDir, Consumer<List<DetectedTechnology>> onChange) {
+        pendingSince.remove(projectDir);
         var watcher = new Watcher(projectDir, onChange);
         watchers.add(watcher);
         return () -> {
@@ -120,10 +134,20 @@ public class LspHealthMonitor extends ScheduledSweep {
 
     private void check(Path directory, boolean recover) {
         try {
+            awaitingImport.remove(directory);
             var current = projectTools.detected(directory).stream().map(found -> fresh(directory, found, recover)).toList();
             watchers.stream().filter(watcher -> watcher.directory.equals(directory)).forEach(watcher -> watcher.deliver(current));
+            if (awaitingImport.contains(directory)) {
+                later.run(() -> recheck(directory), properties.markerRecheck());
+            }
         } catch (RuntimeException e) {
             log.warn("Language server health check of a project failed: {}", e.getClass().getSimpleName());
+        }
+    }
+
+    private void recheck(Path directory) {
+        if (watchers.stream().anyMatch(watcher -> watcher.directory.equals(directory))) {
+            check(directory, false);
         }
     }
 
@@ -143,25 +167,42 @@ public class LspHealthMonitor extends ScheduledSweep {
             return found;
         }
         try {
-            var state = probe.probeFresh(id).state();
+            var status = probe.probeFresh(id);
+            var state = status.state();
             if (healthy(state)) {
                 notRepairedByReinstall.remove(id);
-                return found.withServerState(withRedirectCheck(directory, id, state));
+                return withRedirectCheck(directory, found, state);
             }
-            return found.withServerState(recover && state == ToolState.FAILED ? recovered(id) : state);
+            return found.withFailure(status.detail()).withServerState(recover && state == ToolState.FAILED ? recovered(id) : state);
         } catch (RuntimeException e) {
             log.warn("Probing language server {} failed: {}", id, e.getClass().getSimpleName());
             return found;
         }
     }
 
-    private ToolState withRedirectCheck(Path directory, String id, ToolState state) {
+    private DetectedTechnology withRedirectCheck(Path directory, DetectedTechnology found, ToolState state) {
+        var id = found.tool().id();
         if (!JDTLS.equals(id)) {
-            return state;
+            return found.withServerState(state);
         }
-        var failure = GradleOutputRedirectCheck.failure(managedTools.stateDirectory(id), directory, channelOf(id));
-        failure.ifPresent(detail -> details.put(detailKey(directory, id), detail));
-        return failure.isPresent() ? ToolState.FAILED : state;
+        var outcome = GradleOutputRedirectCheck.check(managedTools.stateDirectory(id), directory, channelOf(id));
+        var failure = outcome.failure();
+        if (outcome.pending()) {
+            var since = pendingSince.computeIfAbsent(directory, key -> clock.instant());
+            if (since.plus(properties.markerWait()).isAfter(clock.instant())) {
+                awaitingImport.add(directory);
+            } else {
+                failure = Optional.of("Gradle output redirect did not run (marker not written within "
+                        + properties.markerWait().toSeconds() + " s)");
+            }
+        } else {
+            pendingSince.remove(directory);
+        }
+        failure.ifPresent(detail -> {
+            details.put(detailKey(directory, id), detail);
+            log.warn("Language server {} reported FAILED: {}", id, detail);
+        });
+        return failure.map(found::withFailure).orElseGet(() -> found.withServerState(state));
     }
 
     private ToolChannel channelOf(String id) {

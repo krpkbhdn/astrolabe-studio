@@ -29,6 +29,14 @@ class DetectedTechModelTest {
     }
 
     @Test
+    fun `a failed server line shows its reason, or not responding without one`() {
+        val reason = "Gradle output redirect did not run (VERIFIED)"
+        val java = tech("Java", ToolState.FAILED).withFailure(reason)
+        assertThat(lspIndicatorOf(listOf(java))!!.lines).contains("Java: $reason")
+        assertThat(lspIndicatorOf(listOf(tech("Go", ToolState.FAILED)))!!.lines).contains("Go: not responding")
+    }
+
+    @Test
     fun `a missing server is yellow`() {
         assertThat(lspIndicatorOf(listOf(tech("Java"), tech("Go", ToolState.MISSING)))!!.level).isEqualTo(LspLevel.YELLOW)
     }

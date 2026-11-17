@@ -35,6 +35,6 @@ private fun lineOf(tech: DetectedTechnology): String = "${tech.tool().name()}: "
     ToolState.RESPONDING -> "running"
     ToolState.INSTALLED -> "installed"
     ToolState.MISSING -> "not installed"
-    ToolState.FAILED -> "not responding"
+    ToolState.FAILED -> tech.detail().orEmpty().ifBlank { "not responding" }
     null -> "not checked"
 }

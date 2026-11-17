@@ -32,8 +32,8 @@ class LspHealthMonitorTest {
 
     private static final class Monitor extends LspHealthMonitor {
         Monitor(ProjectToolsService tools, ToolProbe probe, ToolInstallService installer, LspHealthProperties properties,
-                ManagedToolsDirectory managedTools, Clock clock, Pause pause) {
-            super(tools, probe, installer, properties, managedTools, clock, pause);
+                ManagedToolsDirectory managedTools, Clock clock, Pause pause, Later later) {
+            super(tools, probe, installer, properties, managedTools, clock, pause, later);
         }
 
         void begin() { start(); }
@@ -43,6 +43,8 @@ class LspHealthMonitorTest {
 
     private static final Path DIR = Path.of("project");
     private static final Duration COOLDOWN = Duration.ofHours(1);
+    private static final Duration RECHECK = Duration.ofSeconds(30);
+    private static final Duration WAIT = Duration.ofMinutes(10);
 
     private final ProjectToolsService projectTools = mock(ProjectToolsService.class);
     private final ToolProbe probe = mock(ToolProbe.class);
@@ -50,6 +52,8 @@ class LspHealthMonitorTest {
     private final ToolDefinition go = tool("go");
     private final ToolDefinition rust = tool("rust");
     private final List<Duration> pauses = new ArrayList<>();
+    private final java.util.LinkedList<Runnable> rechecks = new java.util.LinkedList<>();
+    private final List<Duration> recheckDelays = new ArrayList<>();
     private final List<List<DetectedTechnology>> delivered = new ArrayList<>();
     private Instant now = Instant.parse("2026-01-01T00:00:00Z");
     private Monitor monitor;
@@ -60,14 +64,17 @@ class LspHealthMonitorTest {
 
     @BeforeEach
     void setUp() {
-        var properties = new LspHealthProperties(Duration.ofMinutes(5), 2, Duration.ofSeconds(10), COOLDOWN);
+        var properties = new LspHealthProperties(Duration.ofMinutes(5), 2, Duration.ofSeconds(10), COOLDOWN, RECHECK, WAIT);
         var clock = new Clock() {
             @Override public java.time.ZoneId getZone() { return ZoneOffset.UTC; }
             @Override public Clock withZone(java.time.ZoneId zone) { return this; }
             @Override public Instant instant() { return now; }
         };
         managedTools = new ManagedToolsDirectory(new AppProperties(dataDir));
-        monitor = new Monitor(projectTools, probe, installer, properties, managedTools, clock, pauses::add);
+        monitor = new Monitor(projectTools, probe, installer, properties, managedTools, clock, pauses::add, (task, delay) -> {
+            rechecks.add(task);
+            recheckDelays.add(delay);
+        });
     }
 
     private void jdtlsProject(Path project, boolean gradle, String... markerLines) throws IOException {
@@ -103,22 +110,93 @@ class LspHealthMonitorTest {
     }
 
     @Test
-    void missingMarkerInAnOpenedWorkspaceFailsWithTheChannel() throws IOException {
+    void missingMarkerInAnOpenedWorkspaceIsNotFailedAndIsLookedAtAgain() throws IOException {
         var project = dataDir.resolve("proj");
         jdtlsProject(project, true);
+
+        assertThat(checkJdtls(project)).extracting(DetectedTechnology::serverState).containsExactly(ToolState.RESPONDING);
+        assertThat(monitor.failureDetail(project, "jdtls")).isEmpty();
+        assertThat(rechecks).hasSize(1);
+        assertThat(recheckDelays).containsExactly(RECHECK);
+    }
+
+    @Test
+    void recheckWithTheMarkerWrittenStopsLookingAgain() throws IOException {
+        var project = dataDir.resolve("proj");
+        jdtlsProject(project, true);
+        checkJdtls(project);
+        var marker = JdtlsWorkspace.markerFile(managedTools.stateDirectory("jdtls"), project);
+        Files.createDirectories(marker.getParent());
+        Files.write(marker, List.of(project + " OK build/eclipse-out"));
+
+        rechecks.removeFirst().run();
+
+        assertThat(rechecks).isEmpty();
+    }
+
+    @Test
+    void pendingBeyondTheWaitLimitFailsAndStopsLookingAgain() throws IOException {
+        var project = dataDir.resolve("proj");
+        jdtlsProject(project, true);
+        checkJdtls(project);
+        now = now.plus(WAIT.minusSeconds(1));
+        rechecks.removeFirst().run();
+        assertThat(delivered.getLast()).extracting(DetectedTechnology::serverState).containsExactly(ToolState.RESPONDING);
+        assertThat(rechecks).hasSize(1);
+
+        now = now.plusSeconds(1);
+        rechecks.removeFirst().run();
+
+        assertThat(delivered.getLast()).extracting(DetectedTechnology::serverState).containsExactly(ToolState.FAILED);
+        assertThat(delivered.getLast().getFirst().detail()).isEqualTo("Gradle output redirect did not run (marker not written within 600 s)");
+        assertThat(monitor.failureDetail(project, "jdtls")).isPresent();
+        assertThat(rechecks).isEmpty();
+    }
+
+    @Test
+    void markerWrittenBeforeTheWaitLimitClearsTheWait() throws IOException {
+        var project = dataDir.resolve("proj");
+        jdtlsProject(project, true);
+        checkJdtls(project);
+        var marker = JdtlsWorkspace.markerFile(managedTools.stateDirectory("jdtls"), project);
+        Files.createDirectories(marker.getParent());
+        Files.write(marker, List.of(project + " OK build/eclipse-out"));
+        now = now.plus(WAIT.minusSeconds(1));
+        rechecks.removeFirst().run();
+        Files.write(marker, List.of());
+        now = now.plus(WAIT);
+
+        monitor.checkNow(project);
+
+        assertThat(delivered.getLast()).extracting(DetectedTechnology::serverState).containsExactly(ToolState.RESPONDING);
+        assertThat(rechecks).hasSize(1);
+    }
+
+    @Test
+    void recheckWithAFailedMarkerLineDeliversFailed() throws IOException {
+        var project = dataDir.resolve("proj");
+        jdtlsProject(project, true);
+        checkJdtls(project);
+        var marker = JdtlsWorkspace.markerFile(managedTools.stateDirectory("jdtls"), project);
+        Files.createDirectories(marker.getParent());
+        Files.write(marker, List.of(project + " FAILED java.io.IOException"));
+
+        rechecks.removeFirst().run();
+
+        assertThat(delivered.getLast()).extracting(DetectedTechnology::serverState).containsExactly(ToolState.FAILED);
+        assertThat(delivered.getLast().getFirst().detail()).isEqualTo("Gradle output redirect did not run (VERIFIED)");
+        assertThat(rechecks).isEmpty();
+    }
+
+    @Test
+    void failedMarkerLineFailsWithTheChannel() throws IOException {
+        var project = dataDir.resolve("proj");
+        jdtlsProject(project, true, project + " FAILED java.io.IOException");
         when(installer.installedChannel("jdtls")).thenReturn(ToolChannel.LATEST);
 
         assertThat(checkJdtls(project)).extracting(DetectedTechnology::serverState).containsExactly(ToolState.FAILED);
         assertThat(monitor.failureDetail(project, "jdtls")).contains("Gradle output redirect did not run (LATEST)");
-    }
-
-    @Test
-    void failedMarkerLineFails() throws IOException {
-        var project = dataDir.resolve("proj");
-        jdtlsProject(project, true, project + " FAILED java.io.IOException");
-
-        assertThat(checkJdtls(project)).extracting(DetectedTechnology::serverState).containsExactly(ToolState.FAILED);
-        assertThat(monitor.failureDetail(project, "jdtls")).contains("Gradle output redirect did not run (VERIFIED)");
+        assertThat(rechecks).isEmpty();
     }
 
     @Test
