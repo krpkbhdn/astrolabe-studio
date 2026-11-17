@@ -28,7 +28,12 @@ class CodeModeChipState(
         mcp = newMcp(project).also { it.refresh() }
     }
 
-    fun stop() {
+    /** Stops only when [id] is still the tracked project: a leaving screen must not wipe the one that replaced it. */
+    fun stopIfTracking(id: Long) {
+        if (projectId == id) stop()
+    }
+
+    private fun stop() {
         open = false
         codeMode?.dispose()
         codeMode = null

@@ -17,6 +17,7 @@ class DetectedTechState(
 ) {
     private val byProject = mutableStateMapOf<Long, List<DetectedTechnology>>()
     private var unsubscribe: Runnable? = null
+    private var trackedId: Long? = null
 
     fun of(projectId: Long): List<DetectedTechnology> = byProject[projectId].orEmpty()
 
@@ -26,14 +27,21 @@ class DetectedTechState(
         stop()
         val monitor = health ?: return
         if (project.group) return
+        trackedId = project.id
         unsubscribe = monitor.watch(project.path) { byProject[project.id] = it }
         refresh(project)
     }
 
+    /** Stops only when [id] is still the tracked project: a leaving screen must not cancel the watch of the one that replaced it. */
     @Synchronized
-    fun stop() {
+    fun stopIfTracking(id: Long) {
+        if (trackedId == id) stop()
+    }
+
+    private fun stop() {
         unsubscribe?.run()
         unsubscribe = null
+        trackedId = null
     }
 
     /** Probes now; the result arrives through the watch of [project], so a project that is not tracked is not updated. */

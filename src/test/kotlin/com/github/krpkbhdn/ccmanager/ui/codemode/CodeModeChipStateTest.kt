@@ -47,9 +47,18 @@ class CodeModeChipStateTest {
         val chip = chip()
         chip.track(project(1))
         chip.open = true
-        chip.stop()
+        chip.stopIfTracking(1)
         assertThat(chip.open).isFalse()
         assertThat(chip.codeMode).isNull()
         verify(created[0]).dispose()
+    }
+
+    @Test
+    fun `a leaving screen does not stop the project that replaced it`() {
+        val chip = chip()
+        chip.track(project(1))
+        chip.track(project(2))
+        chip.stopIfTracking(1)
+        assertThat(chip.codeMode).isNotNull()
     }
 }

@@ -92,8 +92,8 @@ fun ProjectScreen(state: AppState, project: Project, modifier: Modifier = Modifi
         state.detectedTech.track(project)
         state.codeModeChip.track(project)
         onDispose {
-            state.detectedTech.stop()
-            state.codeModeChip.stop()
+            state.detectedTech.stopIfTracking(project.id)
+            state.codeModeChip.stopIfTracking(project.id)
         }
     }
     Column(modifier.fillMaxSize()) {

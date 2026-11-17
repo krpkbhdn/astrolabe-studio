@@ -75,7 +75,9 @@ class DetectedTechStateTest {
         state.track(project)
         state.track(other)
         assertThat(unsubscribed).containsExactly(dir)
-        state.stop()
+        state.stopIfTracking(project.id)
+        assertThat(unsubscribed).containsExactly(dir)
+        state.stopIfTracking(other.id)
         assertThat(unsubscribed).containsExactly(dir, otherDir)
     }
 
