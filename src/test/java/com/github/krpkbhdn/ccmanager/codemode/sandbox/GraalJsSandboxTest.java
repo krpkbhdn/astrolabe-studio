@@ -200,6 +200,79 @@ class GraalJsSandboxTest {
     }
 
     @Test
+    void timersRunInDueOrderAndClearedOnesDoNot() {
+        ScriptResult result = run("const seen = []; setTimeout(() => seen.push('late'), 30); const gone = setTimeout(() => seen.push('gone'), 5);"
+                + " clearTimeout(gone); await new Promise(r => setTimeout(r, 10, 'x')); seen.push('slept'); await new Promise(r => setTimeout(r, 60));"
+                + " return [typeof setTimeout, typeof setInterval, seen.join()];");
+
+        assertThat(result.error()).isEmpty();
+        assertThat(result.output()).isEqualTo("[\"function\",\"undefined\",\"slept,late\"]");
+    }
+
+    @Test
+    void oddTimerDelaysAreSanitisedAndStillRun() {
+        ScriptResult result = run("let n = 0; for (const d of [0.5, 1000 / 3, Infinity, NaN, -5, 1e300, '7', undefined]) {"
+                + " await new Promise(r => setTimeout(r, d === Infinity || d === 1e300 ? 0 : d)); n++; }"
+                + " const t = setTimeout(() => { n += 100; }, Infinity); clearTimeout(t); setTimeout(() => { n += 1000; }, NaN);"
+                + " await new Promise(r => setTimeout(r, 20)); return n;");
+
+        assertThat(result.error()).isEmpty();
+        assertThat(result.output()).isEqualTo("1008");
+    }
+
+    @Test
+    void hugeAndInfiniteDelaysAreClampedNotFailed() {
+        try (GraalJsSandbox slow = sandbox(Duration.ofMillis(400), 100_000, 1000)) {
+            for (var delay : new String[] {"Infinity", "1e300", "1000 / 3 * 1e9"}) {
+                ScriptResult result = slow.run("await new Promise(r => setTimeout(r, " + delay + "));", bridge, SESSION);
+
+                assertThat(result.error()).hasValueSatisfying(e -> assertThat(e).contains("max-script-time"));
+            }
+        }
+    }
+
+    @Test
+    void patchedBuiltinsDoNotBreakTheTimerLoop() {
+        ScriptResult result = run("Date.now = () => 'x'; Array.prototype.push = null; Math.ceil = null; await new Promise(r => setTimeout(r, 5)); return 'ok';");
+
+        assertThat(result.output()).isEqualTo("ok");
+    }
+
+    @Test
+    void errorThrownInATimerCallbackFailsTheScript() {
+        ScriptResult result = run("setTimeout(() => { throw new Error('late boom'); }, 1); await new Promise(r => setTimeout(r, 50));");
+
+        assertThat(result.error()).hasValueSatisfying(message -> assertThat(message).contains("late boom"));
+    }
+
+    @Test
+    void pendingTimerIsNotStuckButAPromiseWithoutOneIs() {
+        assertThat(run("await new Promise(r => setTimeout(r, 20)); return 'done';").output()).isEqualTo("done");
+        assertThat(run("setTimeout(() => {}, 1); await new Promise(() => {});").error()).contains("script did not finish: a promise never settled");
+    }
+
+    @Test
+    void sleepingScriptIsStoppedByTheHardCap() {
+        try (GraalJsSandbox slow = sandbox(Duration.ofMillis(300), 100_000, 1000)) {
+            ScriptResult result = slow.run("await new Promise(r => setTimeout(r, 60000));", bridge, SESSION);
+
+            assertThat(result.error()).hasValueSatisfying(e -> assertThat(e).contains("max-script-time"));
+        }
+    }
+
+    @Test
+    void interruptingTheCallerCancelsASleepingScript() throws Exception {
+        var outcome = new java.util.concurrent.atomic.AtomicReference<ScriptResult>();
+        var caller = Thread.ofPlatform().start(() -> outcome.set(run("await new Promise(r => setTimeout(r, 60000));")));
+        Thread.sleep(300);
+
+        caller.interrupt();
+        caller.join(5_000);
+
+        assertThat(outcome.get().error()).contains("script was cancelled");
+    }
+
+    @Test
     void longOutputKeepsHeadAndTailWithAMarker() {
         try (GraalJsSandbox small = sandbox(Duration.ofSeconds(10), 100_000, 100)) {
             ScriptResult result = small.run("return 'a'.repeat(150) + 'b'.repeat(150);", bridge, SESSION);

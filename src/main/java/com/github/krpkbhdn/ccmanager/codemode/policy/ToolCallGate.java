@@ -5,11 +5,13 @@ import com.github.krpkbhdn.ccmanager.claude.proposal.PermissionProposal;
 import com.github.krpkbhdn.ccmanager.claude.proposal.PermissionProposal.Suggestion;
 import com.github.krpkbhdn.ccmanager.claude.proposal.ProposalAnswer.PermissionAllow;
 import com.github.krpkbhdn.ccmanager.claude.proposal.ProposalService;
+import com.github.krpkbhdn.ccmanager.codemode.ProjectCodeModeService;
 import com.github.krpkbhdn.ccmanager.codemode.RemoteTool;
 import com.github.krpkbhdn.ccmanager.codemode.SessionContext;
 import com.github.krpkbhdn.ccmanager.codemode.ServerNames;
 import com.github.krpkbhdn.ccmanager.extension.mcp.McpServerDefinition;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -18,6 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -25,6 +28,7 @@ import tools.jackson.databind.json.JsonMapper;
 /**
  * Decides whether a script may call a remote MCP tool: read-only tools and granted ones run at once, everything else needs the user's answer in the app,
  * and any failure or abandoned question denies it. A grant belongs to the server's definition, so a changed or replaced server never inherits it.
+ * A project setting can allow every call, or those of chosen servers, without asking; deny and ask rules of Claude Code still win over it.
  */
 @Component
 public class ToolCallGate {
@@ -34,6 +38,7 @@ public class ToolCallGate {
     static final String DENIED = "Denied by the user in cc-manager";
     static final String TIMED_OUT = "The user did not answer in cc-manager in time";
     static final String UNAVAILABLE = "The user could not be asked in cc-manager (no open approval, or too many waiting)";
+    static final String DENIED_BY_RULE = "Denied by a deny rule in the Claude Code permission settings";
     static final String FAILED = "The permission check failed, so the call was not allowed";
     private static final Logger log = LoggerFactory.getLogger(ToolCallGate.class);
     private static final int MAX_LABEL = 100;
@@ -43,23 +48,42 @@ public class ToolCallGate {
     private final ProposalService proposals;
     private final Map<String, Set<ToolGrant>> grants = new ConcurrentHashMap<>();
     private final Map<String, Set<ServerGrant>> serverGrants = new ConcurrentHashMap<>();
+    private final PermissionRules rules;
+    private final ProjectCodeModeService projectModes;
 
     private record ToolGrant(String server, String tool, McpServerDefinition definition) {}
 
     private record ServerGrant(String server, McpServerDefinition definition) {}
 
-    public ToolCallGate(ProposalService proposals) {
+    @Autowired
+    public ToolCallGate(ProposalService proposals, PermissionRules rules, ProjectCodeModeService projectModes) {
         this.proposals = proposals;
+        this.rules = rules;
+        this.projectModes = projectModes;
     }
 
-    /** A call whose arguments cannot be shown in full is always asked about, even when the tool was granted for the session. */
+    /**
+     * Claude Code permission rules come first: deny blocks, ask always asks, allow (from the Claude Code settings, exact tool or server; like Claude Code it
+     * does not depend on the destructive hint or a cut preview) runs the call. Otherwise read-only tools run, and a tool granted for the session runs
+     * only when its arguments can be shown in full (a whole-server grant does not depend on that).
+     */
     public Decision decide(RemoteTool tool, McpServerDefinition definition, JsonNode arguments, SessionContext session) {
-        if (tool.isSafeToRunUnasked()) {
-            return Decision.AUTO;
-        }
         try {
+            var verdict = rules.verdict(session, definition.name(), tool.name());
+            if (verdict == PermissionRules.Verdict.DENY) {
+                return Decision.denied(DENIED_BY_RULE);
+            }
             var preview = ArgumentPreview.of(arguments);
-            if (!preview.truncated() && (isGranted(session, tool, definition) || isServerGranted(session, tool, definition))) {
+            if (verdict == PermissionRules.Verdict.ASK) {
+                return askUser(tool, definition, preview, session);
+            }
+            if (verdict == PermissionRules.Verdict.ALLOW || tool.isSafeToRunUnasked()) {
+                return Decision.AUTO;
+            }
+            if (projectModes.get(session.projectId()).toolCalls().allows(tool.server(), definition.name())) {
+                return Decision.PROJECT_SETTING;
+            }
+            if (isServerGranted(session, tool, definition) || !preview.truncated() && isGranted(session, tool, definition)) {
                 return Decision.AUTO;
             }
             return askUser(tool, definition, preview, session);
@@ -119,9 +143,9 @@ public class ToolCallGate {
     private Decision askUser(RemoteTool tool, McpServerDefinition definition, ArgumentPreview.Preview preview, SessionContext session) {
         var rawLabel = tool.server() + "." + tool.name();
         var label = ServerNames.shown(rawLabel, MAX_LABEL);
-        var exact = !preview.truncated() && label.equals(rawLabel);
-        var offerToolGrant = exact && !declaresDestructive(tool);
-        var suggestions = new java.util.ArrayList<Suggestion>();
+        var exact = label.equals(rawLabel);
+        var offerToolGrant = exact && !preview.truncated() && !declaresDestructive(tool);
+        var suggestions = new ArrayList<Suggestion>();
         if (offerToolGrant) {
             suggestions.add(new Suggestion(MAPPER.createObjectNode().put("type", SESSION_GRANT_TYPE), "Allow " + label + " for this session"));
         }

@@ -57,7 +57,7 @@ final class ServerConnector {
                 closeQuietly(client);
                 return reusable(pool, candidate);
             }
-            pool.catalog.put(candidate.name(), tools);
+            pool.catalog.put(candidate.name(), tools.stream().map(tool -> tool.onServer(candidate.name())).toList());
             pool.failures.remove(candidate.name());
             pool.open.put(candidate.name(), new Open(client, candidate.definition(), candidate.stored(), clock.instant()));
             return client;

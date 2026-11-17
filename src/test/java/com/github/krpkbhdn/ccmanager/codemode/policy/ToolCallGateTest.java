@@ -2,6 +2,7 @@ package com.github.krpkbhdn.ccmanager.codemode.policy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -14,7 +15,10 @@ import com.github.krpkbhdn.ccmanager.claude.proposal.PermissionProposal;
 import com.github.krpkbhdn.ccmanager.claude.proposal.ProposalAnswer;
 import com.github.krpkbhdn.ccmanager.claude.proposal.ProposalAnswer.PermissionAllow;
 import com.github.krpkbhdn.ccmanager.claude.proposal.ProposalService;
+import com.github.krpkbhdn.ccmanager.codemode.ProjectCodeMode;
+import com.github.krpkbhdn.ccmanager.codemode.ProjectCodeModeService;
 import com.github.krpkbhdn.ccmanager.codemode.RemoteTool;
+import com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess;
 import com.github.krpkbhdn.ccmanager.codemode.SessionContext;
 import com.github.krpkbhdn.ccmanager.extension.ExtensionScope;
 import com.github.krpkbhdn.ccmanager.extension.mcp.McpServerDefinition;
@@ -23,6 +27,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import tools.jackson.databind.JsonNode;
@@ -34,7 +39,13 @@ class ToolCallGateTest {
     private static final SessionContext SESSION = new SessionContext(1, "s1");
 
     ProposalService proposals = mock(ProposalService.class);
-    ToolCallGate gate = new ToolCallGate(proposals);
+    ProjectCodeModeService projectModes = mock(ProjectCodeModeService.class);
+    ToolCallGate gate = new ToolCallGate(proposals, PermissionRules.NONE, projectModes);
+
+    @BeforeEach
+    void projectSettingIsOffByDefault() {
+        when(projectModes.get(anyLong())).thenReturn(new ProjectCodeMode(1, true, List.of("db"), ToolCallAccess.ASK));
+    }
     private static final McpServerDefinition DEFINITION = definition("db-server");
 
     private static RemoteTool tool(boolean readOnly, boolean destructive) {
@@ -54,7 +65,11 @@ class ToolCallGateTest {
     }
 
     private static McpServerDefinition definition(String command) {
-        return new McpServerDefinition("db", ExtensionScope.USER, McpServerDefinition.Transport.STDIO, command, List.of(), Map.of(), null, Map.of(), null);
+        return definition(command, "db");
+    }
+
+    private static McpServerDefinition definition(String command, String name) {
+        return new McpServerDefinition(name, ExtensionScope.USER, McpServerDefinition.Transport.STDIO, command, List.of(), Map.of(), null, Map.of(), null);
     }
 
     private Decision decideAsk(SessionContext session) {
@@ -128,7 +143,7 @@ class ToolCallGateTest {
         assertThat(shown.toolInput().get("nested").get("ok").asString()).isEqualTo("v");
         assertThat(shown.toolInput().get("text").asString()).isEqualTo(longText);
         assertThat(shown.suggestions()).extracting(PermissionProposal.Suggestion::description)
-                .containsExactly("Allow db.query for this session", "Allow ALL tools of db for this session, including ones marked destructive");
+                .startsWith("Allow db.query for this session", "Allow ALL tools of db for this session, including ones marked destructive");
         assertThat(shown.toolInput().toString()).doesNotContain("k1");
     }
 
@@ -145,7 +160,7 @@ class ToolCallGateTest {
         var shown = askedWith("{\"text\":\"" + "x".repeat(ArgumentPreview.MAX_TEXT + 50) + "\"}");
 
         assertThat(shown.toolInput().get("text").asString()).isEqualTo("x".repeat(ArgumentPreview.MAX_TEXT) + ArgumentPreview.moreCharacters(50));
-        assertThat(shown.suggestions()).isEmpty();
+        assertThat(shown.suggestions()).extracting(s -> s.raw().path("type").asString()).containsExactly(ToolCallGate.SERVER_GRANT_TYPE);
     }
 
     @Test
@@ -160,7 +175,7 @@ class ToolCallGateTest {
 
         assertThat(shown.toolInput().get("obj").get("...").asString()).isEqualTo("3 more fields");
         assertThat(shown.toolInput().get("arr").get(ArgumentPreview.MAX_ITEMS).asString()).isEqualTo(ArgumentPreview.moreItems(3));
-        assertThat(shown.suggestions()).isEmpty();
+        assertThat(shown.suggestions()).extracting(PermissionProposal.Suggestion::description).startsWith("Allow ALL tools of db for this session, including ones marked destructive");
     }
 
     @Test
@@ -198,7 +213,7 @@ class ToolCallGateTest {
         var captor = ArgumentCaptor.forClass(PermissionProposal.class);
         verify(proposals).holdForApp(captor.capture());
         assertThat(captor.getValue().toolName()).isEqualTo("db .qu ery x");
-        assertThat(captor.getValue().suggestions()).isEmpty();
+        assertThat(captor.getValue().suggestions()).extracting(s -> s.raw().path("type").asString()).isEmpty();
     }
 
     @Test
@@ -219,7 +234,7 @@ class ToolCallGateTest {
         var shown = askedWith("{\"ke\\u202Ey\":\"va\\u2066l\\nue\"}");
 
         assertThat(shown.toolInput().toString()).doesNotContain("\u202E").doesNotContain("\u2066").doesNotContain("\\n");
-        assertThat(shown.suggestions()).isEmpty();
+        assertThat(shown.suggestions()).extracting(s -> s.raw().path("type").asString()).containsExactly(ToolCallGate.SERVER_GRANT_TYPE);
     }
 
     @Test
@@ -423,7 +438,80 @@ class ToolCallGateTest {
 
         assertThat(captor.getValue().origin()).isEqualTo(PermissionProposal.Origin.CODE_MODE);
         assertThat(captor.getValue().toolName()).hasSizeLessThan(150).endsWith("...");
-        assertThat(captor.getValue().suggestions()).hasSize(0);
+        assertThat(captor.getValue().suggestions()).extracting(s -> s.raw().path("type").asString()).isEmpty();
+    }
+
+    @Test
+    void serverGrantAppliesToACallWithHiddenArgumentsButAToolGrantDoesNot() {
+        var cut = args("{\"text\":\"" + "x".repeat(ArgumentPreview.MAX_TEXT + 1) + "\"}");
+        gate.allowForSession(SESSION, toolOf("db", "query", false), DEFINITION);
+        answerWith(AppDecision.Unanswered.TIMED_OUT);
+        assertThat(decide(toolOf("db", "query", false), cut, SESSION).allowed()).isFalse();
+
+        gate.allowServerForSession(SESSION, "db", DEFINITION);
+
+        assertThat(decide(toolOf("db", "query", false), cut, SESSION).kind()).isEqualTo(Decision.Kind.ALLOWED_AUTO);
+    }
+
+    @Test
+    void newlinesAndTabsInArgumentsDoNotCountAsHidden() {
+        gate.allowForSession(SESSION, toolOf("db", "query", false), DEFINITION);
+
+        assertThat(decide(toolOf("db", "query", false), args("{\"code\":\"a\\n\\tb\"}"), SESSION).kind()).isEqualTo(Decision.Kind.ALLOWED_AUTO);
+    }
+
+    private Decision decideWithRule(PermissionRules.Verdict verdict, RemoteTool tool, McpServerDefinition definition) {
+        var ruled = new ToolCallGate(proposals, (session, names, name) -> verdict, projectModes);
+        return ruled.decide(tool, definition, args("{}"), SESSION);
+    }
+
+    @Test
+    void allowRuleRunsTheCallWithoutAskingEvenForADestructiveTool() {
+        assertThat(decideWithRule(PermissionRules.Verdict.ALLOW, toolOf("db", "wipe", true), DEFINITION).kind()).isEqualTo(Decision.Kind.ALLOWED_AUTO);
+        assertThat(decideWithRule(PermissionRules.Verdict.ALLOW, toolOf("db", "query", false), DEFINITION).kind()).isEqualTo(Decision.Kind.ALLOWED_AUTO);
+        verify(proposals, never()).holdForApp(any());
+    }
+
+    @Test
+    void denyRuleBlocksEvenAReadOnlyTool() {
+        var decision = decideWithRule(PermissionRules.Verdict.DENY, tool(true, false), DEFINITION);
+
+        assertThat(decision.allowed()).isFalse();
+        assertThat(decision.reason()).isEqualTo(ToolCallGate.DENIED_BY_RULE);
+    }
+
+    @Test
+    void undecidedRuleAsksAndAFailingRuleCheckDenies() {
+        answerWith(AppDecision.Unanswered.TIMED_OUT);
+        assertThat(decideWithRule(PermissionRules.Verdict.UNDECIDED, toolOf("db", "query", false), DEFINITION).allowed()).isFalse();
+        verify(proposals).holdForApp(any());
+
+        var failing = new ToolCallGate(proposals, (session, names, name) -> {
+            throw new IllegalStateException("boom");
+        }, projectModes);
+        assertThat(failing.decide(toolOf("db", "query", false), DEFINITION, args("{}"), SESSION).reason()).isEqualTo(ToolCallGate.FAILED);
+    }
+
+    @Test
+    void askRuleAsksEvenForAReadOnlyToolAndAGrantedOne() {
+        answerWith(new AppDecision.Answered(PermissionAllow.once()));
+        gate.allowServerForSession(SESSION, "db", DEFINITION);
+
+        assertThat(decideWithRule(PermissionRules.Verdict.ASK, tool(true, false), DEFINITION).kind()).isEqualTo(Decision.Kind.ALLOWED_USER);
+        verify(proposals).holdForApp(any());
+    }
+
+    @Test
+    void rulesAreAskedForTheSavedNameOfTheServerOnly() {
+        var seen = new AtomicReference<String>();
+        var ruled = new ToolCallGate(proposals, (session, server, name) -> {
+            seen.set(server);
+            return PermissionRules.Verdict.ALLOW;
+        }, projectModes);
+
+        ruled.decide(toolOf("playwright", "navigate", false), definition("x", "plugin_playwright_playwright"), args("{}"), SESSION);
+
+        assertThat(seen.get()).isEqualTo("plugin_playwright_playwright");
     }
 
     private static void verifyEventually(Runnable check) throws InterruptedException {
@@ -438,5 +526,76 @@ class ToolCallGateTest {
                 Thread.sleep(50);
             }
         }
+    }
+
+    private Decision decideWithProjectSetting(ToolCallAccess access, PermissionRules.Verdict verdict, RemoteTool tool, JsonNode arguments) {
+        when(projectModes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of("db"), access));
+        var ruled = new ToolCallGate(proposals, (session, names, name) -> verdict, projectModes);
+        return ruled.decide(tool, DEFINITION, arguments, SESSION);
+    }
+
+    @Test
+    void projectSettingRunsDestructiveAndCutCallsWithoutAskingAndMarksTheDecision() {
+        var cut = args("{\"q\":\"" + "x".repeat(ArgumentPreview.MAX_TEXT + 1) + "\"}");
+
+        assertThat(decideWithProjectSetting(ToolCallAccess.ALL, PermissionRules.Verdict.UNDECIDED, toolOf("db", "wipe", true), args("{}")).kind()).isEqualTo(Decision.Kind.ALLOWED_PROJECT_SETTING);
+        assertThat(decideWithProjectSetting(ToolCallAccess.ALL, PermissionRules.Verdict.UNDECIDED, toolOf("db", "query", false), cut).kind()).isEqualTo(Decision.Kind.ALLOWED_PROJECT_SETTING);
+        verify(proposals, never()).holdForApp(any());
+    }
+
+    @Test
+    void projectSettingLeavesReadOnlyToolsAndAllowRulesAsTheyWere() {
+        assertThat(decideWithProjectSetting(ToolCallAccess.ALL, PermissionRules.Verdict.UNDECIDED, tool(true, false), args("{}")).kind()).isEqualTo(Decision.Kind.ALLOWED_AUTO);
+        assertThat(decideWithProjectSetting(ToolCallAccess.ALL, PermissionRules.Verdict.ALLOW, toolOf("db", "wipe", true), args("{}")).kind()).isEqualTo(Decision.Kind.ALLOWED_AUTO);
+    }
+
+    @Test
+    void denyRuleStillBlocksAndAskRuleStillAsksWithTheProjectSettingOn() {
+        assertThat(decideWithProjectSetting(ToolCallAccess.ALL, PermissionRules.Verdict.DENY, toolOf("db", "wipe", true), args("{}")).allowed()).isFalse();
+
+        answerWith(AppDecision.Unanswered.TIMED_OUT);
+        assertThat(decideWithProjectSetting(ToolCallAccess.ALL, PermissionRules.Verdict.ASK, toolOf("db", "wipe", true), args("{}")).allowed()).isFalse();
+        verify(proposals).holdForApp(any());
+    }
+
+    @Test
+    void withTheProjectSettingOffADestructiveToolIsAskedAbout() {
+        answerWith(AppDecision.Unanswered.TIMED_OUT);
+
+        assertThat(decideWithProjectSetting(ToolCallAccess.ASK, PermissionRules.Verdict.UNDECIDED, toolOf("db", "wipe", true), args("{}")).allowed()).isFalse();
+        verify(proposals).holdForApp(any());
+    }
+
+    @Test
+    void theProjectSettingIsReadAtCallTimeSoAChangeReachesRunningSessions() {
+        var ruled = new ToolCallGate(proposals, PermissionRules.NONE, projectModes);
+        answerWith(AppDecision.Unanswered.TIMED_OUT);
+        when(projectModes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of("db"), ToolCallAccess.ASK));
+        assertThat(ruled.decide(toolOf("db", "wipe", true), DEFINITION, args("{}"), SESSION).allowed()).isFalse();
+
+        when(projectModes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of("db"), ToolCallAccess.ALL));
+
+        assertThat(ruled.decide(toolOf("db", "wipe", true), DEFINITION, args("{}"), SESSION).kind()).isEqualTo(Decision.Kind.ALLOWED_PROJECT_SETTING);
+    }
+
+    @Test
+    void selectedServerRunsWithoutAskingAndAnotherServerAsks() {
+        var chosen = ToolCallAccess.selected(List.of("db"));
+        assertThat(decideWithProjectSetting(chosen, PermissionRules.Verdict.UNDECIDED, toolOf("db", "wipe", true), args("{}")).kind()).isEqualTo(Decision.Kind.ALLOWED_PROJECT_SETTING);
+        verify(proposals, never()).holdForApp(any());
+
+        answerWith(AppDecision.Unanswered.TIMED_OUT);
+        assertThat(decideWithProjectSetting(ToolCallAccess.selected(List.of("other")), PermissionRules.Verdict.UNDECIDED, toolOf("db", "wipe", true), args("{}")).allowed()).isFalse();
+        verify(proposals).holdForApp(any());
+    }
+
+    @Test
+    void selectedServerStillObeysDenyAndAskRules() {
+        var chosen = ToolCallAccess.selected(List.of("db"));
+        assertThat(decideWithProjectSetting(chosen, PermissionRules.Verdict.DENY, toolOf("db", "wipe", true), args("{}")).allowed()).isFalse();
+
+        answerWith(AppDecision.Unanswered.TIMED_OUT);
+        assertThat(decideWithProjectSetting(chosen, PermissionRules.Verdict.ASK, toolOf("db", "wipe", true), args("{}")).allowed()).isFalse();
+        verify(proposals).holdForApp(any());
     }
 }

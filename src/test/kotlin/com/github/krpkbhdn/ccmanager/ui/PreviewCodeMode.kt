@@ -12,7 +12,7 @@ import org.mockito.Mockito.`when`
 
 /** Code Mode on with one real and one vanished server, so the status bar chip shows its yellow state. */
 internal fun previewProjectCodeMode(): ProjectCodeModeService = mock(ProjectCodeModeService::class.java).also {
-    `when`(it.get(anyLong())).thenReturn(ProjectCodeMode(1, true, listOf("github", "ghost")))
+    `when`(it.get(anyLong())).thenReturn(ProjectCodeMode(1, true, listOf("github", "ghost"), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK))
 }
 
 internal fun previewCodeModeBackend(): CodeModeBackend {

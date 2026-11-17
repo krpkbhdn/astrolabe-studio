@@ -31,18 +31,25 @@ public class ProjectCodeModeService {
     }
 
     public ProjectCodeMode get(long projectId) {
-        return jdbc.sql("SELECT enabled, servers FROM project_code_mode WHERE project_id = ?").param(projectId)
+        return jdbc.sql("SELECT enabled, servers, tool_call_mode, allowed_servers FROM project_code_mode WHERE project_id = ?").param(projectId)
                 .query((rs, row) -> new ProjectCodeMode(projectId, rs.getInt("enabled") != 0,
-                        JSON.readValue(rs.getString("servers"), new TypeReference<List<String>>() { })))
-                .optional().orElseGet(() -> new ProjectCodeMode(projectId, false, List.of()));
+                        JSON.readValue(rs.getString("servers"), new TypeReference<List<String>>() { }), accessOf(rs.getString("tool_call_mode"), rs.getString("allowed_servers"))))
+                .optional().orElseGet(() -> new ProjectCodeMode(projectId, false, List.of(), ToolCallAccess.ASK));
+    }
+
+    /** Saves enabled and servers and keeps the stored tool call access. */
+    public ProjectCodeMode save(long projectId, boolean enabled, List<String> servers) {
+        return save(projectId, enabled, servers, get(projectId).toolCalls());
     }
 
     /** @throws IllegalArgumentException with a user-readable message for invalid server names */
-    public ProjectCodeMode save(long projectId, boolean enabled, List<String> servers) {
+    public ProjectCodeMode save(long projectId, boolean enabled, List<String> servers, ToolCallAccess toolCalls) {
         var clean = validate(servers);
-        jdbc.sql("INSERT INTO project_code_mode (project_id, enabled, servers) VALUES (?, ?, ?) "
-                + "ON CONFLICT(project_id) DO UPDATE SET enabled = excluded.enabled, servers = excluded.servers")
-                .param(projectId).param(enabled ? 1 : 0).param(JSON.writeValueAsString(clean)).update();
+        jdbc.sql("INSERT INTO project_code_mode (project_id, enabled, servers, tool_call_mode, allowed_servers) VALUES (?, ?, ?, ?, ?) "
+                + "ON CONFLICT(project_id) DO UPDATE SET enabled = excluded.enabled, servers = excluded.servers, "
+                + "tool_call_mode = excluded.tool_call_mode, allowed_servers = excluded.allowed_servers")
+                .param(projectId).param(enabled ? 1 : 0).param(JSON.writeValueAsString(clean)).param(toolCalls.mode().name())
+                .param(JSON.writeValueAsString(validate(toolCalls.servers()))).update();
         listeners.fire();
         return get(projectId);
     }
@@ -62,6 +69,10 @@ public class ProjectCodeModeService {
 
     public Set<String> rememberedSessionIds() {
         return Set.copyOf(sessionDirectories.keySet());
+    }
+
+    private static ToolCallAccess accessOf(String mode, String servers) {
+        return new ToolCallAccess(ToolCallAccess.Mode.valueOf(mode), JSON.readValue(servers, new TypeReference<List<String>>() { }));
     }
 
     /** @return unsubscribe handle; callback fires (any thread) after any change made through this service */

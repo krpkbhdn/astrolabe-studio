@@ -80,6 +80,14 @@ public class ServerConnections extends ScheduledSweep {
         return ServerAliases.eligible(candidatesOf(pool(session), session));
     }
 
+    /** The current definition of each given alias that is a usable server of the session; unknown or unusable aliases are left out. Nothing is connected. */
+    public Map<String, McpServerDefinition> definitionsOf(SessionContext session, Set<String> wanted) {
+        var result = new LinkedHashMap<String, McpServerDefinition>();
+        candidatesOf(pool(session), session).stream().filter(candidate -> candidate.problem() == null && wanted.contains(candidate.name()))
+                .forEach(candidate -> result.put(candidate.name(), candidate.definition()));
+        return result;
+    }
+
     /** See {@link ServerAliases#indexJson}; nothing is connected. */
     public String namesIndexJson(SessionContext session) {
         return ServerAliases.indexJson(candidatesOf(pool(session), session));

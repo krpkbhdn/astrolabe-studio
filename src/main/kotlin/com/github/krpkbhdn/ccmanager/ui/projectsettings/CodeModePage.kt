@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.github.krpkbhdn.ccmanager.ui.codemode.CodeModeRow
 import com.github.krpkbhdn.ccmanager.ui.codemode.ProjectCodeModeState
+import com.github.krpkbhdn.ccmanager.ui.codemode.ToolCallAccessControl
 import com.github.krpkbhdn.ccmanager.ui.codemode.codeModeRows
 import com.github.krpkbhdn.ccmanager.ui.codemode.unlistedServers
 import com.github.krpkbhdn.ccmanager.ui.components.AppCheckbox
@@ -46,7 +47,7 @@ fun CodeModePage(codeMode: ProjectCodeModeState, mcp: McpState) {
         return
     }
     ExtensionList {
-        item(key = "intro") { Intro(codeMode) }
+        item(key = "intro") { Intro(codeMode, rows) }
         item(key = "heading") { Label("MCP servers", Modifier.padding(top = Spacing.sm), style = Type.bodyMedium) }
         if (rows.isEmpty()) item(key = "none") {
             Label("This project sees no MCP servers yet. Add one on the MCP servers page.", color = colors.textTertiary, maxLines = 2)
@@ -59,7 +60,7 @@ fun CodeModePage(codeMode: ProjectCodeModeState, mcp: McpState) {
 }
 
 @Composable
-private fun Intro(codeMode: ProjectCodeModeState) {
+private fun Intro(codeMode: ProjectCodeModeState, rows: List<CodeModeRow>) {
     Column(Modifier.fillMaxWidth().card().padding(Spacing.lg), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
         Label(WHEN_IT_HELPS, color = colors.textSecondary, style = Type.small, maxLines = Int.MAX_VALUE)
         Label(WHEN_NOT, color = colors.textSecondary, style = Type.small, maxLines = Int.MAX_VALUE)
@@ -68,6 +69,7 @@ private fun Intro(codeMode: ProjectCodeModeState) {
             Label("Enable Code Mode for this project", style = Type.bodyMedium)
         }
         Label(if (codeMode.available) ENABLE_NOTE else "Code Mode is not available in this build.", color = colors.textTertiary, style = Type.caption, maxLines = Int.MAX_VALUE)
+        ToolCallAccessControl(codeMode, rows, Modifier.padding(top = Spacing.sm))
     }
 }
 

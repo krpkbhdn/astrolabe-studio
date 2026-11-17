@@ -2,6 +2,7 @@ package com.github.krpkbhdn.ccmanager.ui.codemode
 
 import com.github.krpkbhdn.ccmanager.codemode.ProjectCodeMode
 import com.github.krpkbhdn.ccmanager.codemode.ProjectCodeModeService
+import com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess
 import com.github.krpkbhdn.ccmanager.ui.await
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
@@ -38,7 +39,7 @@ class ProjectCodeModeStateTest {
         val mostAtOnce = AtomicInteger()
         val shownAtSecondSave = AtomicReference<List<String>>()
         lateinit var state: ProjectCodeModeState
-        `when`(service.save(anyLong(), anyBoolean(), anyList())).thenAnswer { call ->
+        `when`(service.save(anyLong(), anyBoolean(), anyList(), org.mockito.ArgumentMatchers.any(ToolCallAccess::class.java) ?: ToolCallAccess.ASK)).thenAnswer { call ->
             val servers = call.getArgument<List<String>>(2)
             mostAtOnce.accumulateAndGet(running.incrementAndGet(), ::maxOf)
             saved += servers
@@ -49,7 +50,7 @@ class ProjectCodeModeStateTest {
                 shownAtSecondSave.set(state.servers)
             }
             running.decrementAndGet()
-            ProjectCodeMode(1, call.getArgument(1), servers)
+            ProjectCodeMode(1, call.getArgument(1), servers, ToolCallAccess.ASK)
         }
         state = ProjectCodeModeState(service, 1, scope) { }
 
@@ -73,11 +74,11 @@ class ProjectCodeModeStateTest {
         `when`(service.get(anyLong())).thenAnswer {
             loading.countDown()
             releaseLoad.await()
-            ProjectCodeMode(1, false, emptyList())
+            ProjectCodeMode(1, false, emptyList(), ToolCallAccess.ASK)
         }
-        `when`(service.save(anyLong(), anyBoolean(), anyList())).thenAnswer { call ->
+        `when`(service.save(anyLong(), anyBoolean(), anyList(), org.mockito.ArgumentMatchers.any(ToolCallAccess::class.java) ?: ToolCallAccess.ASK)).thenAnswer { call ->
             saved.countDown()
-            ProjectCodeMode(1, call.getArgument(1), call.getArgument(2))
+            ProjectCodeMode(1, call.getArgument(1), call.getArgument(2), call.getArgument(3))
         }
         val state = ProjectCodeModeState(service, 1, scope) { }
 
@@ -100,13 +101,13 @@ class ProjectCodeModeStateTest {
             callback.set(call.getArgument(0))
             Runnable { unsubscribed.incrementAndGet() }
         }
-        `when`(service.get(anyLong())).thenReturn(ProjectCodeMode(1, false, emptyList()))
+        `when`(service.get(anyLong())).thenReturn(ProjectCodeMode(1, false, emptyList(), ToolCallAccess.ASK))
         val state = ProjectCodeModeState(service, 1, scope) { }
         state.load()
         await { state.loaded }
         assertThat(state.enabled).isFalse()
 
-        `when`(service.get(anyLong())).thenReturn(ProjectCodeMode(1, true, listOf("x")))
+        `when`(service.get(anyLong())).thenReturn(ProjectCodeMode(1, true, listOf("x"), ToolCallAccess.ASK))
         callback.get().run()
 
         await { state.enabled }
@@ -118,7 +119,7 @@ class ProjectCodeModeStateTest {
     @Test
     fun `a load that finds no change adopts the stored value`() {
         val service = mock(ProjectCodeModeService::class.java)
-        `when`(service.get(anyLong())).thenReturn(ProjectCodeMode(1, true, listOf("a")))
+        `when`(service.get(anyLong())).thenReturn(ProjectCodeMode(1, true, listOf("a"), ToolCallAccess.ASK))
         val state = ProjectCodeModeState(service, 1, scope) { }
 
         state.load()
@@ -126,5 +127,22 @@ class ProjectCodeModeStateTest {
         await { state.loaded }
         assertThat(state.enabled).isTrue()
         assertThat(state.servers).containsExactly("a")
+    }
+
+    @Test
+    fun `allow all is saved with the rest of the setting and adopted from the store`() {
+        val service = mock(ProjectCodeModeService::class.java)
+        `when`(service.get(anyLong())).thenReturn(ProjectCodeMode(1, true, listOf("a"), ToolCallAccess.ALL))
+        `when`(service.save(anyLong(), anyBoolean(), anyList(), org.mockito.ArgumentMatchers.any(ToolCallAccess::class.java) ?: ToolCallAccess.ASK)).thenAnswer { call ->
+            ProjectCodeMode(1, call.getArgument(1), call.getArgument(2), call.getArgument(3))
+        }
+        val state = ProjectCodeModeState(service, 1, scope) { }
+
+        state.load()
+        await { state.loaded && state.toolCalls == ToolCallAccess.ALL }
+        state.chooseToolCalls(ToolCallAccess.ASK)
+
+        await { state.toolCalls == ToolCallAccess.ASK && state.enabled }
+        org.mockito.Mockito.verify(service, org.mockito.Mockito.timeout(5000)).save(1, true, listOf("a"), ToolCallAccess.ASK)
     }
 }

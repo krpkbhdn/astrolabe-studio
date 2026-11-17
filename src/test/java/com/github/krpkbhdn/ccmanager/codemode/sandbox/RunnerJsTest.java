@@ -161,6 +161,16 @@ class RunnerJsTest {
     }
 
     @Test
+    void timersRunInDueOrderClearedOnesDoNotAndAPendingTimerIsNotStuck() throws Exception {
+        assertThat(valueOf("const seen = []; setTimeout(() => seen.push('late'), 30); const gone = setTimeout(() => seen.push('gone'), 5); clearTimeout(gone);"
+                + " await new Promise(r => setTimeout(r, 10)); seen.push('slept'); await new Promise(r => setTimeout(r, 60)); return seen.join();")).isEqualTo("slept,late");
+        assertThat(valueOf("setTimeout(() => {}, 1); await new Promise(() => {});")).isEqualTo("script did not finish: a promise never settled");
+        assertThat(valueOf("const t = setTimeout(() => {}, 100000); clearTimeout(t); await new Promise(() => {});")).isEqualTo("script did not finish: a promise never settled");
+        assertThat(valueOf("await new Promise(r => setTimeout(r, Infinity > 0 ? 0.5 : 1)); await new Promise(r => setTimeout(r, NaN)); return 'ok';")).isEqualTo("ok");
+        assertThat(valueOf("setTimeout(() => { throw new Error('late boom'); }, 1); await new Promise(r => setTimeout(r, 50));")).isEqualTo("Error: late boom");
+    }
+
+    @Test
     void circularAndBigIntValuesFallBackAndServerObjectsStringifyWithoutACall() throws Exception {
         var process = node();
         try {

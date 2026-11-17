@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.github.krpkbhdn.ccmanager.codemode.ProjectCodeMode
 import com.github.krpkbhdn.ccmanager.codemode.ProjectCodeModeService
+import com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess
 import com.github.krpkbhdn.ccmanager.extension.mcp.PluginMcpServers.PluginServer
 import com.github.krpkbhdn.ccmanager.ui.state.io
 import com.github.krpkbhdn.ccmanager.ui.state.runGuarded
@@ -25,6 +26,8 @@ class ProjectCodeModeState(
     var enabled by mutableStateOf(false)
         private set
     var servers by mutableStateOf<List<String>>(emptyList())
+        private set
+    var toolCalls by mutableStateOf(ToolCallAccess.ASK)
         private set
     var loaded by mutableStateOf(false)
         private set
@@ -53,13 +56,16 @@ class ProjectCodeModeState(
         }
     }
 
-    fun switchOn(on: Boolean) = change(on, servers)
+    fun switchOn(on: Boolean) = change(on, servers, toolCalls)
 
-    fun setServer(name: String, on: Boolean) = change(enabled, withServer(servers, name, on))
+    fun chooseToolCalls(access: ToolCallAccess) = change(enabled, servers, access)
 
-    private fun change(newEnabled: Boolean, newServers: List<String>) {
+    fun setServer(name: String, on: Boolean) = change(enabled, withServer(servers, name, on), toolCalls)
+
+    private fun change(newEnabled: Boolean, newServers: List<String>, newAccess: ToolCallAccess) {
         enabled = newEnabled
         servers = newServers
+        toolCalls = newAccess
         val version = ++latestChange
         pendingSaves.incrementAndGet()
         scope.launch {
@@ -67,7 +73,7 @@ class ProjectCodeModeState(
                 runGuarded(reportError) {
                     saveOrder.withLock {
                         try {
-                            adoptIfLatest(version, io { service?.save(projectId, newEnabled, newServers) })
+                            adoptIfLatest(version, io { service?.save(projectId, newEnabled, newServers, newAccess) })
                         } catch (e: RuntimeException) {
                             adoptIfLatest(version, io { service?.get(projectId) })
                             throw e
@@ -86,7 +92,7 @@ class ProjectCodeModeState(
     }
 
     private fun adopt(stored: ProjectCodeMode?) {
-        stored?.let { enabled = it.enabled(); servers = it.servers() }
+        stored?.let { enabled = it.enabled(); servers = it.servers(); toolCalls = it.toolCalls() }
         loaded = true
     }
 }

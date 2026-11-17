@@ -17,6 +17,11 @@ public record RemoteTool(String server, String name, String description, JsonNod
                 destructive != null);
     }
 
+    /** The same tool under the script alias of its server, the one identity grants and the catalog use. */
+    public RemoteTool onServer(String alias) {
+        return new RemoteTool(alias, name, description, inputSchema, outputSchema, readOnlyHint, destructiveHint, destructiveHintDeclared);
+    }
+
     /** Read-only and not stated destructive: runs without asking. */
     public boolean isSafeToRunUnasked() {
         return readOnlyHint && !(destructiveHintDeclared && destructiveHint);

@@ -135,7 +135,7 @@ class CodeModeServiceTest extends CodeModeFixture {
 
     @Test
     void projectWithoutCodeModeIsRefused() {
-        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, false, List.of()));
+        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, false, List.of(), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
 
         assertThatThrownBy(() -> service.execute(SESSION, "code")).hasMessage(CodeModeService.NOT_ENABLED);
         assertThatThrownBy(() -> service.searchTools(SESSION, "", "")).hasMessage(CodeModeService.NOT_ENABLED);

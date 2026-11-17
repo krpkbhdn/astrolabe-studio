@@ -42,11 +42,46 @@
   };
   globalThis.servers = new Proxy({}, { get: (target, server) => isReserved(server) ? Reflect.get(target, server) : tools(aliasOf(server)) });
 
-  return (promise) => {
-    const outcome = { status: 'pending', value: '' };
-    promise.then(
-      (v) => { outcome.value = v === undefined ? '' : show(v); outcome.status = 'ok'; },
-      (e) => { outcome.value = String(e); outcome.status = 'err'; });
-    return outcome;
+  // Timers only queue here; the host loop sleeps until nextDelay() is over and then calls fire(), so JS never runs on another thread (no intervals).
+  // Built-ins are captured now and the queue uses plain indexing, so a script that patches Date, Math or Array.prototype cannot disturb the loop.
+  // Same value as MAX_TIMER_MS in runner.js, so nextDelay always fits a long.
+  const MAX_TIMER_MS = 2 ** 31 - 1;
+  const now = Date.now.bind(Date);
+  const apply = Reflect.apply;
+  const ceil = Math.ceil;
+  const delayOf = (ms) => { const n = Number(ms); return n > 0 ? (n < MAX_TIMER_MS ? ceil(n) : MAX_TIMER_MS) : 0; };
+  const timers = [];
+  let count = 0;
+  let nextTimer = 1;
+  const earliestIndex = () => {
+    let best = -1;
+    for (let i = 0; i < count; i++) {
+      if (best < 0 || timers[i].at < timers[best].at || (timers[i].at === timers[best].at && timers[i].id < timers[best].id)) best = i;
+    }
+    return best;
+  };
+  const removeAt = (i) => { timers[i] = timers[count - 1]; timers[count - 1] = undefined; count--; };
+  globalThis.setTimeout = (fn, ms, ...args) => {
+    if (typeof fn !== 'function') throw new TypeError('setTimeout needs a function');
+    const id = nextTimer++;
+    timers[count++] = { id, at: now() + delayOf(ms), fn, args };
+    return id;
+  };
+  globalThis.clearTimeout = (id) => {
+    for (let i = 0; i < count; i++) {
+      if (timers[i].id === id) { removeAt(i); return; }
+    }
+  };
+
+  return {
+    finish: (promise) => {
+      const outcome = { status: 'pending', value: '' };
+      promise.then(
+        (v) => { outcome.value = v === undefined ? '' : show(v); outcome.status = 'ok'; },
+        (e) => { outcome.value = String(e); outcome.status = 'err'; });
+      return outcome;
+    },
+    nextDelay: () => { const i = earliestIndex(); if (i < 0) return -1; const wait = timers[i].at - now(); return wait > 0 ? wait : 0; },
+    fire: () => { const i = earliestIndex(); const timer = timers[i]; removeAt(i); apply(timer.fn, undefined, timer.args); },
   };
 })()

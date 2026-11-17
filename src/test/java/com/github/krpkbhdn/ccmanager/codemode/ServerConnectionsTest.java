@@ -79,7 +79,7 @@ class ServerConnectionsTest {
     void setUp(@TempDir Path temp) {
         directory = temp;
         when(projects.find(1)).thenReturn(Optional.of(new Project(1, "p", temp, Instant.now())));
-        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of("srv")));
+        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of("srv"), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
         approval(McpApproval.APPROVED);
         definitionWith("cmd");
         org.mockito.Mockito.doReturn(first, second).when(clients).create(any());
@@ -163,7 +163,7 @@ class ServerConnectionsTest {
     @Test
     void aPluginServerIsReachedByItsAliasAndAnUpdatedInstallReconnects() {
         var plugins = mock(PluginMcpServers.class);
-        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of("plugin_p_db")));
+        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of("plugin_p_db"), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
         when(modes.directoryOf("s1")).thenReturn(Optional.empty());
         pluginDefinition(plugins, "v1");
         var properties = TestProperties.of(Duration.ofSeconds(30), 1, 1, 10, Duration.ofMinutes(10), "img", "1m", 1, Duration.ofDays(1), Duration.ofSeconds(25))
@@ -182,6 +182,24 @@ class ServerConnectionsTest {
         assertThat(connections.definitionOf(SESSION, "db").args()).containsExactly("v2");
     }
 
+    @Test
+    void aPluginServersToolsAreKeyedByItsAliasSoTheCandidateScanKeepsItsGrants() {
+        var plugins = mock(PluginMcpServers.class);
+        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of("plugin_p_db"), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
+        when(modes.directoryOf("s1")).thenReturn(Optional.empty());
+        pluginDefinition(plugins, "v1");
+        when(first.listTools()).thenReturn(List.of(RemoteTool.annotated("plugin_p_db", "query", "d", null, Optional.empty(), false, false)));
+        connections = new ServerConnections(new ServerCandidates(projects, modes, reader, mcp, plugins), modes, clients, TestProperties.of(Duration.ofSeconds(30), 1, 1, 10,
+                Duration.ofMinutes(10), "img", "1m", 1, Duration.ofDays(1), Duration.ofSeconds(25)), gate, clock);
+        connections.client(SESSION, "db");
+
+        connections.aliases(SESSION);
+        connections.namesIndexJson(SESSION);
+
+        assertThat(connections.catalog(SESSION).byServer("db")).extracting(RemoteTool::server).containsExactly("db");
+        verify(gate, never()).forgetServer(any(), any());
+    }
+
     private void pluginDefinition(PluginMcpServers plugins, String version) {
         when(plugins.servers(directory, directory)).thenReturn(List.of(new PluginServer("p", "db",
                 new McpServerDefinition("plugin_p_db", ExtensionScope.PLUGIN, Transport.STDIO, "node", List.of(version), Map.of(), "", Map.of(), null))));
@@ -194,13 +212,13 @@ class ServerConnectionsTest {
     @Test
     void aliasesStayFixedForTheSessionWhenAnotherServerOfTheSameKeyAppears() {
         var plugins = mock(PluginMcpServers.class);
-        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of("plugin_a_db")));
+        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of("plugin_a_db"), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
         when(plugins.servers(directory, directory)).thenReturn(List.of(pluginServer("a")));
         connections = new ServerConnections(new ServerCandidates(projects, modes, reader, mcp, plugins), modes, clients, TestProperties.of(Duration.ofSeconds(30), 1, 1, 10, Duration.ofMinutes(10), "img", "1m", 1,
                 Duration.ofDays(1), Duration.ofSeconds(25)).toBuilder().candidateRecheckTtl(RECHECK).build(), gate, clock);
         assertThat(connections.client(SESSION, "db")).isSameAs(first);
 
-        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of("plugin_a_db", "plugin_b_db")));
+        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of("plugin_a_db", "plugin_b_db"), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
         when(plugins.servers(directory, directory)).thenReturn(List.of(pluginServer("a"), pluginServer("b")));
         clock.advance(RECHECK.plusSeconds(1));
 
@@ -224,7 +242,7 @@ class ServerConnectionsTest {
 
     private void pluginConnections() {
         var plugins = mock(PluginMcpServers.class);
-        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of("plugin_p_db", "srv")));
+        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of("plugin_p_db", "srv"), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
         when(plugins.servers(directory, directory)).thenReturn(List.of(pluginServer("p")));
         connections = new ServerConnections(new ServerCandidates(projects, modes, reader, mcp, plugins), modes, clients,
                 TestProperties.of(Duration.ofSeconds(30), 1, 1, 10, Duration.ofMinutes(10), "img", "1m", 1, Duration.ofDays(1), Duration.ofSeconds(25))
@@ -279,11 +297,20 @@ class ServerConnectionsTest {
     @Test
     void aServerDroppedFromTheProjectForgetsItsGrantsSoAReusedAliasStartsClean() {
         connections.client(SESSION, "srv");
-        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, false, List.of()));
+        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, false, List.of(), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
 
         assertThatThrownBy(() -> connections.client(SESSION, "srv")).hasMessageContaining("not a Code Mode server");
 
         verify(gate).forgetServer("s1", "srv");
+    }
+
+    @Test
+    void definitionsOfGivesTheCurrentDefinitionOfUsableAliasesOnlyWithoutConnecting() {
+        var found = connections.definitionsOf(SESSION, java.util.Set.of("srv", "missing"));
+
+        assertThat(found).containsOnlyKeys("srv");
+        assertThat(found.get("srv").command()).isEqualTo("cmd");
+        verify(clients, never()).create(any());
     }
 
     @Test
@@ -321,7 +348,7 @@ class ServerConnectionsTest {
     @Test
     void anUnknownNameForcesARescanSoANewlyConfiguredServerIsFound() {
         assertThat(connections.resolve(SESSION, "srv")).isEqualTo("srv");
-        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of("srv", "late")));
+        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of("srv", "late"), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
         when(reader.definitions(directory)).thenReturn(List.of(new McpServerDefinition("srv", ExtensionScope.PROJECT, Transport.STDIO, "cmd", List.of(), Map.of(), "", Map.of(), null),
                 new McpServerDefinition("late", ExtensionScope.USER, Transport.STDIO, "cmd", List.of(), Map.of(), "", Map.of(), null)));
 

@@ -26,6 +26,8 @@ final class ArgumentPreview {
     private static final Pattern SECRET_SHAPE = Pattern.compile("\\bbearer\\s+[A-Za-z0-9._~+/=-]{8,}|\\bsk-[A-Za-z0-9_-]{16,}|\\bgh[pousr]_[A-Za-z0-9]{20,}"
             + "|\\beyJ[A-Za-z0-9_-]{5,}\\.[A-Za-z0-9_-]{5,}\\.[A-Za-z0-9_-]{5,}|(?<![A-Za-z0-9_+=-])(?=[A-Za-z0-9_+=-]*\\d)(?=[A-Za-z0-9_+=-]*[A-Za-z])[A-Za-z0-9_+=-]{40,}(?![A-Za-z0-9_+=-])",
             Pattern.CASE_INSENSITIVE);
+    /** Newlines and tabs in a text show as a space without counting as hidden, so a multi-line script argument stays whole. */
+    private static final Pattern PLAIN_WHITESPACE = Pattern.compile("[\\r\\n\\t]");
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
     /** @param truncated true when anything was hidden */
@@ -108,7 +110,7 @@ final class ArgumentPreview {
 
     private String clean(String value) {
         var clean = PromptText.withoutHidden(value);
-        if (!clean.equals(value)) {
+        if (!clean.equals(PLAIN_WHITESPACE.matcher(value).replaceAll(" "))) {
             truncated = true;
         }
         return clean;

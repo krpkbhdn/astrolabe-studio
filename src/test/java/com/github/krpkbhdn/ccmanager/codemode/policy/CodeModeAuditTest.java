@@ -82,6 +82,14 @@ class CodeModeAuditTest {
     }
 
     @Test
+    void autoModeDecisionIsStoredUnderItsOwnMarker() {
+        jdbc.sql("INSERT INTO project (name, path, created_at) VALUES ('app', ?, 'now')").param(temp.toString()).update();
+        audit.record(new SessionContext(7, "s1"), "db", "wipe", Decision.Kind.ALLOWED_PROJECT_SETTING, CodeModeAudit.Status.OK, 1);
+
+        assertThat(jdbc.sql("SELECT decision FROM code_mode_call").query(String.class).single()).isEqualTo("ALLOWED_PROJECT_SETTING");
+    }
+
+    @Test
     void sweepNeverThrows() {
         jdbc.sql("DROP TABLE code_mode_call").update();
 

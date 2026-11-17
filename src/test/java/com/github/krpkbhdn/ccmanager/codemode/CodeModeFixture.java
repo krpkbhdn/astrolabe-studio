@@ -72,7 +72,7 @@ abstract class CodeModeFixture {
         var properties = TestProperties.of(Duration.ofSeconds(30), 100_000, 20_000, 10, Duration.ofMinutes(10), "node:22-alpine", "256m", 1,
                 Duration.ofDays(30), Duration.ofSeconds(25));
         when(projects.find(1)).thenReturn(Optional.of(new Project(1, "p", temp, Instant.now())));
-        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of("alpha", "beta", "gone", "pending")));
+        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of("alpha", "beta", "gone", "pending"), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
         when(reader.definitions(temp)).thenReturn(List.of(definition("alpha", ExtensionScope.USER, Transport.STDIO),
                 definition("beta", ExtensionScope.USER, Transport.HTTP), definition("pending", ExtensionScope.PROJECT, Transport.STDIO)));
         when(mcp.servers(temp)).thenReturn(List.of(new McpServerConfig("pending", ExtensionScope.PROJECT, "stdio", "x", McpApproval.PENDING)));

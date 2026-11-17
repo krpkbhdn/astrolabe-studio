@@ -52,7 +52,7 @@ class ServerCandidatesTest {
     }
 
     private void configured(String... names) {
-        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of(names)));
+        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of(names), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
     }
 
     @Test

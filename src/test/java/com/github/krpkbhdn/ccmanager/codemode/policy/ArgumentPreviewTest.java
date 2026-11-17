@@ -65,12 +65,20 @@ class ArgumentPreviewTest {
 
     @Test
     void controlBidiAndSeparatorCharactersAreReplacedAndCountAsTruncation() {
-        for (var hidden : new String[] {"\u202E", "\u2066", "\u2028", "\u0000", "\n", "\u200B"}) {
+        for (var hidden : new String[] {"\u202E", "\u2066", "\u2028", "\u0000", "\u200B"}) {
             var result = preview(map("k", "a" + hidden + "b"));
 
             assertThat(result.node().get("k").asString()).as("U+%04X", (int) hidden.charAt(0)).isEqualTo("a b");
             assertThat(result.truncated()).isTrue();
         }
+    }
+
+    @Test
+    void plainNewlinesAndTabsShowAsSpacesWithoutCountingAsTruncation() {
+        var result = preview(map("k", "a\nb\r\n\tc"));
+
+        assertThat(result.node().get("k").asString()).isEqualTo("a b   c");
+        assertThat(result.truncated()).isFalse();
     }
 
     @Test

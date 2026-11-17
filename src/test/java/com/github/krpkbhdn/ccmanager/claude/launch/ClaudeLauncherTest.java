@@ -269,7 +269,7 @@ class ClaudeLauncherTest {
 
     @Test
     void codeModeHidesProjectFileServersAndDeniesTheRest() throws Exception {
-        var access = launchWithCodeMode(new ProjectCodeMode(1, true, List.of("jira", "files")),
+        var access = launchWithCodeMode(new ProjectCodeMode(1, true, List.of("jira", "files"), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK),
                 List.of(definition("jira", ExtensionScope.PROJECT), definition("files", ExtensionScope.USER)));
 
         assertThat(access.hiddenProjectServers()).containsExactly("jira");
@@ -279,7 +279,7 @@ class ClaudeLauncherTest {
     @Test
     void codeModeOffOrWithoutServersWritesTheUnchangedFiles() throws Exception {
         claudeInstalledAndSpawnFails();
-        when(codeModes.get(1)).thenReturn(new ProjectCodeMode(1, false, List.of("jira")));
+        when(codeModes.get(1)).thenReturn(new ProjectCodeMode(1, false, List.of("jira"), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
 
         assertThatThrownBy(() -> launcher.launchTask(1, "t")).isInstanceOf(IllegalStateException.class);
         verify(hooks).write("ccm-1");
@@ -317,7 +317,7 @@ class ClaudeLauncherTest {
     void aTrustedProjectRegistersItsLevelAndFolderAndWritesTrustedSettings() throws Exception {
         claudeInstalledAndSpawnFails();
         when(projects.find(1)).thenReturn(Optional.of(new Project(1, "p", directory, Instant.now(), ModelSelection.DEFAULT, false, null, TrustLevel.TRUSTED)));
-        when(codeModes.get(1)).thenReturn(new ProjectCodeMode(1, false, List.of()));
+        when(codeModes.get(1)).thenReturn(new ProjectCodeMode(1, false, List.of(), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
         when(hooks.write("ccm-1", Map.of(), CodeModeAccess.OFF, TrustLevel.TRUSTED))
                 .thenReturn(new SessionFiles(directory.resolve("s.json"), directory.resolve("m.json")));
 
@@ -332,7 +332,7 @@ class ClaudeLauncherTest {
         claudeInstalledAndSpawnFails();
         org.mockito.Mockito.doReturn(TrustLevel.AUTONOMOUS).when(trustSettings).defaultLevel();
         when(projects.find(1)).thenReturn(Optional.of(new Project(1, "p", directory, Instant.now())));
-        when(codeModes.get(1)).thenReturn(new ProjectCodeMode(1, false, List.of()));
+        when(codeModes.get(1)).thenReturn(new ProjectCodeMode(1, false, List.of(), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
         when(hooks.write("ccm-1", Map.of(), CodeModeAccess.OFF, TrustLevel.AUTONOMOUS))
                 .thenReturn(new SessionFiles(directory.resolve("s.json"), directory.resolve("m.json")));
 
@@ -346,7 +346,7 @@ class ClaudeLauncherTest {
         claudeInstalledAndSpawnFails();
         org.mockito.Mockito.doReturn(TrustLevel.AUTONOMOUS).when(trustSettings).defaultLevel();
         when(projects.find(1)).thenReturn(Optional.of(new Project(1, "p", directory, Instant.now(), ModelSelection.DEFAULT, false, null, TrustLevel.ASK)));
-        when(codeModes.get(1)).thenReturn(new ProjectCodeMode(1, false, List.of()));
+        when(codeModes.get(1)).thenReturn(new ProjectCodeMode(1, false, List.of(), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
         when(hooks.write("ccm-1")).thenReturn(new SessionFiles(directory.resolve("s.json"), directory.resolve("m.json")));
 
         assertThatThrownBy(() -> launcher.launch(1, LaunchMode.NEW)).isInstanceOf(IllegalStateException.class);

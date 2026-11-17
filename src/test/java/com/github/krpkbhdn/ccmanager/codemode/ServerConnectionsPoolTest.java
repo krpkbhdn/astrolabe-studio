@@ -19,7 +19,7 @@ class ServerConnectionsPoolTest extends CodeModeFixture {
     @Test
     void serverRemovedFromTheProjectMidSessionIsClosedAndRefused() {
         connections.connectAll(SESSION);
-        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of("beta")));
+        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of("beta"), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
 
         assertThatThrownBy(() -> connections.client(SESSION, "alpha")).hasMessageContaining("not a Code Mode server");
         verify(alpha).close();

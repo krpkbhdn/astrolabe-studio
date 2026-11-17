@@ -77,10 +77,14 @@ public class GraalJsSandbox implements ScriptSandbox, AutoCloseable {
             if (index != null) {
                 context.getBindings("js").putMember("__servers", index);
             }
-            Value finisher = context.eval("js", prelude);
-            return finish(context, finisher, code, output);
+            return finish(context, context.eval("js", prelude), code, output);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return ScriptResult.failed("script was cancelled", output.render());
         } catch (PolyglotException e) {
             return ScriptResult.failed(failureMessage(e), output.render());
+        } catch (ClassCastException e) {
+            return ScriptResult.failed("The script's timers failed", output.render());
         } catch (OutOfMemoryError e) {
             return ScriptResult.failed("memory limit", output.render());
         } finally {
@@ -88,15 +92,24 @@ public class GraalJsSandbox implements ScriptSandbox, AutoCloseable {
         }
     }
 
-    /** The prelude hands back its finisher as a value, so no global of the script's reach can be used to reach or replace it. */
-    private ScriptResult finish(Context context, Value finisher, String code, CappedOutput output) {
+    /**
+     * The prelude hands back its functions as a value, so no global of the script's reach can be used to reach or replace them.
+     * While the promise is pending this thread sleeps until the next timer is due and runs it; interrupting the thread (timeout, cancel) ends the wait.
+     */
+    private ScriptResult finish(Context context, Value api, String code, CappedOutput output) throws InterruptedException {
         Value promise = context.eval("js", "(async () => {" + code + "\n})()");
-        Value outcome = finisher.execute(promise);
+        Value outcome = api.getMember("finish").execute(promise);
         context.eval("js", "0");
-        String status = outcome.getMember("status").asString();
-        if ("pending".equals(status)) {
-            return ScriptResult.failed("script did not finish: a promise never settled", output.render());
+        while ("pending".equals(outcome.getMember("status").asString())) {
+            long delay = api.getMember("nextDelay").execute().asLong();
+            if (delay < 0) {
+                return ScriptResult.failed("script did not finish: a promise never settled", output.render());
+            }
+            Thread.sleep(delay);
+            api.getMember("fire").execute();
+            context.eval("js", "0");
         }
+        String status = outcome.getMember("status").asString();
         String value = outcome.getMember("value").asString();
         if ("err".equals(status)) {
             return ScriptResult.failed(value, output.render());

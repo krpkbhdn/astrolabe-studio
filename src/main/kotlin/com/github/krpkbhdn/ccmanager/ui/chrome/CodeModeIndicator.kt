@@ -21,6 +21,9 @@ import com.github.krpkbhdn.ccmanager.project.Project
 import com.github.krpkbhdn.ccmanager.ui.codemode.CODE_MODE_HINT
 import com.github.krpkbhdn.ccmanager.ui.codemode.CodeModeLevel
 import com.github.krpkbhdn.ccmanager.ui.codemode.CodeModeRow
+import com.github.krpkbhdn.ccmanager.ui.codemode.ToolCallAccessControl
+import com.github.krpkbhdn.ccmanager.ui.codemode.accessLineOf
+import com.github.krpkbhdn.ccmanager.ui.codemode.chipLabelOf
 import com.github.krpkbhdn.ccmanager.ui.codemode.codeModeIndicatorOf
 import com.github.krpkbhdn.ccmanager.ui.codemode.codeModeRows
 import com.github.krpkbhdn.ccmanager.ui.codemode.sandboxLines
@@ -58,7 +61,7 @@ internal fun CodeModeIndicatorSegment(state: AppState) {
     val status = settings.statuses[sandbox]
     val indicator = codeModeIndicatorOf(codeMode.enabled, rows, missing, sandbox, status)
     Box {
-        StatusDotChip("Code Mode", indicator.lines, CODE_MODE_HINT, dotColor(indicator.level), chip.open) { chip.toggle() }
+        StatusDotChip(chipLabelOf(codeMode.toolCalls), indicator.lines + listOfNotNull(accessLineOf(codeMode.toolCalls)), CODE_MODE_HINT, dotColor(indicator.level), chip.open) { chip.toggle() }
         if (chip.open) {
             AnchoredPopup({ chip.open = false }, alignEnd = true, modifier = Modifier.width(panelWidth)) {
                 Column(Modifier.padding(Spacing.lg), verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
@@ -69,6 +72,7 @@ internal fun CodeModeIndicatorSegment(state: AppState) {
                     sandboxLines(sandbox, status).forEachIndexed { index, line ->
                         Label(line, color = if (index == 0) colors.textSecondary else colors.warning, style = Type.small, maxLines = Int.MAX_VALUE)
                     }
+                    ToolCallAccessControl(codeMode, rows)
                     ServerList(rows, missing, codeMode.enabled) { name, on -> codeMode.setServer(name, on) }
                     AppButton("Open settings", { chip.open = false; openSettings(state, project) }, Modifier.fillMaxWidth())
                 }

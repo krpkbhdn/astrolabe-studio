@@ -128,15 +128,15 @@ abstract class EndToEndFixture {
         var projects = mock(ProjectService.class);
         when(projects.find(1)).thenReturn(Optional.of(new Project(1, "p", dir, Instant.now())));
         var modes = mock(ProjectCodeModeService.class);
-        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of("fake")));
-        when(modes.get(2)).thenReturn(new ProjectCodeMode(2, false, List.of()));
+        when(modes.get(1)).thenReturn(new ProjectCodeMode(1, true, List.of("fake"), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
+        when(modes.get(2)).thenReturn(new ProjectCodeMode(2, false, List.of(), com.github.krpkbhdn.ccmanager.codemode.ToolCallAccess.ASK));
         var reader = mock(McpConfigReader.class);
         when(reader.definitions(dir)).thenReturn(List.of(new McpServerDefinition("fake", ExtensionScope.USER, McpServerDefinition.Transport.STDIO,
                 node, List.of(script.toString()), Map.of("HANG_FLAG", hangFlag().toString()), "", Map.of(), null)));
         var mcp = mock(McpService.class);
         when(mcp.servers(dir)).thenReturn(List.of(new McpServerConfig("fake", ExtensionScope.USER, "stdio", "node", McpApproval.APPROVED)));
         var clients = newClients(properties, new FakeHostEnvironment(HostEnvironment.OperatingSystem.LINUX, dir));
-        var gate = new ToolCallGate(proposals);
+        var gate = new ToolCallGate(proposals, com.github.krpkbhdn.ccmanager.codemode.policy.PermissionRules.NONE, modes);
         var connections = new ServerConnections(new com.github.krpkbhdn.ccmanager.codemode.ServerCandidates(projects, modes, reader, mcp, Mockito.mock(com.github.krpkbhdn.ccmanager.extension.mcp.PluginMcpServers.class)), modes, clients, properties, gate);
         when(isolation.get()).thenReturn(IsolationBackend.GRAALJS);
         sandboxes = Mockito.spy(new CodeModeSandboxes(properties, mapper, new AppProperties(dir)));

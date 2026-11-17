@@ -23,6 +23,9 @@ public record CodeModeProperties(@DefaultValue("10m") Duration timeout, @Default
         @DefaultValue("50") int maxImagesPerSession, @DefaultValue("104857600") long maxImageBytesPerSession,
         @DefaultValue("5s") Duration candidateRecheckTtl, @DefaultValue("2s") Duration idleCancelDelay) {
 
+    /** Larger Claude settings files are not read for permission rules (an allow is then never granted). */
+    public static final int MAX_SETTINGS_BYTES = 1024 * 1024;
+
     @ConstructorBinding
     public CodeModeProperties {
         positive("cc-manager.code-mode.timeout", timeout);

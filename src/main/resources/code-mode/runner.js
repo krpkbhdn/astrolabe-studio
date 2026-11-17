@@ -14,8 +14,20 @@ const pending = new Map();
 const RESERVED_NAMES = ['then', 'toJSON', 'inspect', 'toString', 'valueOf', 'toLocaleString', 'constructor', 'hasOwnProperty', 'isPrototypeOf', 'propertyIsEnumerable', '__proto__', '__call'];
 
 // Runs inside the context. One rule shared with prelude.js: strings raw, other values JSON, anything JSON cannot hold (circular, BigInt) falls back to a string.
-function installInContext(callTool, writeLog, reserved) {
+function installInContext(callTool, writeLog, reserved, startTimer, stopTimer) {
   let index = null;
+  const callbacks = new Map();
+  let nextTimer = 1;
+  globalThis.setTimeout = (fn, ms, ...args) => {
+    if (typeof fn !== 'function') throw new TypeError('setTimeout needs a function');
+    const id = nextTimer++;
+    callbacks.set(id, () => fn(...args));
+    startTimer(id, Number(ms));
+    return id;
+  };
+  globalThis.clearTimeout = (id) => {
+    if (callbacks.delete(id)) stopTimer(id);
+  };
   const show = (value) => {
     if (typeof value === 'string') return value;
     try { return JSON.stringify(value) ?? String(value); } catch (e) {
@@ -43,18 +55,46 @@ function installInContext(callTool, writeLog, reserved) {
   globalThis.servers = new Proxy({}, { get: (target, server) => isReserved(server) ? Reflect.get(target, server) : tools(aliasOf(server)) });
   const log = (...values) => writeLog(values.map(show).join(' '));
   globalThis.console = { log, info: log, warn: log, error: log };
-  return { show, setIndex: (json) => { index = typeof json === 'string' ? JSON.parse(json) : null; } };
+  return {
+    show,
+    setIndex: (json) => { index = typeof json === 'string' ? JSON.parse(json) : null; },
+    fire: (id) => { const callback = callbacks.get(id); callbacks.delete(id); if (callback) callback(); },
+  };
+}
+
+// Timers live on the host event loop and only numbers cross the boundary; the longest delay Node accepts (a larger one fires at once).
+const MAX_TIMER_MS = 2 ** 31 - 1;
+const timers = new Map();
+const delayOf = (ms) => { const n = Number(ms); return n > 0 ? Math.min(Math.ceil(n), MAX_TIMER_MS) : 0; };
+function startTimer(id, ms) {
+  timers.set(id, setTimeout(() => {
+    timers.delete(id);
+    try {
+      fire(id);
+    } catch (e) {
+      let message;
+      try { message = String(e); } catch (e2) { message = 'unknown error'; }
+      finish({ type: 'error', message });
+      return;
+    }
+    failIfStuck();
+  }, delayOf(ms)));
+}
+function stopTimer(id) {
+  clearTimeout(timers.get(id));
+  timers.delete(id);
+  failIfStuck();
 }
 
 const context = vm.createContext(Object.create(null));
-const { show, setIndex } = vm.runInContext('(' + installInContext.toString() + ')', context)(
+const { show, setIndex, fire } = vm.runInContext('(' + installInContext.toString() + ')', context)(
   (server, tool, args) => new Promise((resolve, reject) => {
     const id = nextId++;
     pending.set(id, { resolve, reject });
     send({ type: 'call', id, server, tool, args: JSON.parse(args) });
   }),
   (line) => send({ type: 'log', line: String(line) }),
-  RESERVED_NAMES);
+  RESERVED_NAMES, startTimer, stopTimer);
 
 let finished = false;
 function finish(message) {
@@ -63,10 +103,10 @@ function finish(message) {
   process.stdout.write(JSON.stringify(message) + '\n', () => process.exit(0));
 }
 
-// The script has no timers, so once its promise is unsettled with no tool call outstanding after the microtasks drained, nothing can ever settle it.
+// Once the script's promise is unsettled with no tool call or timer outstanding after the microtasks drained, nothing can ever settle it.
 function failIfStuck() {
   setImmediate(() => {
-    if (!finished && pending.size === 0) finish({ type: 'error', message: 'script did not finish: a promise never settled' });
+    if (!finished && pending.size === 0 && timers.size === 0) finish({ type: 'error', message: 'script did not finish: a promise never settled' });
   });
 }
 
