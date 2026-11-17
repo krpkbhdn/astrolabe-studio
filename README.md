@@ -121,6 +121,7 @@ When any session needs you, it turns red on the Overview and in the status bar; 
 | ![Sessions](docs/images/sessions.png)<br/>**Sessions** | ![Git changes](docs/images/git-changes.png)<br/>**Git: changes** |
 | ![Git log](docs/images/git-log.png)<br/>**Git: log** | ![Teams](docs/images/teams.png)<br/>**Agent teams** |
 | ![Usage](docs/images/usage.png)<br/>**Usage** | ![Notifications](docs/images/notifications.png)<br/>**Notifications** |
+| ![Languages (LSP)](docs/images/lsp.png)<br/>**Languages (LSP)** | ![Code Mode](docs/images/code-mode.png)<br/>**Code Mode** |
 
 <details>
 <summary>Light theme</summary>

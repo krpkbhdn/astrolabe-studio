@@ -102,8 +102,13 @@ private val previewTranscriptDir: java.nio.file.Path by lazy { Files.createTempD
 
 /** A real folder so the run configurations of the first preview project do not show as missing. */
 private val previewProjectDir: Path by lazy {
-    Files.createTempDirectory("astrolabe-preview").resolve("astrolabe").also { Files.createDirectories(it.resolve(".claude/worktrees/feature-x")) }
+    // Fixed, user-neutral location (C:\dev\astrolabe-studio on Windows) so screenshots show no local paths.
+    Files.createTempDirectory("astrolabe-preview").root.resolve("dev").resolve("astrolabe-studio").also { Files.createDirectories(it.resolve(".claude/worktrees/feature-x")) }
 }
+
+/** The web-review demo page copied next to the preview project, so its file URL shows the same neutral path. */
+internal fun previewFixtureUrl(): String =
+    previewProjectDir.resolve("landing.html").also { Files.copy(Path.of("src/dev/web-review/landing.html"), it, java.nio.file.StandardCopyOption.REPLACE_EXISTING) }.toUri().toString()
 
 private val previewTranscript: String by lazy {
     Files.createTempFile(previewTranscriptDir, "astrolabe-agent", ".jsonl").also {
@@ -158,7 +163,7 @@ class PreviewWorld(many: Boolean = false, empty: Boolean = false, val git: FakeR
     )
 
     @Volatile var projects: List<Project> = if (empty) emptyList() else listOf(
-        Project(1, "astrolabe", previewProjectDir, ago(9000), selection),
+        Project(1, "astrolabe-studio", previewProjectDir, ago(9000), selection),
         Project(2, "billing-api", Path.of("C:/Users/dev/Work/billing-api"), ago(8000)),
         Project(3, "docs-site", Path.of("C:/Users/dev/Work/docs-site"), ago(7000)),
         Project(4, "infra-terraform", Path.of("C:/Users/dev/Work/infra-terraform"), ago(6000)),

@@ -240,7 +240,7 @@ private fun render(shot: WebShot, service: WebReviewService, dark: Boolean, widt
     val availability = if (shot.unsupported) Availability.Unsupported("This Java runtime has no embedded browser (JetBrains Runtime with JCEF is required)") else Availability.Ready
     val shotService = shot.wrap(if (shot.ownService) seededService() else service)
     val prepareBrowser: (() -> Unit)? = if (shot.failStart) ({ error("JCEF did not initialize within 30 seconds") }) else null
-    val state = WebState(shotService, { host }, { _, _ -> }, { _, _, _, _ -> }, { LiveSessions(sessions = listOf(session("a1b2"), session("c3d4"))) }, scope, { errors += it }, mock(ReviewService::class.java), { _, _ -> }, { }, { availability }, prepareBrowser)
+    val state = WebState(shotService, { host }, { _, _ -> }, { _, _, _, _ -> }, { LiveSessions(sessions = listOf(session("a1b2"), session("c3d4"))) }, scope, { errors += it }, mock(ReviewService::class.java).also { `when`(it.subscribe(org.mockito.ArgumentMatchers.any())).thenReturn(Runnable { }) }, { _, _ -> }, { }, { availability }, prepareBrowser)
     state.prepare()
     waitFor { state.browserReady || state.unsupportedReason() != null || state.browserFailure != null }
     val view = if (shot.unsupported || shot.failStart) null else state.view(PROJECT)

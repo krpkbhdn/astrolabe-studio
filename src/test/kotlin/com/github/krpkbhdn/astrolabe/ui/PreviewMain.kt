@@ -101,6 +101,7 @@ internal class Capture(val window: java.awt.Window, val dir: Path, val prefix: S
 private const val DOWNLOAD_SHOT_MILLIS = 400L
 private const val LIVE_TEST_SHOT_MILLIS = 2500L
 private const val VOICE_SHOT_HEIGHT = 1100
+private const val WEB_SHOT_MILLIS = 4000L
 
 private suspend fun captureVoicePage(capture: Capture, state: AppState, fake: PreviewVoice) {
     val voice = state.voice ?: return
@@ -139,6 +140,15 @@ private suspend fun captureTour(capture: Capture, state: AppState, world: Previe
     if (flags.empty) {
         capture.take("0-empty")
         return
+    }
+    if (flags.web) {
+        delay(WEB_SHOT_MILLIS)
+        val view = state.web.open(1)
+        if (view != null) {
+            state.web.go(view, previewFixtureUrl())
+            view.panelTab = com.github.krpkbhdn.astrolabe.ui.web.WebPanelTab.ITEMS
+            capture.take("0-web", WEB_SHOT_MILLIS)
+        }
     }
     capture.take("1-overview")
     state.settingsDialog.show()

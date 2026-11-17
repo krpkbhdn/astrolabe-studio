@@ -121,6 +121,7 @@ Claude будує вебсайт, а ви переглядаєте саму за
 | ![Усі сесії](docs/images/sessions.png)<br/>**Усі сесії** | ![Зміни в Git](docs/images/git-changes.png)<br/>**Git: зміни** |
 | ![Журнал Git](docs/images/git-log.png)<br/>**Git: журнал** | ![Команди](docs/images/teams.png)<br/>**Команди агентів** |
 | ![Використання](docs/images/usage.png)<br/>**Використання** | ![Сповіщення](docs/images/notifications.png)<br/>**Сповіщення** |
+| ![Мови (LSP)](docs/images/lsp.png)<br/>**Мови (LSP)** | ![Code Mode](docs/images/code-mode.png)<br/>**Code Mode** |
 
 <details>
 <summary>Світла тема</summary>

@@ -177,6 +177,8 @@ private val shots = listOf(
     Shot("skills-detail", prepare = { state, _, _ -> openSkills(state); state.extensions.skills.selected = state.extensions.skills.skills.first { it.name == "code-review" }.file.toString(); waitFor { state.extensions.skills.texts.values.any { it is SkillText.Loaded } } }),
     Shot("project-plugins", prepare = { state, _, _ -> openProjectSettings(state, ProjectSettingsSection.PLUGINS) }),
     Shot("project-plugins-marketplace", prepare = { state, _, _ -> openProjectSettings(state, ProjectSettingsSection.PLUGINS).plugins.tab = PluginsTab.MARKETPLACE }),
+    Shot("project-languages", prepare = { state, _, _ -> openProjectSettings(state, ProjectSettingsSection.LANGUAGES) }),
+    Shot("project-code-mode", prepare = { state, _, _ -> openProjectSettings(state, ProjectSettingsSection.CODE_MODE) }),
     Shot("project-mcp", prepare = { state, _, _ -> openProjectSettings(state, ProjectSettingsSection.MCP); waitFor { state.extensions.projectSettings?.mcp?.healthCheck == HealthCheck.DONE } }),
     Shot("project-mcp-add", prepare = { state, _, _ -> openProjectSettings(state, ProjectSettingsSection.MCP).mcp.adding = true }),
     Shot("project-skills", prepare = { state, _, _ -> openProjectSettings(state, ProjectSettingsSection.SKILLS) }),
