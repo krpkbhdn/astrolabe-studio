@@ -40,7 +40,7 @@ public class GitRunner {
     private static final Set<String> WRITES = Set.of("checkout", "switch", "restore", "reset", "merge", "rebase", "cherry-pick", "revert",
             "stash", "commit", "add", "rm", "apply", "am", "clean", "pull", "worktree");
     private static final Set<String> HOOK_RUNNING = Set.of("checkout", "switch", "merge", "rebase", "cherry-pick", "revert", "commit", "am");
-    private static final ExecutorService PIPES = Executors.newVirtualThreadPerTaskExecutor();
+    private static final ExecutorService PIPES = Executors.newCachedThreadPool(task -> Thread.ofPlatform().name("git-pipe").daemon().unstarted(task));
     private static final List<String> BASE_COMMAND =
             List.of("git", "-c", "core.quotepath=false", "-c", "color.ui=never", "-c", "core.fsmonitor=false",
                     "-c", "diff.noprefix=false", "-c", "diff.mnemonicPrefix=false", "-c", "log.showSignature=false",
@@ -126,6 +126,8 @@ public class GitRunner {
         builder.environment().put("GIT_OPTIONAL_LOCKS", "0");
         builder.environment().put("LC_ALL", "C");
         builder.environment().put("GIT_EDITOR", "true");
+        builder.environment().put("GIT_MERGE_AUTOEDIT", "no");
+        builder.environment().put("GIT_PAGER", "cat");
         builder.environment().putAll(extraEnvironment);
         if (mayForceBatchSsh(args, builder.environment()) && !hasConfiguredSsh(repo)) {
             builder.environment().put("GIT_SSH_COMMAND", "ssh -o BatchMode=yes");
@@ -171,7 +173,11 @@ public class GitRunner {
             throw new GitException(Kind.TIMEOUT, "git " + GitFailure.subcommand(args) + " timed out"
                     + (runsHooks(args) ? "; a stale .git/index.lock or an interrupted operation may remain" : ""), "");
         }
-        stdinWritten.join();
+        try {
+            stdinWritten.get(properties.commandTimeout().toMillis(), TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException e) {
+            // git may have ended without reading all of stdin; the exit code tells the story
+        }
         CommandRunner.awaitReaders(process, readers);
         return new Result(process.exitValue(), stdout.toString(StandardCharsets.UTF_8), stderr.toString(), stdoutTruncated.getNow(false));
     }

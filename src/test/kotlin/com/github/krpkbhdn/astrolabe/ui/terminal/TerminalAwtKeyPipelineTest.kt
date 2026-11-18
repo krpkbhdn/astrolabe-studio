@@ -11,6 +11,7 @@ import com.github.krpkbhdn.astrolabe.ui.await
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assumptions.assumeFalse
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.awt.GraphicsEnvironment
@@ -30,6 +31,7 @@ import javax.swing.SwingUtilities
 private const val ESC = "\u001b"
 private const val FOCUS_WAIT_SECONDS = 5L
 private const val MILLIS_PER_SECOND = 1_000L
+private const val RESIZE_POLL_MILLIS = 10L
 
 /**
  * Real AWT events dispatched straight to the component of an in-process Compose panel (no OS-level input), so the
@@ -60,7 +62,9 @@ class TerminalAwtKeyPipelineTest {
             if (focusManager.focusOwner != null) awtFocused.countDown()
             awtFocused.await(FOCUS_WAIT_SECONDS, TimeUnit.SECONDS)
             runBlocking { withTimeoutOrNull(FOCUS_WAIT_SECONDS * MILLIS_PER_SECOND) { snapshotFlow { session.focused }.first { it } } }
-            await { connector.resizes.isNotEmpty() }
+            val resized = System.nanoTime() + TimeUnit.SECONDS.toNanos(FOCUS_WAIT_SECONDS)
+            while (connector.resizes.isEmpty() && System.nanoTime() < resized) Thread.sleep(RESIZE_POLL_MILLIS)
+            assumeTrue(session.focused && connector.resizes.isNotEmpty()) { "the environment gave the window no focus or layout" }
         } finally {
             focusManager.removePropertyChangeListener("focusOwner", listener)
         }
@@ -136,6 +140,11 @@ class TerminalAwtKeyPipelineTest {
 
     private fun ctrl(code: Int, char: Char, extra: Int = 0) = pressed(code, char, InputEvent.CTRL_DOWN_MASK or extra)
 
+    private fun setClipboard(contents: Transferable) {
+        val available = runCatching { clipboard.setContents(contents, null) }.isSuccess
+        assumeTrue(available) { "the system clipboard is not accessible" }
+    }
+
     private fun clipboardText() = clipboard.getData(DataFlavor.stringFlavor) as String
 
     @Test
@@ -160,7 +169,7 @@ class TerminalAwtKeyPipelineTest {
     @Test
     fun ctrlVPastesClipboardTextInsteadOfWritingTheControlByte() {
         assumeFalse(!session.focused)
-        clipboard.setContents(StringSelection("pasted"), null)
+        setClipboard(StringSelection("pasted"))
         ctrl(KeyEvent.VK_V, '\u0016')
         assertThat(writtenAtLeast("pasted")).isEqualTo("pasted")
     }
@@ -175,11 +184,11 @@ class TerminalAwtKeyPipelineTest {
     @Test
     fun ctrlVWithoutClipboardTextFallsThroughAsTheControlByte() {
         assumeFalse(!session.focused)
-        clipboard.setContents(object : Transferable {
+        setClipboard(object : Transferable {
             override fun getTransferDataFlavors() = arrayOf<DataFlavor>()
             override fun isDataFlavorSupported(flavor: DataFlavor) = false
             override fun getTransferData(flavor: DataFlavor) = throw java.awt.datatransfer.UnsupportedFlavorException(flavor)
-        }, null)
+        })
         ctrl(KeyEvent.VK_V, '\u0016')
         assertThat(written()).isEqualTo("\u0016")
     }

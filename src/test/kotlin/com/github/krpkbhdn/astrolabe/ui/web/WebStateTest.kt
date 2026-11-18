@@ -247,6 +247,8 @@ class WebStateTest {
         `when`(service.allItems(6)).thenReturn(listOf(item(1, revisionId = 6)))
         state.revisions(1)
         await { state.items(6).isNotEmpty() }
+        // reading revisions() watches the project again and starts a reload; a failing one keeps that reload from refilling the cache mid-assert
+        `when`(service.revisions(1)).thenThrow(IllegalStateException("project gone"))
 
         state.retain(listOf(2L))
 

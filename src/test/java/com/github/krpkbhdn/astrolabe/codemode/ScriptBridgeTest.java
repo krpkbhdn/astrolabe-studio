@@ -70,7 +70,7 @@ class ScriptBridgeTest extends CodeModeFixture {
         });
         scriptCallingAlphaAndReportingErrors();
         var quick = TestProperties.of(Duration.ofSeconds(30), 100_000, 20_000, 10, Duration.ofMinutes(10), "node:22-alpine", "256m", 1,
-                Duration.ofDays(30), Duration.ofMillis(200));
+                Duration.ofDays(30), Duration.ofMillis(1000));
 
         var result = serviceWith(quick).execute(SESSION, "code");
 

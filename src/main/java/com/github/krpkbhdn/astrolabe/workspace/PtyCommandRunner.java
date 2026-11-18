@@ -29,7 +29,7 @@ public final class PtyCommandRunner {
     static final int MAX_RAW_CHARS = 1024 * 1024;
     /** ConPTY may deliver the last output well after the exit and never closes the stream, so the reader is awaited until the text stops growing. */
     private static final Duration READER_GRACE = Duration.ofSeconds(5);
-    static final Duration READER_QUIET = Duration.ofSeconds(1);
+    private static final Duration READER_QUIET = Duration.ofSeconds(1);
 
     private PtyCommandRunner() {}
 

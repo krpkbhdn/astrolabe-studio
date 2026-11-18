@@ -30,7 +30,8 @@ public final class CommandRunner {
 
     public static final int MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
     private static final Duration READER_GRACE = Duration.ofSeconds(2);
-    private static final ExecutorService PIPES = Executors.newVirtualThreadPerTaskExecutor();
+    /** Platform threads: a blocking pipe read pins a virtual thread's carrier on Windows, and a loaded CI runner then starves every reader. */
+    private static final ExecutorService PIPES = Executors.newCachedThreadPool(task -> Thread.ofPlatform().name("command-pipe").daemon().unstarted(task));
 
     private CommandRunner() {}
 

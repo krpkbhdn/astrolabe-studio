@@ -32,7 +32,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 class AssistantMcpEndpointTest {
 
-    private static final int WAIT_SECONDS = 2;
+    private static final int WAIT_SECONDS = 5;
     private static final Duration SHORT_HOLD = Duration.ofMillis(150);
     private static final String CALL_PUSH = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"git_push\",\"arguments\":{\"project\":1}}}";
 

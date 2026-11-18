@@ -21,14 +21,18 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import com.github.krpkbhdn.astrolabe.claude.install.ClaudeInstallation;
 import com.github.krpkbhdn.astrolabe.claude.install.ClaudeInstallationService;
 import com.github.krpkbhdn.astrolabe.claude.install.LoginState;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.json.JsonMapper;
 
+// mockStatic is thread-local, so the default separate-thread timeout would run tests off the mocking thread
+@Timeout(value = 2, unit = TimeUnit.MINUTES, threadMode = Timeout.ThreadMode.SAME_THREAD)
 class HookSettingsWriterTest {
 
     private static final String URL = "http://127.0.0.1:5555/hook/abc-1";

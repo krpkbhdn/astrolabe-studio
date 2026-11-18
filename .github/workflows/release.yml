@@ -21,9 +21,11 @@ jobs:
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' build.gradle.kts)
           test "v$version" = "${GITHUB_REF_NAME}" || { echo "Tag ${GITHUB_REF_NAME} does not match version $version"; exit 1; }
       - name: Test
+        timeout-minutes: 25
         shell: bash
-        run: ./gradlew test --no-daemon
+        run: ./gradlew test --no-daemon --console=plain
       - name: Build MSI
+        timeout-minutes: 15
         shell: bash
         run: ./gradlew packageMsi --no-daemon
       - name: Checksum

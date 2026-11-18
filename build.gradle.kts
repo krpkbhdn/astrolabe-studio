@@ -15,7 +15,7 @@ plugins {
 }
 
 group = "com.github.krpkbhdn"
-version = "2.3.28"
+version = "2.3.29"
 
 java {
     toolchain {
@@ -74,15 +74,36 @@ tasks.test {
     useJUnitPlatform()
     testLogging { events("failed", "skipped") }
     val slowMillis = 10_000
+    // One line per finished class so a long CI run shows progress; classes over slowMillis are marked SLOW.
     afterSuite(KotlinClosure2<TestDescriptor, TestResult, Unit>({ d, r ->
         val ms = r.endTime - r.startTime
-        if (d.parent != null && d.className != null && ms > slowMillis) println("SLOW class ${d.className}: ${ms / 1000}s (${r.testCount} tests)")
+        if (d.parent != null && d.className != null) {
+            logger.lifecycle("${if (ms > slowMillis) "SLOW " else ""}class ${d.className}: ${r.testCount} tests, ${r.failedTestCount} failed, ${ms / 1000}s")
+        }
     }))
     afterTest(KotlinClosure2<TestDescriptor, TestResult, Unit>({ d, r ->
         val ms = r.endTime - r.startTime
-        if (ms > slowMillis) println("SLOW test ${d.className}.${d.name}: ${ms / 1000}s")
+        if (ms > slowMillis) logger.lifecycle("SLOW test ${d.className}.${d.name}: ${ms / 1000}s")
     }))
-    timeout.set(Duration.ofMinutes(20))
+    // Shorter than the Gradle task timeout so the stack dump below is printed before the build is killed.
+    val taskTimeout = Duration.ofMinutes(15)
+    val watchdogDelay = Duration.ofMinutes(12)
+    timeout.set(taskTimeout)
+    if (System.getenv("CI") != null) {
+        doFirst {
+            Thread({
+                Thread.sleep(watchdogDelay.toMillis())
+                val jcmd = File(System.getProperty("java.home"), "bin/jcmd").path
+                ProcessHandle.current().descendants()
+                    .filter { it.info().commandLine().orElse("").contains("Gradle Test Executor") }
+                    .forEach { worker ->
+                        println("Test worker ${worker.pid()} still running after $watchdogDelay, thread dump:")
+                        val dump = ProcessBuilder(jcmd, worker.pid().toString(), "Thread.print").redirectErrorStream(true).start()
+                        dump.inputStream.copyTo(System.out)
+                    }
+            }, "test-watchdog").apply { isDaemon = true }.start()
+        }
+    }
     maxParallelForks = (Runtime.getRuntime().availableProcessors() / 2).coerceIn(1, 4)
     // java.awt.event is opened only so the real-browser test can give synthetic key events the native rawCode CEF reads.
     jvmArgs(graalJsArgs + "--add-opens=java.desktop/java.awt.event=ALL-UNNAMED" + awtOpens)

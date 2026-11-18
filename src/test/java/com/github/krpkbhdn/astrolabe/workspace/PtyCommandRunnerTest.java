@@ -38,6 +38,7 @@ class PtyCommandRunnerTest {
 
     @Test
     void runPassesTheExtraEnvironmentToTheChild() throws java.io.IOException {
+        PtyAvailability.assumePtyDeliversOutput();
         var windows = System.getProperty("os.name").toLowerCase().contains("win");
         var command = windows ? java.util.List.of("cmd", "/c", "echo %ASTROLABE_TEST_VAR%")
                 : java.util.List.of("sh", "-c", "echo $ASTROLABE_TEST_VAR");

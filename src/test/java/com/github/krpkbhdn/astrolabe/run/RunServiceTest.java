@@ -4,6 +4,7 @@ import com.github.krpkbhdn.astrolabe.config.AppProperties;
 import com.github.krpkbhdn.astrolabe.project.GroupWorkspace;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static com.github.krpkbhdn.astrolabe.workspace.PtyAvailability.assumePtyDeliversOutput;
 
 import com.github.krpkbhdn.astrolabe.project.ProjectService;
 import com.github.krpkbhdn.astrolabe.workspace.SystemHostEnvironment;
@@ -54,6 +55,7 @@ class RunServiceTest {
 
     @Test
     void reportsTheExitCodeAndKeepsTheFinishedRun() throws Exception {
+        assumePtyDeliversOutput();
         var configuration = configurations.save(projectId, "fail", "exit 3", temp);
         var exited = new CountDownLatch(1);
         runs.subscribe(() -> runs.current(configuration.id()).filter(run -> !run.running()).ifPresent(run -> exited.countDown()));
@@ -85,6 +87,7 @@ class RunServiceTest {
 
     @Test
     void stopKillsALongRunningCommand() throws Exception {
+        assumePtyDeliversOutput();
         var configuration = configurations.save(projectId, "long", LONG_COMMAND, temp);
 
         var launched = runs.start(configuration.id());
@@ -96,6 +99,7 @@ class RunServiceTest {
 
     @Test
     void deletingARunningConfigurationStopsAndForgetsIt() throws Exception {
+        assumePtyDeliversOutput();
         var configuration = configurations.save(projectId, "long", LONG_COMMAND, temp);
         var launched = runs.start(configuration.id());
 
@@ -107,6 +111,7 @@ class RunServiceTest {
 
     @Test
     void removingTheProjectStopsAndForgetsItsRuns() throws Exception {
+        assumePtyDeliversOutput();
         var configuration = configurations.save(projectId, "long", LONG_COMMAND, temp);
         var launched = runs.start(configuration.id());
 
@@ -181,6 +186,7 @@ class RunServiceTest {
 
     @Test
     void secondConcurrentStartWaitsForTheFirstRunToExitBeforeSpawning() throws Exception {
+        assumePtyDeliversOutput();
         var configuration = configurations.save(projectId, "long", LONG_COMMAND, temp);
         var entered = new CountDownLatch(1);
         var release = new CountDownLatch(1);

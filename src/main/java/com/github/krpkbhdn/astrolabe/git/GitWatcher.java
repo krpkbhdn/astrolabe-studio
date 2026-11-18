@@ -22,6 +22,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -287,6 +288,23 @@ public class GitWatcher {
 
     /** @return false when the tree has more than {@code limit} directories (nothing is registered then) */
     private boolean registerTree(Watch watch, Path start, Zone zone, int limit) {
+        var registered = new HashSet<Path>();
+        while (true) {
+            var directories = walkDirectories(start, zone, limit);
+            if (directories.size() > limit) {
+                return false;
+            }
+            directories.removeIf(registered::contains);
+            if (directories.isEmpty()) {
+                return true;
+            }
+            directories.forEach(directory -> register(watch, directory, zone));
+            registered.addAll(directories);
+            // folders created while registering produce no event, so walk again until nothing new shows up
+        }
+    }
+
+    private static List<Path> walkDirectories(Path start, Zone zone, int limit) {
         var directories = new ArrayList<Path>();
         try {
             Files.walkFileTree(start, new SimpleFileVisitor<>() {
@@ -307,11 +325,7 @@ public class GitWatcher {
         } catch (IOException e) {
             log.debug("walking {} failed: {}", start, e.getMessage());
         }
-        if (directories.size() > limit) {
-            return false;
-        }
-        directories.forEach(directory -> register(watch, directory, zone));
-        return true;
+        return directories;
     }
 
     private void register(Watch watch, Path directory, Zone zone) {

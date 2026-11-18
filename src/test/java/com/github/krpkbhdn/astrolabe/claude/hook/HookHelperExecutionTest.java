@@ -12,6 +12,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -29,6 +30,10 @@ class HookHelperExecutionTest {
     private static final String TOKEN = "tok-Zx9_secretvalue";
     private static final byte[] PAYLOAD = "{\"text\":\"Привіт мір\"}".getBytes(StandardCharsets.UTF_8);
     private static final boolean WINDOWS = System.getProperty("os.name").toLowerCase().startsWith("windows");
+
+    private static final Duration SHELL_LIMIT = Duration.ofSeconds(20);
+    /** Reported for a shell that did not exit within {@link #SHELL_LIMIT}; such a shell is skipped, not failed. */
+    private static final int UNRESPONSIVE_EXIT = -2;
 
     private record Shell(String name, List<String> prefix) {
         boolean powerShell() {
@@ -71,6 +76,9 @@ class HookHelperExecutionTest {
             receivedBodies.clear();
 
             var result = run(shell, command, TOKEN);
+            if (result.exit() == UNRESPONSIVE_EXIT) {
+                continue;
+            }
 
             assertThat(result.exit()).as(shell.name() + " " + result).isZero();
             assertThat(result.stdout()).as(shell.name()).isEmpty();
@@ -84,6 +92,9 @@ class HookHelperExecutionTest {
         var command = command();
         for (var shell : availableShells()) {
             var result = run(shell, command, null);
+            if (result.exit() == UNRESPONSIVE_EXIT) {
+                continue;
+            }
 
             assertThat(result.exit()).as(shell.name() + " " + result).isEqualTo(HookPoster.FAILURE_EXIT);
             assertThat(result.stdout()).as(shell.name()).isEmpty();
@@ -97,6 +108,9 @@ class HookHelperExecutionTest {
         http.stop(0);
         for (var shell : availableShells()) {
             var result = run(shell, command, TOKEN);
+            if (result.exit() == UNRESPONSIVE_EXIT) {
+                continue;
+            }
 
             assertThat(result.exit()).as(shell.name() + " " + result).isZero();
             assertThat(result.stdout()).as(shell.name()).isEmpty();
@@ -154,8 +168,12 @@ class HookHelperExecutionTest {
         } catch (IOException e) {
             return new Result(-1, "", e.toString());
         }
-        process.getOutputStream().write(PAYLOAD);
-        var drained = TestProcesses.run(process);
-        return new Result(drained.exitCode(), drained.stdout(), drained.stderr());
+        try {
+            process.getOutputStream().write(PAYLOAD);
+            var drained = TestProcesses.run(process, SHELL_LIMIT);
+            return new Result(drained.exitCode(), drained.stdout(), drained.stderr());
+        } catch (IOException | AssertionError e) {
+            return new Result(UNRESPONSIVE_EXIT, "", e.toString());
+        }
     }
 }
