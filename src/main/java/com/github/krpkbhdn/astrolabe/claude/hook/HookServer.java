@@ -1,0 +1,338 @@
+package com.github.krpkbhdn.astrolabe.claude.hook;
+
+import com.github.krpkbhdn.astrolabe.claude.event.HookEventType;
+import com.github.krpkbhdn.astrolabe.claude.event.HookEvent;
+import com.github.krpkbhdn.astrolabe.claude.mcp.McpEndpoint;
+import com.github.krpkbhdn.astrolabe.codemode.mcp.CodeModeEndpoint;
+import com.github.krpkbhdn.astrolabe.claude.mcp.AssistantMcpServer;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.Optional;
+import java.util.function.Function;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicLong;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.SmartLifecycle;
+import org.springframework.stereotype.Component;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+
+/**
+ * Loopback-only HTTP endpoint that Claude Code http hooks (and the command-hook helper {@link HookPoster} for SessionStart and statusLine) post to.
+ * Parses each call into a HookEvent, persists it and publishes it (the session registry listens).
+ * Answers hooks with 200 and an empty body at once; only PermissionRequest and Elicitation are held until the user answers in the app
+ * (or the terminal settles it) and then get a decision. The MCP path answers with content too.
+ */
+@Component
+public class HookServer implements SmartLifecycle {
+
+    private static final Logger log = LoggerFactory.getLogger(HookServer.class);
+    private static final String CONTEXT_PATH = "/hook/";
+    private static final String STATUS_LINE_CONTEXT_PATH = "/statusline/";
+    private static final String MCP_CONTEXT_PATH = "/mcp/";
+    private static final String CODE_MODE_CONTEXT_PATH = "/code-mode/";
+    private static final String ASSISTANT_MCP_PATH = "/assistant-mcp";
+    /** Env variable with a session's bearer token: the fallback of the helper command when its token file is unreadable. */
+    public static final String SESSION_TOKEN_ENV = "ASTROLABE_HOOK_TOKEN";
+    private static final int OK = 200;
+    private static final int ACCEPTED = 202;
+    private static final int NOT_FOUND = 404;
+    private static final int METHOD_NOT_ALLOWED = 405;
+    private static final int NO_RESPONSE_BODY = -1;
+    private static final int PAYLOAD_TOO_LARGE = 413;
+    private static final java.util.Set<HookEventType> STATUS_ENDING_EVENTS = java.util.EnumSet.of(HookEventType.STOP,
+            HookEventType.POST_TOOL_USE, HookEventType.POST_TOOL_USE_FAILURE, HookEventType.USER_PROMPT_SUBMIT,
+            HookEventType.ELICITATION_RESULT, HookEventType.SESSION_END, HookEventType.STOP_FAILURE, HookEventType.NOTIFICATION,
+            HookEventType.SUBAGENT_STOP, HookEventType.POST_COMPACT);
+
+    private final HookEventStore store;
+    private final ApplicationEventPublisher publisher;
+    private final HookProperties properties;
+    private final McpEndpoint mcp;
+    private final AssistantMcpServer assistantMcp;
+    private final CodeModeEndpoint codeMode;
+    private final DecisionHolder proposals;
+    private final DecisionHold decisionHold;
+    private final HookPayloadParser parser;
+    private final HookCredentials credentials = new HookCredentials();
+    private final AtomicLong droppedCalls = new AtomicLong();
+    private volatile OrderedWorker worker;
+    private volatile OrderedWorker persister;
+    private HttpServer server;
+    private ExecutorService requestExecutor;
+
+    public HookServer(HookEventStore store, ApplicationEventPublisher publisher, JsonMapper mapper, HookProperties properties,
+            McpEndpoint mcp, AssistantMcpServer assistantMcp, CodeModeEndpoint codeMode, DecisionHolder proposals) {
+        this.store = store;
+        this.publisher = publisher;
+        this.properties = properties;
+        this.mcp = mcp;
+        this.assistantMcp = assistantMcp;
+        this.codeMode = codeMode;
+        this.proposals = proposals;
+        this.decisionHold = new DecisionHold(proposals, properties);
+        this.parser = new HookPayloadParser(mapper, properties);
+    }
+
+    public synchronized int port() {
+        if (server == null) {
+            throw new IllegalStateException("Hook server is not running");
+        }
+        return server.getAddress().getPort();
+    }
+
+    /** URL a hook of the given astrolabe session posts to; it holds no secret, the credential is {@link #sessionToken(String)} sent as a bearer token. */
+    public String hookUrl(String astrolabeSessionId) {
+        return "http://127.0.0.1:" + port() + CONTEXT_PATH + astrolabeSessionId;
+    }
+
+    /** The session's credential; written into the session's owner-only files, which survive a restart of claude (agent view), unlike its environment. */
+    public String sessionToken(String astrolabeSessionId) {
+        return credentials.sessionToken(astrolabeSessionId);
+    }
+
+    /** URL of the MCP server a session talks to; same bearer token, own path because it answers instead of just accepting. */
+    public String mcpUrl(String astrolabeSessionId) {
+        return hookUrl(astrolabeSessionId).replace(CONTEXT_PATH, MCP_CONTEXT_PATH);
+    }
+
+    /** URL of the Code Mode MCP server of a session; same bearer token as {@link #mcpUrl}, own path so the project server never lists its tools. */
+    public String codeModeUrl(String astrolabeSessionId) {
+        return hookUrl(astrolabeSessionId).replace(CONTEXT_PATH, CODE_MODE_CONTEXT_PATH);
+    }
+
+    /** URL of the app MCP server of the Assistant session; carries no secret, the bearer token is {@link #assistantMcpToken()}. */
+    public String assistantMcpUrl() {
+        return "http://127.0.0.1:" + port() + ASSISTANT_MCP_PATH;
+    }
+
+    /** The Assistant's own per-run secret; written only into the Assistant's owner-only mcp file. */
+    public String assistantMcpToken() {
+        return credentials.assistantToken();
+    }
+
+    /** URL a session's statusLine command posts to; same secret, own path because the payload is no hook event. */
+    public String statusLineUrl(String astrolabeSessionId) {
+        return hookUrl(astrolabeSessionId).replace(CONTEXT_PATH, STATUS_LINE_CONTEXT_PATH);
+    }
+
+    @Override
+    public synchronized void start() {
+        if (server != null) {
+            return;
+        }
+        try {
+            server = HttpServer.create(new InetSocketAddress(InetAddress.getByAddress(new byte[] {127, 0, 0, 1}), 0), 0);
+        } catch (IOException e) {
+            throw new IllegalStateException("Cannot start hook server", e);
+        }
+        server.createContext(CONTEXT_PATH, exchange -> serve(exchange, CONTEXT_PATH,
+                (ex, id, body) -> respondToHook(ex, id, body, this::acceptHook)));
+        server.createContext(STATUS_LINE_CONTEXT_PATH, exchange -> serve(exchange, STATUS_LINE_CONTEXT_PATH,
+                (ex, id, body) -> respondToHook(ex, id, body, this::acceptStatusLine)));
+        server.createContext(MCP_CONTEXT_PATH, exchange -> serve(exchange, MCP_CONTEXT_PATH, (ex, id, body) -> respondToMcp(ex, bytes -> mcp.handle(id, bytes), body)));
+        server.createContext(CODE_MODE_CONTEXT_PATH, exchange -> serve(exchange, CODE_MODE_CONTEXT_PATH, (ex, id, body) -> respondToMcp(ex, bytes -> codeMode.handle(id, bytes), body)));
+        server.createContext(ASSISTANT_MCP_PATH, this::serveAssistantMcp);
+        worker = new OrderedWorker("hook-worker", properties.maxQueuedCalls());
+        persister = new OrderedWorker("hook-persister", properties.maxQueuedCalls());
+        requestExecutor = Executors.newVirtualThreadPerTaskExecutor();
+        server.setExecutor(requestExecutor);
+        server.start();
+        log.info("Hook server listening on 127.0.0.1:{}", server.getAddress().getPort());
+    }
+
+    @Override
+    public void stop() {
+        HttpServer stopping;
+        ExecutorService requests;
+        OrderedWorker work;
+        OrderedWorker persist;
+        synchronized (this) {
+            stopping = server;
+            requests = requestExecutor;
+            work = worker;
+            persist = persister;
+            server = null;
+        }
+        if (stopping != null) {
+            stopping.stop(0);
+            proposals.releaseAll();
+            // bounded drain: each queue gets a short wait (OrderedWorker) to flush, then shutdownNow drops the rest
+            OrderedWorker.awaitTermination(requests);
+            work.awaitTermination();
+            persist.awaitTermination();
+        }
+    }
+
+    @Override
+    public synchronized boolean isRunning() {
+        return server != null;
+    }
+
+    private void serve(HttpExchange exchange, String contextPath, BodyResponder responder) throws IOException {
+        try (exchange) {
+            var astrolabeSessionId = credentials.authorizedSessionId(exchange, contextPath);
+            log.debug("{} {}{} accept={} mcp-session-id={}", exchange.getRequestMethod(), contextPath,
+                    astrolabeSessionId.orElse("?"), exchange.getRequestHeaders().getFirst("Accept"),
+                    exchange.getRequestHeaders().getFirst("Mcp-Session-Id"));
+            if (astrolabeSessionId.isEmpty()) {
+                exchange.sendResponseHeaders(NOT_FOUND, NO_RESPONSE_BODY);
+            } else if (!"POST".equals(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(METHOD_NOT_ALLOWED, NO_RESPONSE_BODY);
+            } else {
+                responder.respond(exchange, astrolabeSessionId.get(), exchange.getRequestBody().readNBytes(properties.maxBodyBytes() + 1));
+            }
+        }
+    }
+
+    private void serveAssistantMcp(HttpExchange exchange) throws IOException {
+        try (exchange) {
+            if (!ASSISTANT_MCP_PATH.equals(exchange.getRequestURI().getPath()) || !credentials.isAssistant(exchange)) {
+                exchange.sendResponseHeaders(NOT_FOUND, NO_RESPONSE_BODY);
+            } else if (!"POST".equals(exchange.getRequestMethod())) {
+                exchange.sendResponseHeaders(METHOD_NOT_ALLOWED, NO_RESPONSE_BODY);
+            } else {
+                respondToMcp(exchange, assistantMcp::handle, exchange.getRequestBody().readNBytes(properties.maxBodyBytes() + 1));
+            }
+        }
+    }
+
+    /** Answers at once with an empty 200, except calls that ask for a decision: those wait for the user (see DecisionHold). */
+    private void respondToHook(HttpExchange exchange, String astrolabeSessionId, byte[] body, BodyConsumer consumer) throws IOException {
+        var receivedAt = Instant.now();
+        var payload = parser.parseObject(astrolabeSessionId, body);
+        if (body.length <= properties.maxBodyBytes() && payload.filter(this::asksForDecision).isPresent()) {
+            var event = eventOf(astrolabeSessionId, payload.get(), receivedAt);
+            var decision = decisionHold.hold(worker, astrolabeSessionId, event, () -> persistLater(event), () -> publishEvent(event),
+                    () -> dropped("held hook call", astrolabeSessionId));
+            respondWithDecision(exchange, decision);
+            return;
+        }
+        exchange.sendResponseHeaders(OK, NO_RESPONSE_BODY);
+        exchange.close();
+        payload.ifPresent(parsed -> enqueue(astrolabeSessionId, parsed, receivedAt, consumer));
+    }
+
+    /** The worker's enqueue lock keeps order: while a status-ending event waits for room, later events queue behind it. */
+    private void enqueue(String astrolabeSessionId, JsonNode payload, Instant receivedAt, BodyConsumer consumer) {
+        Runnable task = () -> consume(astrolabeSessionId, payload, receivedAt, consumer);
+        try {
+            if (!endsAStatus(payload)) {
+                worker.execute(task);
+            } else if (!worker.executeWaitingForRoom(task)) {
+                dropped("hook call", astrolabeSessionId);
+            }
+        } catch (RejectedExecutionException e) {
+            dropped("hook call", astrolabeSessionId);
+        }
+    }
+
+    /** Losing these leaves a session status or a held dialog wrong until the next event, so a full queue does not drop them. */
+    private boolean endsAStatus(JsonNode payload) {
+        return STATUS_ENDING_EVENTS.contains(HookEventType.of(payload.path("hook_event_name").asString("")));
+    }
+
+    private void respondToMcp(HttpExchange exchange, Function<byte[], Optional<String>> handler, byte[] body) throws IOException {
+        if (body.length > properties.maxBodyBytes()) {
+            exchange.sendResponseHeaders(PAYLOAD_TOO_LARGE, NO_RESPONSE_BODY);
+            return;
+        }
+        var json = handler.apply(body);
+        if (json.isEmpty()) {
+            exchange.sendResponseHeaders(ACCEPTED, NO_RESPONSE_BODY);
+            return;
+        }
+        writeJson(exchange, json.get());
+    }
+
+    private void writeJson(HttpExchange exchange, String json) throws IOException {
+        var bytes = json.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", "application/json");
+        exchange.sendResponseHeaders(OK, bytes.length);
+        exchange.getResponseBody().write(bytes);
+    }
+
+    private boolean asksForDecision(JsonNode payload) {
+        return HookEventType.of(payload.path("hook_event_name").asString("")).awaitsDecision();
+    }
+
+    /** Runs on a virtual thread, so waiting for the user costs nothing; the wait is bounded by the decision hold. */
+    private void respondWithDecision(HttpExchange exchange, CompletableFuture<Optional<String>> decision) throws IOException {
+        var output = decision.join();
+        if (output.isPresent()) {
+            writeJson(exchange, output.get());
+        } else {
+            exchange.sendResponseHeaders(OK, NO_RESPONSE_BODY);
+        }
+    }
+
+    private void dropped(String what, String id) {
+        log.warn("Dropped {} {}: queue is full or the server is stopping ({} dropped so far)", what, id, droppedCalls.incrementAndGet());
+    }
+
+    private void consume(String astrolabeSessionId, JsonNode payload, Instant receivedAt, BodyConsumer consumer) {
+        try {
+            consumer.accept(astrolabeSessionId, payload, receivedAt);
+        } catch (RuntimeException e) {
+            log.warn("Failed to handle hook call for session {}: {}", astrolabeSessionId, e.toString());
+        }
+    }
+
+    private HookEvent acceptHook(String astrolabeSessionId, JsonNode payload, Instant receivedAt) {
+        var event = eventOf(astrolabeSessionId, payload, receivedAt);
+        publishEvent(event);
+        persistLater(event);
+        return event;
+    }
+
+    private static HookEvent eventOf(String astrolabeSessionId, JsonNode payload, Instant receivedAt) {
+        var rawName = payload.path("hook_event_name").asString("");
+        return new HookEvent(astrolabeSessionId, HookEventType.of(rawName), rawName, payload, receivedAt);
+    }
+
+    private void publishEvent(HookEvent event) {
+        log.debug("Hook event {} for session {}", event.rawName(), event.astrolabeSessionId());
+        publisher.publishEvent(event);
+    }
+
+    /** Stored after publishing, on its own thread, so a locked database never delays statuses or proposal dialogs. */
+    private void persistLater(HookEvent event) {
+        try {
+            persister.execute(() -> persist(event));
+        } catch (RejectedExecutionException e) {
+            dropped("event write", event.rawName());
+        }
+    }
+
+    private void acceptStatusLine(String astrolabeSessionId, JsonNode payload, Instant receivedAt) {
+        publisher.publishEvent(new StatusLineReport(astrolabeSessionId, payload, receivedAt));
+    }
+
+    private void persist(HookEvent event) {
+        try {
+            store.save(event);
+        } catch (RuntimeException e) {
+            log.warn("Could not store hook event {}: {}", event.rawName(), e.toString());
+        }
+    }
+
+    @FunctionalInterface
+    private interface BodyResponder {
+        void respond(HttpExchange exchange, String astrolabeSessionId, byte[] body) throws IOException;
+    }
+
+    @FunctionalInterface
+    private interface BodyConsumer {
+        void accept(String astrolabeSessionId, JsonNode payload, Instant receivedAt);
+    }
+}

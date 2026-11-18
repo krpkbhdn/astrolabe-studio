@@ -1,0 +1,12 @@
+{
+  "name": "astrolabe-lsp",
+  "owner": { "name": "Astrolabe Studio" },
+  "plugins": [
+    {
+      "name": "css-lsp",
+      "source": "./css-lsp",
+      "version": "1.0.1",
+      "description": "CSS, SCSS and Less language server (vscode-css-language-server) for code intelligence"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "title": "Claude Code Manager author profile",
+  "title": "Astrolabe Studio author profile",
   "files": [
     "user/skills/jscpd/SKILL.md",
     "user/skills/dry-refactoring/SKILL.md",
@@ -56,19 +56,6 @@
         "marketplace.claude-plugins-official"
       ],
       "name": "context7@claude-plugins-official"
-    },
-    {
-      "id": "plugin.playwright",
-      "area": "CLAUDE_TOOLS",
-      "group": "Plugins",
-      "title": "Playwright",
-      "description": "Lets Claude drive a real browser to test and inspect web pages. Useful for web development and UI verification.",
-      "kind": "PLUGIN",
-      "version": 1,
-      "requires": [
-        "marketplace.claude-plugins-official"
-      ],
-      "name": "playwright@claude-plugins-official"
     },
     {
       "id": "plugin.claude-md-management",
@@ -197,7 +184,7 @@
       "title": "Dev team",
       "description": "The author's agent team: a lead plus specialist roles such as researcher and debater, with a model and effort per role. Useful for splitting larger tasks across subagents.",
       "kind": "TEAM",
-      "version": 3,
+      "version": 4,
       "requires": [],
       "template": "teams/dev-team.json",
       "name": "Dev team",
@@ -207,6 +194,9 @@
         ],
         "3": [
           "Teams snapshot from the author's current setup"
+        ],
+        "4": [
+          "Added LSP to the tools of the roles that read or write code"
         ]
       }
     }

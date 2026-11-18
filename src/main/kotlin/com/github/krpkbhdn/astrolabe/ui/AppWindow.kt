@@ -1,0 +1,194 @@
+package com.github.krpkbhdn.astrolabe.ui
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.window.LocalWindowExceptionHandlerFactory
+import androidx.compose.ui.window.WindowExceptionHandler
+import androidx.compose.ui.window.WindowExceptionHandlerFactory
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.concurrent.thread
+import org.slf4j.LoggerFactory
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.ApplicationScope
+import androidx.compose.ui.window.Tray
+import com.github.krpkbhdn.astrolabe.ui.terminal.TerminalHost
+import com.github.krpkbhdn.astrolabe.ui.web.browser.JcefRuntime
+import androidx.compose.ui.window.WindowPlacement
+import androidx.compose.ui.window.WindowPosition
+import androidx.compose.ui.window.WindowState
+import androidx.compose.ui.window.isTraySupported
+import com.github.krpkbhdn.astrolabe.ui.chrome.MainWindow
+import com.github.krpkbhdn.astrolabe.ui.chrome.isDarkTheme
+import com.github.krpkbhdn.astrolabe.ui.components.ToastPopups
+import com.github.krpkbhdn.astrolabe.ui.state.AppState
+import com.github.krpkbhdn.astrolabe.ui.state.Backend
+import com.github.krpkbhdn.astrolabe.ui.state.ScreenArea
+import com.github.krpkbhdn.astrolabe.ui.state.UiSettingsStore
+import com.github.krpkbhdn.astrolabe.ui.state.fitToScreens
+import com.github.krpkbhdn.astrolabe.ui.theme.LocalScale
+import java.awt.Desktop
+import java.awt.GraphicsDevice
+import java.awt.GraphicsEnvironment
+import java.awt.Toolkit
+import javax.swing.SwingUtilities
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+
+private const val WINDOW_TITLE = "Astrolabe Studio"
+private const val UI_ERROR_TITLE = "Unexpected error"
+private const val TRAY_ICON_SIZE = 64
+private const val WINDOW_ICON_SIZE = 256
+private const val BROWSER_SHUTDOWN_MILLIS = 3_000L
+private const val STATE_DISPOSE_MILLIS = 5_000L
+
+private val SHUTDOWN_LOG = LoggerFactory.getLogger("com.github.krpkbhdn.astrolabe.ui.AppShutdown")
+
+/** Runs one exit step so that its failure is logged and never skips the next; a hung step gets [limitMillis] on a daemon thread, then is left behind. */
+internal fun shutdownStep(name: String, limitMillis: Long? = null, step: () -> Unit) {
+    val guarded = { runCatching(step).onFailure { SHUTDOWN_LOG.warn("Shutdown step '{}' failed: {}: {}", name, it.javaClass.name, it.message) } }
+    if (limitMillis == null) guarded() else thread(name = "shutdown-$name", isDaemon = true) { guarded() }.join(limitMillis)
+}
+
+/**
+ * Shows the main window; [onShutdown] runs after the user confirmed quitting. [settingsStore] holds the remembered view state.
+ * With a system tray, closing the window only hides it: sessions keep running and the tray icon brings the window back.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+fun ApplicationScope.AppWindow(backend: Backend, onShutdown: () -> Unit, settingsStore: UiSettingsStore = UiSettingsStore.inDataDir(backend.dataDir)) {
+    val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main) }
+    val state = remember { AppState(backend, scope, settingsStore).also { it.start() } }
+    val disposed = remember { AtomicBoolean(false) }
+    val disposeState = { if (disposed.compareAndSet(false, true)) state.dispose() }
+    DisposableEffect(Unit) { onDispose { disposeState(); scope.cancel() } }
+    val icon = remember { BitmapPainter(drawAppIcon(WINDOW_ICON_SIZE).toComposeImageBitmap()) }
+    val bounds = remember { fitToScreens(state.settings.window, visibleScreens()) }
+    val windowState = remember {
+        WindowState(
+            placement = if (bounds.maximized) WindowPlacement.Maximized else WindowPlacement.Floating,
+            size = DpSize(bounds.width.dp, bounds.height.dp),
+            position = if (bounds.x != null && bounds.y != null) WindowPosition(bounds.x.dp, bounds.y.dp) else WindowPosition.PlatformDefault,
+        )
+    }
+    var visible by remember { mutableStateOf(true) }
+    var restoreRequests by remember { mutableIntStateOf(0) }
+    val handledRestores = remember { intArrayOf(0) }
+    val restore: () -> Unit = { visible = true; windowState.isMinimized = false; restoreRequests++ }
+    // A hidden window may never recompose again, so its SideEffect cannot be trusted to clear windowActive.
+    val hideToTray = { visible = false; state.windowActive = false }
+    val exiting = remember { AtomicBoolean(false) }
+    val exit = {
+        if (exiting.compareAndSet(false, true)) {
+            visible = false
+            thread(name = "AppShutdown") {
+                try {
+                    shutdownStep("terminals") { TerminalHost.closeAll() }
+                    shutdownStep("state", STATE_DISPOSE_MILLIS) { disposeState() }
+                    shutdownStep("reviews") { state.reviews.awaitFinalFlush() }
+                    shutdownStep("browser", BROWSER_SHUTDOWN_MILLIS) { JcefRuntime.shutdown() }
+                    shutdownStep("callback") { onShutdown() }
+                } finally {
+                    SwingUtilities.invokeLater { exitApplication() }
+                }
+            }
+        }
+    }
+    state.exitApp = exit
+    val quit = { state.requestQuit(exit) }
+    LaunchedEffect(Unit) { installMacQuitHandler { restore(); quit() } }
+    state.trayAvailable = isTraySupported
+    val waiting = state.waitingCount
+    val taskbar = remember { TaskbarAttention() }
+    state.flashTaskbar = { taskbar.flashFor(state.settings, it, state.windowActive) }
+    if (isTraySupported) {
+        val plainIcon = remember { BitmapPainter(drawAppIcon(TRAY_ICON_SIZE).toComposeImageBitmap()) }
+        val badgedIcon = remember(waiting) { BitmapPainter(drawAppIcon(TRAY_ICON_SIZE, waiting).toComposeImageBitmap()) }
+        Tray(
+            icon = if (waiting > 0) badgedIcon else plainIcon,
+            tooltip = if (waiting > 0) "$WINDOW_TITLE: $waiting waiting" else WINDOW_TITLE,
+            onAction = restore,
+        ) {
+            Item("Open $WINDOW_TITLE", onClick = restore)
+            Item("Answer next waiting", onClick = { restore(); state.answers.answerNextWaiting() })
+            Item("Quit", onClick = { restore(); quit() })
+        }
+    }
+    var windowGeneration by remember { mutableIntStateOf(0) }
+    val defaultHandlers = LocalWindowExceptionHandlerFactory.current
+    val keepWindowAlive = remember { reportingExceptionHandlers(state, defaultHandlers, WindowRecovery()) { windowGeneration++ } }
+    CompositionLocalProvider(LocalWindowExceptionHandlerFactory provides keepWindowAlive, LocalScale provides state.settings.scale) {
+        key(windowGeneration) {
+            MainWindow(state, windowState, WINDOW_TITLE, icon, if (isTraySupported && state.settings.minimizeToTray) ({ hideToTray() }) else quit, visible) {
+                val active = LocalWindowInfo.current.isWindowFocused && visible && !windowState.isMinimized
+                SideEffect { state.windowActive = active; taskbar.window = window }
+                LaunchedEffect(waiting) { taskbar.showWaiting(waiting) }
+                LaunchedEffect(restoreRequests) {
+                    if (restoreRequests == handledRestores[0]) return@LaunchedEffect
+                    handledRestores[0] = restoreRequests
+                    window.isVisible = true
+                    window.toFront()
+                    window.requestFocus()
+                }
+            }
+        }
+    }
+    CompositionLocalProvider(LocalScale provides state.settings.scale) {
+        ToastPopups(state.notifications.popups, primaryScreenArea(), isDarkTheme(state), { state.openToast(it); restore() }, state.notifications::dismissToast)
+    }
+}
+
+private fun visibleScreens(): List<ScreenArea> =
+    GraphicsEnvironment.getLocalGraphicsEnvironment().screenDevices.map(::usableArea)
+
+private fun primaryScreenArea(): ScreenArea = usableArea(GraphicsEnvironment.getLocalGraphicsEnvironment().defaultScreenDevice)
+
+private fun usableArea(device: GraphicsDevice): ScreenArea {
+    val bounds = device.defaultConfiguration.bounds
+    val insets = Toolkit.getDefaultToolkit().getScreenInsets(device.defaultConfiguration)
+    return ScreenArea(bounds.x + insets.left, bounds.y + insets.top, bounds.width - insets.left - insets.right, bounds.height - insets.top - insets.bottom)
+}
+
+/** macOS Cmd+Q would otherwise call System.exit and skip the confirmation and the shutdown; [onQuit] always goes through the app's own exit. */
+private fun installMacQuitHandler(onQuit: () -> Unit) {
+    if (!Desktop.isDesktopSupported() || !Desktop.getDesktop().isSupported(Desktop.Action.APP_QUIT_HANDLER)) return
+    Desktop.getDesktop().setQuitHandler { _, response ->
+        response.cancelQuit()
+        SwingUtilities.invokeLater(onQuit)
+    }
+}
+
+/**
+ * Compose's default handler shows a dialog and closes the window, which would end every running session. An exception kills
+ * the window's recomposer, so [remount] rebuilds the window (app state and terminals live outside it) and a toast reports it;
+ * when [recovery] refuses, the default handler takes over.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+internal fun reportingExceptionHandlers(state: AppState, fallback: WindowExceptionHandlerFactory, recovery: WindowRecovery, remount: () -> Unit): WindowExceptionHandlerFactory {
+    var lastMessage: String? = null
+    return WindowExceptionHandlerFactory { window ->
+        WindowExceptionHandler { error ->
+            LoggerFactory.getLogger(AppState::class.java).error("Unhandled UI exception", error)
+            if (!recovery.tryRecover()) return@WindowExceptionHandler fallback.exceptionHandler(window).onException(error)
+            remount()
+            val message = error.message ?: error.javaClass.simpleName
+            if (message != lastMessage) state.notifications.reportError(UI_ERROR_TITLE, message)
+            lastMessage = message
+        }
+    }
+}

@@ -1,0 +1,246 @@
+package com.github.krpkbhdn.astrolabe.claude.launch;
+
+import com.github.krpkbhdn.astrolabe.claude.hook.SessionFiles;
+import com.github.krpkbhdn.astrolabe.claude.mcp.AssistantMcpServer;
+import com.github.krpkbhdn.astrolabe.project.ModelSelection;
+import com.github.krpkbhdn.astrolabe.team.Team;
+import com.github.krpkbhdn.astrolabe.team.TeamAgentsJson;
+import com.github.krpkbhdn.astrolabe.team.TeamRole;
+import java.nio.file.Path;
+import com.github.krpkbhdn.astrolabe.claude.hook.HookServer;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+
+/** Pure builders for the claude command line and the child environment. */
+public final class ClaudeCommand {
+
+    static final String ENV_TERM = "TERM";
+    private static final String PATH_VARIABLE = "PATH";
+    /** Keeps the hook and MCP calls to the app's loopback server (bearer token inside) away from a configured proxy. */
+    private static final List<String> LOOPBACK_NO_PROXY_VARIABLES = List.of("NO_PROXY", "no_proxy");
+    private static final String LOOPBACK_HOSTS = "127.0.0.1,localhost";
+    static final String ENV_COLORTERM = "COLORTERM";
+    static final String ENV_SESSION = "ASTROLABE_SESSION";
+    static final String ENV_ADDITIONAL_DIRECTORIES_CLAUDE_MD = "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD";
+    private static final String SETTINGS_FLAG = "--settings";
+    private static final String ENABLED = "1";
+    private static final Pattern SAFE_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9_-]{0,63}");
+    static final String TERM_VALUE = "xterm-256color";
+    static final String COLORTERM_VALUE = "truecolor";
+    static final String ASSISTANT_SYSTEM_PROMPT = "You control Astrolabe Studio through the astrolabe-app MCP tools. "
+            + "Resolve project names with list_projects, act directly and report briefly. "
+            + "Destructive actions are confirmed by the user. "
+            + "For questions about Astrolabe Studio itself, call get_help and answer from it.";
+    /** Would turn off Claude colors or make it think it runs inside another agent (which also switches off transcripts, so no --resume) or terminal host. */
+    private static final List<String> INHERITED_ENV_TO_DROP = List.of(
+            "NO_COLOR", "FORCE_COLOR", "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_CHILD_SESSION",
+            "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_CODE_SSE_PORT", "CLAUDE_CODE_EXECPATH", "CLAUDE_PID",
+            "AI_AGENT", "TERMINAL_EMULATOR", "TERM_SESSION_ID",
+            "TERM_PROGRAM", "TERM_PROGRAM_VERSION", "ITERM_SESSION_ID", "ITERM_PROFILE", "LC_TERMINAL", "LC_TERMINAL_VERSION", "VTE_VERSION", "WT_SESSION", HookServer.SESSION_TOKEN_ENV);
+
+    private ClaudeCommand() {}
+
+    static List<String> launchArguments(Path executable, SessionFiles files, Path pluginDir, LaunchMode mode, ModelSelection selection) {
+        List<String> command = base(executable, files);
+        addClaudeManager(command, files, pluginDir);
+        command.addAll(selection.arguments());
+        addAgents(command, files, null);
+        addModeFlag(command, mode);
+        return command;
+    }
+
+    /** Claude does not persist --agents and the system prompt addendum in the transcript, so a continued or resumed conversation gets them again; the project's model and effort win over the lead's. */
+    static List<String> launchArguments(Path executable, SessionFiles files, Path pluginDir, LaunchMode mode, ModelSelection selection, Team team) {
+        List<String> command = base(executable, files);
+        addClaudeManager(command, files, pluginDir);
+        command.addAll(selection.orElse(leadSelection(team)).arguments());
+        addAgents(command, files, team);
+        addModeFlag(command, mode);
+        return command;
+    }
+
+    /** Resumes one conversation by id; the id comes from a transcript file, so it must be a canonical UUID. [team] may be null. */
+    static List<String> resumeArguments(Path executable, SessionFiles files, Path pluginDir, String claudeSessionId,
+            ModelSelection selection, Team team) {
+        String id = canonicalUuid(claudeSessionId);
+        List<String> command = base(executable, files);
+        addClaudeManager(command, files, pluginDir);
+        command.addAll((team == null ? selection : selection.orElse(leadSelection(team))).arguments());
+        addAgents(command, files, team);
+        command.addAll(List.of("--resume", id));
+        return command;
+    }
+
+    public static String canonicalUuid(String value) {
+        try {
+            String id = UUID.fromString(value).toString();
+            if (id.equalsIgnoreCase(value)) {
+                return id;
+            }
+        } catch (IllegalArgumentException | NullPointerException ignored) {
+            // rethrown below with one message
+        }
+        throw new IllegalArgumentException("Invalid Claude session id");
+    }
+
+    /** The lead runs with its role's model and effort, the other roles as --agents, and the task as the first prompt (after "--" so it is never read as a flag). */
+    static List<String> teamArguments(Path executable, SessionFiles files, Path pluginDir, Team team, String task) {
+        List<String> command = base(executable, files);
+        addClaudeManager(command, files, pluginDir);
+        command.addAll(leadSelection(team).arguments());
+        addAgents(command, files, team);
+        command.addAll(List.of("--", task));
+        return command;
+    }
+
+    /** A plain session with the project's model and effort and the task as the first prompt. */
+    static List<String> taskArguments(Path executable, SessionFiles files, Path pluginDir, ModelSelection selection, String task) {
+        List<String> command = base(executable, files);
+        addClaudeManager(command, files, pluginDir);
+        command.addAll(selection.arguments());
+        addAgents(command, files, null);
+        command.addAll(List.of("--", task));
+        return command;
+    }
+
+    /** The assistant session: the astrolabe-app MCP config (no plugin, there is no project) and a pre-allowed tool list; each variadic flag is followed by another flag. */
+    static List<String> assistantArguments(Path executable, SessionFiles files, ModelSelection selection,
+            List<String> allowedTools) {
+        List<String> command = base(executable, files);
+        command.addAll(selection.arguments());
+        command.addAll(List.of("--mcp-config", files.mcpConfig().toAbsolutePath().toString(),
+                "--allowedTools", allowedToolsArgument(allowedTools), "--append-system-prompt", ASSISTANT_SYSTEM_PROMPT));
+        return command;
+    }
+
+    private static String allowedToolsArgument(List<String> toolNames) {
+        return toolNames.stream().map(name -> AssistantMcpServer.TOOL_NAME_PREFIX + name).collect(Collectors.joining(","));
+    }
+
+    static String requireSafeBackgroundId(String backgroundSessionId) {
+        if (backgroundSessionId == null || !SAFE_ID.matcher(backgroundSessionId).matches()) {
+            throw new IllegalArgumentException("Invalid background session id");
+        }
+        return backgroundSessionId;
+    }
+
+    static List<String> attachArguments(Path executable, SessionFiles files, String backgroundSessionId) {
+        requireSafeBackgroundId(backgroundSessionId);
+        List<String> command = base(executable, files);
+        command.add("attach");
+        command.add(backgroundSessionId);
+        return command;
+    }
+
+    /** [sessionToken] is the bearer token the session's settings and mcp files refer to; without it every hook would be rejected. */
+    static Map<String, String> environment(Map<String, String> parent, String astrolabeSessionId, String sessionToken) {
+        Map<String, String> env = terminalEnvironment(parent);
+        env.put(ENV_SESSION, astrolabeSessionId);
+        env.put(HookServer.SESSION_TOKEN_ENV, sessionToken);
+        LOOPBACK_NO_PROXY_VARIABLES.forEach(name -> env.merge(name, LOOPBACK_HOSTS, (existing, loopback) -> existing + "," + loopback));
+        return env;
+    }
+
+    /** A group session also loads the CLAUDE.md of its --add-dir members. */
+    static Map<String, String> groupEnvironment(Map<String, String> parent, String astrolabeSessionId, String sessionToken) {
+        Map<String, String> env = environment(parent, astrolabeSessionId, sessionToken);
+        env.put(ENV_ADDITIONAL_DIRECTORIES_CLAUDE_MD, ENABLED);
+        return env;
+    }
+
+    /** Inserted right after "--settings <file>" so it works for every launch kind; --add-dir is variadic, so each directory repeats the flag. */
+    static void addDirectories(List<String> command, List<Path> directories) {
+        List<String> flags = new ArrayList<>();
+        directories.forEach(directory -> flags.addAll(List.of("--add-dir", directory.toAbsolutePath().toString())));
+        command.addAll(command.indexOf(SETTINGS_FLAG) + 2, flags);
+    }
+
+    /** A copy of [parent] whose only PATH key (any casing; "Path" on Windows when absent) holds [searchPath]; a blank path leaves it as is. */
+    public static Map<String, String> withSearchPath(Map<String, String> parent, String searchPath) {
+        Map<String, String> env = new HashMap<>(parent);
+        if (searchPath == null || searchPath.isBlank()) {
+            return env;
+        }
+        String key = parent.keySet().stream().filter(PATH_VARIABLE::equalsIgnoreCase).findFirst()
+                .orElse(System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win") ? "Path" : PATH_VARIABLE);
+        env.keySet().removeIf(PATH_VARIABLE::equalsIgnoreCase);
+        env.put(key, searchPath);
+        return env;
+    }
+
+    /** The parent environment without Claude-specific variables and with a color terminal. */
+    public static Map<String, String> terminalEnvironment(Map<String, String> parent) {
+        Map<String, String> env = new HashMap<>(parent);
+        INHERITED_ENV_TO_DROP.forEach(env::remove);
+        env.put(ENV_TERM, TERM_VALUE);
+        env.put(ENV_COLORTERM, COLORTERM_VALUE);
+        return env;
+    }
+
+    static String label(LaunchMode mode) {
+        return switch (mode) {
+            case NEW -> "claude";
+            case CONTINUE -> "claude (continue)";
+            case RESUME_PICKER -> "claude (resume)";
+        };
+    }
+
+    /** [team] may be null, then the label is that of {@link #label(LaunchMode)}. */
+    static String label(LaunchMode mode, Team team) {
+        if (team == null) {
+            return label(mode);
+        }
+        return switch (mode) {
+            case NEW -> "claude (" + team.name() + ")";
+            case CONTINUE -> "claude (continue, " + team.name() + ")";
+            case RESUME_PICKER -> "claude (resume, " + team.name() + ")";
+        };
+    }
+
+    private static ModelSelection leadSelection(Team team) {
+        return team.lead().map(TeamRole::selection).orElse(ModelSelection.DEFAULT);
+    }
+
+    /** [team] may be null. With a prompt file the lead addendum is inside it, because claude must not get both system prompt flags. */
+    private static void addAgents(List<String> command, SessionFiles files, Team team) {
+        if (team == null && files.inlineAgents().isEmpty()) {
+            return;
+        }
+        command.addAll(List.of("--agents", TeamAgentsJson.agents(team, files.inlineAgents())));
+        if (team != null && files.promptFile() == null) {
+            command.addAll(List.of("--append-system-prompt", TeamAgentsJson.leadAddendum(team)));
+        }
+    }
+
+    private static void addModeFlag(List<String> command, LaunchMode mode) {
+        switch (mode) {
+            case NEW -> { }
+            case CONTINUE -> command.add("--continue");
+            case RESUME_PICKER -> command.add("--resume");
+        }
+    }
+
+    /** --mcp-config is variadic, so a flag follows it. Not for attach, which is a subcommand. */
+    private static void addClaudeManager(List<String> command, SessionFiles files, Path pluginDir) {
+        command.addAll(List.of("--mcp-config", files.mcpConfig().toAbsolutePath().toString(), "--plugin-dir", pluginDir.toAbsolutePath().toString()));
+        if (files.agentsPlugin() != null) {
+            command.addAll(List.of("--plugin-dir", files.agentsPlugin().toAbsolutePath().toString()));
+        }
+        if (files.promptFile() != null) {
+            command.addAll(List.of("--append-system-prompt-file", files.promptFile().toAbsolutePath().toString()));
+        }
+    }
+
+    private static List<String> base(Path executable, SessionFiles files) {
+        List<String> command = new ArrayList<>();
+        command.add(executable.toAbsolutePath().toString());
+        command.add(SETTINGS_FLAG);
+        command.add(files.settings().toAbsolutePath().toString());
+        return command;
+    }
+}

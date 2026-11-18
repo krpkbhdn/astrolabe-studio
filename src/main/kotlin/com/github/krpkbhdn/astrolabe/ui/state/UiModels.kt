@@ -1,0 +1,68 @@
+package com.github.krpkbhdn.astrolabe.ui.state
+
+import com.github.krpkbhdn.astrolabe.claude.session.AgentStatus
+import com.github.krpkbhdn.astrolabe.claude.session.SessionSnapshot
+import com.github.krpkbhdn.astrolabe.notification.NotificationKind
+import com.github.krpkbhdn.astrolabe.project.Project
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+/** Snapshot of all live sessions plus the per-project traffic light. */
+data class LiveSessions(
+    val sessions: List<SessionSnapshot> = emptyList(),
+    val projectStatus: Map<Long, AgentStatus> = emptyMap(),
+) {
+    fun of(projectId: Long): List<SessionSnapshot> = sessions.filter { it.projectId == projectId }
+    fun statusOf(projectId: Long): AgentStatus = projectStatus[projectId] ?: AgentStatus.OFFLINE
+    fun find(astrolabeSessionId: String): SessionSnapshot? = sessions.firstOrNull { it.astrolabeSessionId == astrolabeSessionId }
+}
+
+data class ToastItem(
+    val id: Long,
+    val kind: NotificationKind,
+    val title: String,
+    val body: String,
+    val projectId: Long? = null,
+    val astrolabeSessionId: String? = null,
+    val summary: Boolean = false,
+)
+
+const val DEFAULT_CONFIRM_LINES = 5
+
+/** For a confirm whose whole text must be readable; the dialog body scrolls. */
+const val ALL_CONFIRM_LINES = Int.MAX_VALUE
+
+data class ConfirmRequest(
+    val title: String,
+    val message: String,
+    val confirmLabel: String,
+    val destructive: Boolean = true,
+    val messageLines: Int = DEFAULT_CONFIRM_LINES,
+    val onConfirm: () -> Unit,
+)
+
+data class RenameRequest(val project: Project)
+
+/** Coalesces bursts of change callbacks into sequential reloads (one consumer, latest request wins), at least [minIntervalMillis] apart. */
+class Refresher(scope: CoroutineScope, private val minIntervalMillis: Long = 0L, private val load: suspend () -> Unit) {
+    private val requests = Channel<Unit>(Channel.CONFLATED)
+
+    init {
+        scope.launch { for (ignored in requests) {
+                load()
+                if (minIntervalMillis > 0) delay(minIntervalMillis)
+            }
+        }
+    }
+
+    fun request() {
+        requests.trySend(Unit)
+    }
+
+    /** Ends the consumer coroutine; later requests are ignored. */
+    fun close() {
+        requests.close()
+    }
+}

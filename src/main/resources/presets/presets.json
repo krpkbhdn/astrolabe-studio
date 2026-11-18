@@ -14,6 +14,33 @@
         {"kind": "SKILL", "name": "dry-refactoring", "source": "author-profile/user/skills/dry-refactoring"},
         {"kind": "FILE", "name": ".jscpd.json", "source": "presets/general/jscpd.json", "payload": {"path": ".jscpd.json", "gitignore": ["jscpd-report/"]}}
       ]
+    },
+    {
+      "key": "frontend",
+      "version": 2,
+      "name": "Frontend",
+      "description": "General plus browser verification (Playwright) and UI design help for web frontends.",
+      "includes": ["general"],
+      "match": ["frontend"],
+      "components": [
+        {"kind": "MARKETPLACE", "name": "claude-plugins-official", "payload": {"source": "anthropics/claude-plugins-official"}},
+        {"kind": "PLUGIN", "name": "playwright@claude-plugins-official", "payload": {"scope": "local"}},
+        {"kind": "PLUGIN", "name": "frontend-design@claude-plugins-official", "payload": {"scope": "local"}},
+        {"kind": "INSTRUCTION", "name": "Frontend tools", "source": "presets/frontend/frontend-tools.md", "payload": {"scope": "local"}}
+      ]
+    },
+    {
+      "key": "angular",
+      "version": 2,
+      "name": "Angular",
+      "description": "Frontend plus the Angular CLI MCP server and the official Angular developer skill.",
+      "includes": ["frontend"],
+      "match": ["angular", "frontend"],
+      "components": [
+        {"kind": "MCP_SERVER", "name": "angular-cli", "payload": {"config": {"command": "npx", "args": ["-y", "@angular/cli", "mcp"]}}},
+        {"kind": "SKILL", "name": "angular-developer", "source": "author-profile/user/skills/angular-developer"},
+        {"kind": "INSTRUCTION", "name": "Angular tools", "source": "presets/angular/angular-tools.md", "payload": {"scope": "local"}}
+      ]
     }
   ]
 }

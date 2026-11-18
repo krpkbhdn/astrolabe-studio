@@ -11,7 +11,7 @@ public class D {
 }
 "@
 $p = $null
-for ($i=0; $i -lt 120 -and -not $p; $i++) { Start-Sleep 1; $p = Get-Process java -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -like "Claude Code Manager*" } | Select-Object -First 1 }
+for ($i=0; $i -lt 120 -and -not $p; $i++) { Start-Sleep 1; $p = Get-Process java -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -like "Astrolabe Studio*" } | Select-Object -First 1 }
 if (-not $p) { "NO WINDOW"; exit }
 $h = $p.MainWindowHandle; Start-Sleep 3
 [D]::ShowWindow($h, 9) | Out-Null; [D]::SetForegroundWindow($h) | Out-Null; Start-Sleep 1

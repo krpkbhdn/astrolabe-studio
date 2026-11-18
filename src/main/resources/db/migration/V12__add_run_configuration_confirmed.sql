@@ -1,1 +1,0 @@
-ALTER TABLE run_configuration ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 1;

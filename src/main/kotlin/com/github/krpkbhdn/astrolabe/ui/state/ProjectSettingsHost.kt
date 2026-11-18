@@ -1,0 +1,66 @@
+package com.github.krpkbhdn.astrolabe.ui.state
+
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import com.github.krpkbhdn.astrolabe.notification.NotificationKind
+import com.github.krpkbhdn.astrolabe.project.Project
+import com.github.krpkbhdn.astrolabe.ui.codemode.ProjectCodeModeState
+import com.github.krpkbhdn.astrolabe.ui.extensions.ExtensionContext
+import com.github.krpkbhdn.astrolabe.ui.extensions.mcp.McpState
+import com.github.krpkbhdn.astrolabe.ui.extensions.plugins.PluginsState
+import com.github.krpkbhdn.astrolabe.ui.extensions.skills.SkillHost
+import com.github.krpkbhdn.astrolabe.ui.extensions.skills.SkillsState
+import com.github.krpkbhdn.astrolabe.ui.projectsettings.LanguagesState
+import com.github.krpkbhdn.astrolabe.ui.projectsettings.ProjectSettingsSection
+import com.github.krpkbhdn.astrolabe.ui.projectsettings.ProjectSettingsState
+import com.github.krpkbhdn.astrolabe.ui.projectsettings.sectionFor
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+
+/** The settings dialog of one project with its own extension states, so the global pages stay untouched. Runs on the UI scope only. */
+internal class ProjectSettingsHost(
+    private val backend: Backend,
+    private val scope: CoroutineScope,
+    private val requestConfirm: (ConfirmRequest) -> Unit,
+    private val notifications: NotificationsState,
+    private val skillHost: SkillHost,
+    private val reloadGlobalExtensions: () -> Unit,
+) {
+    var state by mutableStateOf<ProjectSettingsState?>(null)
+        private set
+
+    fun open(project: Project, section: ProjectSettingsSection) {
+        dispose()
+        val dialogScope = CoroutineScope(scope.coroutineContext + SupervisorJob(scope.coroutineContext[Job]))
+        state = ProjectSettingsState(
+            ExtensionContext.ForProject(project.id, project.name, project.path),
+            sectionFor(project.group, section),
+            dialogScope,
+            PluginsState(backend.plugins, dialogScope, requestConfirm, notifications::toast, project.path),
+            McpState(backend.mcp, project.path, dialogScope, requestConfirm, notifications::toast),
+            SkillsState(backend.skills, project.path, dialogScope, requestConfirm, notifications::toast, skillHost),
+            ProjectCodeModeState(backend.projectCodeMode, project.id, dialogScope, { backend.pluginMcpServers?.servers(project.path) ?: emptyList() }, project.group, { backend.memberCodeModeServers(project) }, notifications::reportError),
+            LanguagesState(backend.toolchain?.projectTools, project.path, dialogScope, backend.toolchain?.groupLsp, project.id) { memberFolders(project) },
+            project.group,
+        )
+    }
+
+    private fun memberFolders(group: Project) = backend.groups.members(group.id).map { it.name to it.path }
+
+    fun dispose() {
+        state?.dispose()
+        state = null
+    }
+
+    fun close() {
+        val dialog = state ?: return
+        if (dialog.busy) {
+            notifications.toast(NotificationKind.INFO, "Wait for the running action to finish", "Project settings can be closed afterwards.")
+            return
+        }
+        dispose()
+        reloadGlobalExtensions()
+    }
+}
