@@ -12,4 +12,9 @@ public record ComputeDevice(String id, String label, Kind kind, int gpuIndex, Fl
     public static ComputeDevice nvidia(int index, String name) {
         return new ComputeDevice("gpu" + index, name, Kind.GPU, index, Flavor.CUDA);
     }
+
+    /** The Metal GPU of the macOS runtime, which is the CPU build with Metal linked in. */
+    public static ComputeDevice metal() {
+        return new ComputeDevice("gpu0", "Apple GPU (Metal)", Kind.GPU, 0, Flavor.CPU);
+    }
 }

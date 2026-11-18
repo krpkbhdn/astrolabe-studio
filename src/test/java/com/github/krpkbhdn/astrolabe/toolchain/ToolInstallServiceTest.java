@@ -218,6 +218,7 @@ class ToolInstallServiceTest {
         assertThat(seen).hasSize(1);
         assertThat(seen.getFirst().get("PATH")).startsWith("old").contains(nodeDirectory.toString());
         assertThat(seen.getFirst()).containsEntry("NoDefaultCurrentDirectoryInExePath", "1");
+        assertThat(seen.getFirst()).containsEntry("NONINTERACTIVE", "1");
     }
 
     @Test

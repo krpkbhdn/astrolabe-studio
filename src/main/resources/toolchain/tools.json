@@ -5,7 +5,7 @@
    "manualInstall":{"linux":"sudo apt install nodejs npm"}},
   {"id":"rustup","name":"Rust toolchain (rustup)","group":"Prerequisites","kind":"PREREQUISITE","binary":"rustup","versionArgs":["--version"],
    "install":{"windows":["winget","install","--id","Rustlang.Rustup","-e","--accept-source-agreements","--accept-package-agreements"],
-              "linux":[],"macos":["brew","install","rustup"]},"docsUrl":"https://rustup.rs",
+              "linux":[],"macos":[]},"docsUrl":"https://rustup.rs",
    "manualInstall":{"linux":"curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh","macos":"curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"}},
   {"id":"go","name":"Go","group":"Prerequisites","kind":"PREREQUISITE","binary":"go","versionArgs":["version"],
    "install":{"windows":["winget","install","--id","GoLang.Go","-e","--accept-source-agreements","--accept-package-agreements"],

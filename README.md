@@ -22,7 +22,7 @@ Visual review of what Claude builds (screenshots and live websites), agent teams
 
 ![Overview](docs/images/overview.png)
 
-**Contents:** [Why](#why) · [Visual review](#visual-review) · [Web review](#web-review) · [Quick start](#quick-start) · [Features](#features) · [Screenshots](#screenshots) · [Requirements](#requirements) · [Install](#install) · [Build from source](#build-and-run-from-source) · [Shortcuts](#keyboard-shortcuts) · [Configuration](#configuration) · [Support](#support-the-project) · [License](#license)
+**Contents:** [Why](#why) · [Visual review](#visual-review) · [Web review](#web-review) · [Quick start](#quick-start) · [Features](#features) · [Screenshots](#screenshots) · [Requirements](#requirements) · [Install](#install) · [Build from source](#build-and-run-from-source) · [Build installers](#build-installers) · [Shortcuts](#keyboard-shortcuts) · [Configuration](#configuration) · [Support](#support-the-project) · [License](#license)
 
 ## Why
 
@@ -185,6 +185,22 @@ cd astrolabe-studio
 Installers are written to `build/compose/binaries/main/<format>/`.
 
 The first build needs internet: it downloads Gradle and JBR 25, so it takes a while. Without JBR the app falls back to the plain OS window frame; `-Dastrolabe.nativeFrame=true` forces the native OS frame even on JBR.
+
+## Build installers
+
+| Platform | Formats | Task |
+|---|---|---|
+| Windows x64 | `.msi`, `.exe` | `packageMsi`, `packageExe` |
+| Linux x64 | `.deb` (Debian/Ubuntu), `.rpm` (Fedora/RHEL/openSUSE), AppImage folder (jpackage app image), portable `.tar.gz` (also for Arch/Manjaro) | `packageDeb`, `packageRpm`, `packageAppImage`, `packageTarGz` |
+| macOS arm64 | `.dmg`, `.pkg` | `packageDmg`, `packagePkg` |
+
+`./gradlew packageDistributionForCurrentOS` builds every format of the current OS. Results land in `build/compose/binaries/main/<format>/` (the `.tar.gz` in `tar/`). Nothing is signed.
+
+- Linux `.tar.gz`: `tar xzf astrolabe-studio-<version>-linux-x64.tar.gz`, `cd` into the folder and run `./install.sh` to add Astrolabe Studio to the application menu (`sudo ./install.sh` or `--system` for all users). It copies the app to `~/.local/opt/astrolabe-studio`, links `~/.local/bin/astrolabe-studio`, and adds the icon and `astrolabe-studio.desktop` under `~/.local/share` (system mode: `/opt`, `/usr/local/bin`, `/usr/share`); running it again updates. `./uninstall.sh` removes exactly that; your data in `~/.astrolabe-studio` stays.
+- jpackage does not cross-compile: build on the target OS and architecture. Linux arm64 and Windows arm64 are untested.
+- Needed: a JDK to start Gradle; the JBR 25 (JCEF) toolchain is downloaded by the build (about 670 MB, once). Windows `.msi`/`.exe`: WiX Toolset on `PATH` (3.x; not verified against newer versions). Linux: `rpmbuild` (for `.rpm`) and `fakeroot` (for `.deb`). macOS: Xcode command line tools.
+- Linux: the packages do not declare the libraries JCEF (Web tab) needs, so a clean system may need `libnss3`, `libgbm`, `libatk` and similar.
+- macOS: the Web tab may crash; the cause is not found yet.
 
 ## Keyboard shortcuts
 

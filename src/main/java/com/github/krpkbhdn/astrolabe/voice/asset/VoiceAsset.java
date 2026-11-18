@@ -1,7 +1,11 @@
 package com.github.krpkbhdn.astrolabe.voice.asset;
 
-/** A downloadable file with a pinned checksum; an archive is unpacked into relativePath after download. */
-public record VoiceAsset(String name, String url, String sha256, long sizeBytes, String relativePath, boolean archive) {
+/**
+ * A downloadable file with a pinned checksum; an archive is unpacked into relativePath after download.
+ * A non-empty {@code archiveEntry} unpacks only that zip entry instead of the whole archive.
+ */
+public record VoiceAsset(String name, String url, String sha256, long sizeBytes, String relativePath, boolean archive,
+        String archiveEntry) {
 
     public static final VoiceAsset SILERO_VAD = new VoiceAsset(
             "Silero VAD v5.1.2",
@@ -10,4 +14,8 @@ public record VoiceAsset(String name, String url, String sha256, long sizeBytes,
             885098L,
             "ggml-silero-v5.1.2.bin",
             false);
+
+    public VoiceAsset(String name, String url, String sha256, long sizeBytes, String relativePath, boolean archive) {
+        this(name, url, sha256, sizeBytes, relativePath, archive, "");
+    }
 }

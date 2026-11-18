@@ -31,6 +31,8 @@ class VoiceAssetServiceTest {
 
     private static final byte[] MODEL = "model".repeat(100).getBytes(StandardCharsets.UTF_8);
     private static final byte[] RUNTIME_ZIP = zip("Release/whisper.dll", "exe");
+    private static final byte[] RUNTIME_TAR = tarGz("top/libwhisper.so.1.9.2", "lib", "top/whisper-cli", "exe");
+    private static final byte[] ENTRY_ZIP = zip("a/b/whisper", "dylib");
     private static final byte[] EVIL_ZIP = zip("../escaped.txt", "x");
 
     @TempDir
@@ -60,6 +62,8 @@ class VoiceAssetServiceTest {
         });
         serve("/model", MODEL);
         serve("/runtime.zip", RUNTIME_ZIP);
+        serve("/runtime.tar.gz", RUNTIME_TAR);
+        serve("/entry.zip", ENTRY_ZIP);
         serve("/evil.zip", EVIL_ZIP);
         server.start();
         var properties = new VoiceProperties("auto", Duration.ofSeconds(10), Duration.ofSeconds(1), Duration.ofSeconds(1),
@@ -92,7 +96,28 @@ class VoiceAssetServiceTest {
         var path = service.install(asset, progress -> { });
 
         assertThat(path.resolve("Release/whisper.dll")).hasContent("exe");
-        assertThat(names(dataDir.resolve("voice"))).noneMatch(name -> name.endsWith(".zip") || name.endsWith(".part"));
+        assertThat(names(dataDir.resolve("voice"))).noneMatch(name -> name.endsWith(".archive") || name.endsWith(".part"));
+    }
+
+    @Test
+    void unpacksTarGzAssetKeepingOnlyRuntimeLibraries() throws Exception {
+        var asset = asset("/runtime.tar.gz", RUNTIME_TAR, "runtime/linux", true);
+
+        var path = service.install(asset, progress -> { });
+
+        assertThat(path.toFile().list()).containsExactly("libwhisper.so.1.9.2");
+        assertThat(path.resolve("libwhisper.so.1.9.2")).hasContent("lib");
+        assertThat(names(dataDir.resolve("voice"))).noneMatch(name -> name.endsWith(".archive") || name.endsWith(".part"));
+    }
+
+    @Test
+    void unpacksOnlyTheNamedEntryOfAnArchiveAsset() throws Exception {
+        var asset = new VoiceAsset("test", url("/entry.zip"), sha256(ENTRY_ZIP), ENTRY_ZIP.length, "runtime/mac", true, "a/b/whisper");
+
+        var path = service.install(asset, progress -> { });
+
+        assertThat(path.toFile().list()).containsExactly("whisper");
+        assertThat(path.resolve("whisper")).hasContent("dylib");
     }
 
     @Test
@@ -136,7 +161,7 @@ class VoiceAssetServiceTest {
         }
 
         assertThat(requests).hasValue(1);
-        assertThat(names(dataDir.resolve("voice"))).noneMatch(name -> name.endsWith(".zip") || name.endsWith(".part"));
+        assertThat(names(dataDir.resolve("voice"))).noneMatch(name -> name.endsWith(".archive") || name.endsWith(".part"));
     }
 
     @Test
@@ -250,6 +275,23 @@ class VoiceAssetServiceTest {
             out.putNextEntry(new ZipEntry(name));
             out.write(content.getBytes(StandardCharsets.UTF_8));
             out.closeEntry();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return bytes.toByteArray();
+    }
+
+    private static byte[] tarGz(String firstName, String firstContent, String secondName, String secondContent) {
+        var bytes = new ByteArrayOutputStream();
+        try (var out = new org.apache.commons.compress.archivers.tar.TarArchiveOutputStream(new java.util.zip.GZIPOutputStream(bytes))) {
+            for (var item : new String[][] {{firstName, firstContent}, {secondName, secondContent}}) {
+                var content = item[1].getBytes(StandardCharsets.UTF_8);
+                var entry = new org.apache.commons.compress.archivers.tar.TarArchiveEntry(item[0]);
+                entry.setSize(content.length);
+                out.putArchiveEntry(entry);
+                out.write(content);
+                out.closeArchiveEntry();
+            }
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

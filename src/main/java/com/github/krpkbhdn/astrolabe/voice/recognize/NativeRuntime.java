@@ -2,6 +2,8 @@ package com.github.krpkbhdn.astrolabe.voice.recognize;
 
 import static java.lang.foreign.ValueLayout.ADDRESS;
 
+import com.github.krpkbhdn.astrolabe.workspace.HostEnvironment.OperatingSystem;
+import com.github.krpkbhdn.astrolabe.workspace.SystemHostEnvironment;
 import java.lang.foreign.Arena;
 import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
@@ -19,6 +21,9 @@ import java.util.Optional;
  * (the old access violation). A process therefore gets exactly one runtime; switching builds needs a restart.
  */
 public final class NativeRuntime {
+
+    private static final String LINUX_REQUIREMENTS = new SystemHostEnvironment().os() == OperatingSystem.LINUX
+            ? " (Linux needs a glibc distribution with libgomp1; musl/Alpine is not supported)" : "";
 
     private static NativeRuntime loaded;
     private static Path claimed;
@@ -88,7 +93,7 @@ public final class NativeRuntime {
         try {
             return SymbolLookup.libraryLookup(library, Arena.global());
         } catch (IllegalArgumentException e) {
-            throw new IllegalStateException("Cannot load " + library + ": " + e.getMessage(), e);
+            throw new IllegalStateException("Cannot load " + library + ": " + e.getMessage() + LINUX_REQUIREMENTS, e);
         }
     }
 
