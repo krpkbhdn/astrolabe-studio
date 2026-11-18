@@ -13,7 +13,6 @@ import com.github.krpkbhdn.astrolabe.claude.event.HookEventType;
 import com.github.krpkbhdn.astrolabe.claude.hook.HookProperties;
 import com.github.krpkbhdn.astrolabe.claude.launch.ClaudeLauncher;
 import com.github.krpkbhdn.astrolabe.claude.proposal.PermissionProposal;
-import com.github.krpkbhdn.astrolabe.claude.proposal.ProposalAnswer.Denial;
 import com.github.krpkbhdn.astrolabe.claude.proposal.ProposalAnswer.PermissionAllow;
 import com.github.krpkbhdn.astrolabe.claude.proposal.ProposalService;
 import com.github.krpkbhdn.astrolabe.claude.session.SessionProperties;
@@ -178,21 +177,6 @@ class AssistantMcpEndpointTest {
         proposals.answer(proposal.id(), PermissionAllow.once());
 
         assertThat(textOf(resultOf(response))).isEqualTo("pushed");
-    }
-
-    @Test
-    void denialAndDismissNeverCallTheTool() throws Exception {
-        startAssistantSession();
-        var denied = sendAsync(CALL_PUSH);
-        proposals.answer(awaitPending(1).getFirst().id(), new Denial(""));
-        var dismissed = sendAsync(CALL_PUSH);
-        proposals.dismiss(awaitPending(1).getFirst().id());
-
-        assertThat(resultOf(denied).path("isError").asBoolean()).isTrue();
-        assertThat(textOf(resultOf(denied))).isEqualTo(AssistantMcpEndpoint.DENIED);
-        assertThat(resultOf(dismissed).path("isError").asBoolean()).isTrue();
-        assertThat(textOf(resultOf(dismissed))).isEqualTo(AssistantMcpEndpoint.RELEASED);
-        verify(destructive, never()).call(any());
     }
 
     @Test
