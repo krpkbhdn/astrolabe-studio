@@ -15,7 +15,7 @@ plugins {
 }
 
 group = "com.github.krpkbhdn"
-version = "2.3.32"
+version = "2.3.33"
 
 java {
     toolchain {
@@ -326,6 +326,39 @@ compose.desktop {
         }
     }
 }
+
+val isMac = org.gradle.internal.os.OperatingSystem.current().isMacOsX
+
+// The jlink app image has no JCEF; copy it from the JBR (cp -a keeps the framework symlinks) and re-sign ad hoc.
+val addJcefToAppImage = tasks.register("addJcefToAppImage") {
+    onlyIf { isMac }
+    dependsOn("createDistributable")
+    val appDir = layout.buildDirectory.dir("compose/binaries/main/app")
+    val jbr = jbrHome
+    doLast {
+        fun run(vararg cmd: String) {
+            val p = ProcessBuilder(*cmd).redirectErrorStream(true).start()
+            val out = p.inputStream.bufferedReader().readText()
+            check(p.waitFor() == 0) { "${cmd.joinToString(" ")} failed: $out" }
+        }
+        val app = appDir.get().asFile.listFiles { f -> f.name.endsWith(".app") }?.singleOrNull()
+        checkNotNull(app) { "No single .app image found in ${appDir.get().asFile}; createDistributable did not produce one." }
+        val runtime = File(app, "Contents/runtime/Contents")
+        val home = jbr.get()
+        val frameworks = File(home.parentFile, "Frameworks")
+        check(frameworks.isDirectory) { "The JBR at $home has no Frameworks folder; JCEF cannot be copied." }
+        File(runtime, "Frameworks").deleteRecursively()
+        run("cp", "-a", frameworks.absolutePath, File(runtime, "Frameworks").absolutePath)
+        File(home, "lib").listFiles { f -> f.name.contains("jcef") || f.name.contains("cef") }.orEmpty().forEach {
+            run("cp", "-a", it.absolutePath, File(runtime, "Home/lib").absolutePath + "/")
+        }
+        val helper = File(runtime, "Frameworks/jcef Helper.app/Contents/MacOS/jcef Helper")
+        val serverHelper = File(runtime, "Frameworks/cef_server.app/Contents/Frameworks/jcef Helper.app/Contents/MacOS/jcef Helper")
+        check(helper.isFile || serverHelper.isFile) { "jcef Helper is missing in $runtime/Frameworks after copying from $frameworks." }
+        if (File("/usr/bin/codesign").isFile) run("/usr/bin/codesign", "--force", "--deep", "-s", "-", app.absolutePath)
+    }
+}
+if (isMac) tasks.matching { it.name == "packageDmg" }.configureEach { dependsOn(addJcefToAppImage) }
 
 tasks.register<JavaExec>("generateIcons") {
     group = "application"
