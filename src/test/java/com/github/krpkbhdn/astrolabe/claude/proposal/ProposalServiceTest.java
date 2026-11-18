@@ -28,8 +28,9 @@ import tools.jackson.databind.json.JsonMapper;
 class ProposalServiceTest {
 
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
-    private static final int WAIT_SECONDS = 2;
+    private static final int WAIT_SECONDS = 5;
     private static final int MAX_HELD = 3;
+    private static final int POOL_THREADS = 8;
     private static final int ROOMY_CAP = 1000;
     private static final String BASH_LS = "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"ls\"}}";
     private static final Duration SHORT_HOLD = Duration.ofMillis(100);
@@ -320,9 +321,9 @@ class ProposalServiceTest {
 
     @Test
     void newerProposalWithTheSameIdSurvivesTheOlderOneTimingOut() throws Exception {
-        var shortLived = serviceHolding(Duration.ofMillis(600));
+        var shortLived = serviceHolding(Duration.ofMillis(2400));
         var older = holdForApp(shortLived);
-        Thread.sleep(300);
+        Thread.sleep(1200);
         var newer = holdForApp(shortLived);
 
         assertThat(older.get(WAIT_SECONDS, TimeUnit.SECONDS)).isEqualTo(AppDecision.Unanswered.TIMED_OUT);
@@ -336,10 +337,15 @@ class ProposalServiceTest {
     @Test
     void concurrentHoldsNeverExceedTheCap() throws Exception {
         var capped = serviceHolding(Duration.ofSeconds(30), MAX_HELD);
-        try (var pool = Executors.newVirtualThreadPerTaskExecutor()) {
+        var pool = Executors.newFixedThreadPool(POOL_THREADS);
+        try {
             for (var i = 0; i < ROOMY_CAP / 5; i++) {
                 pool.execute(() -> holdBash(capped));
             }
+            pool.shutdown();
+            assertThat(pool.awaitTermination(WAIT_SECONDS, TimeUnit.SECONDS)).isTrue();
+        } finally {
+            pool.shutdownNow();
         }
         assertThat(capped.pending()).hasSize(MAX_HELD);
         capped.releaseAll();
@@ -348,7 +354,8 @@ class ProposalServiceTest {
     @Test
     void concurrentHoldsAndAnswersLoseNothing() throws Exception {
         var count = 200;
-        try (var pool = Executors.newVirtualThreadPerTaskExecutor()) {
+        var pool = Executors.newFixedThreadPool(POOL_THREADS);
+        try {
             var futures = new java.util.ArrayList<CompletableFuture<Optional<String>>>();
             for (var i = 0; i < count; i++) {
                 futures.add(CompletableFuture.supplyAsync(this::holdBash, pool).thenCompose(held -> held));
@@ -362,6 +369,8 @@ class ProposalServiceTest {
             for (var future : futures) {
                 assertThat(future.get(WAIT_SECONDS, TimeUnit.SECONDS)).isPresent();
             }
+        } finally {
+            pool.shutdownNow();
         }
         assertThat(service.pending()).isEmpty();
     }

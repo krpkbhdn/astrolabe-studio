@@ -10,6 +10,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.job
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
@@ -29,6 +30,8 @@ class PresetOfferStateTest {
     private var recommendationFails = false
     private val reviewed = mutableListOf<Pair<Long, List<Long>>>()
     private val state = PresetOfferState(applications, { presets }, { id -> listOf(project, group).firstOrNull { it.id == id } }, scope, { blocked }, { p, ids -> reviewed += p to ids }, {}, { if (recommendationFails) error("detection failed") else recommended })
+
+    private fun awaitIdle() = await { scope.coroutineContext.job.children.none { it.isActive } }
 
     @AfterEach
     fun stop() = scope.cancel()
@@ -58,7 +61,7 @@ class PresetOfferStateTest {
         state.offerFor(7)
 
         verify(applications, timeout(2000)).applications(7)
-        Thread.sleep(50)
+        awaitIdle()
         assertThat(state.offer).isNull()
     }
 
@@ -69,7 +72,7 @@ class PresetOfferStateTest {
         state.offerFor(7)
 
         verify(applications, timeout(2000)).offerDeclined(7)
-        Thread.sleep(50)
+        awaitIdle()
         assertThat(state.offer).isNull()
     }
 
@@ -77,7 +80,7 @@ class PresetOfferStateTest {
     fun `groups are never offered`() {
         state.offerFor(8)
 
-        Thread.sleep(50)
+        awaitIdle()
         assertThat(state.offer).isNull()
     }
 
@@ -85,7 +88,7 @@ class PresetOfferStateTest {
     fun `an open dialog skips the offer without remembering it`() {
         blocked = true
         state.offerFor(7)
-        Thread.sleep(50)
+        awaitIdle()
         assertThat(state.offer).isNull()
 
         blocked = false
@@ -102,7 +105,7 @@ class PresetOfferStateTest {
 
         state.offerFor(7)
 
-        Thread.sleep(50)
+        awaitIdle()
         assertThat(state.offer).isNull()
     }
 

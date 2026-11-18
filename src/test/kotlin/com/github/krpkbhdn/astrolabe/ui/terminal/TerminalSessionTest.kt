@@ -155,7 +155,10 @@ class TerminalSessionTest {
     @Test
     fun aPastedDraftIsClearedByEnter() {
         Assumptions.assumeFalse(java.awt.GraphicsEnvironment.isHeadless())
-        java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(java.awt.datatransfer.StringSelection("pasted"), null)
+        val clipboardAvailable = runCatching {
+            java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(java.awt.datatransfer.StringSelection("pasted"), null)
+        }.isSuccess
+        Assumptions.assumeTrue(clipboardAvailable) { "the system clipboard is not accessible" }
         session.paste()
         val deadline = System.nanoTime() + 5_000_000_000L
         while (!session.draftMayExist && System.nanoTime() < deadline) Thread.sleep(10)

@@ -19,5 +19,6 @@ jobs:
         with:
           persist-credentials: false
       - name: Test
+        timeout-minutes: 25
         shell: bash
-        run: ./gradlew test --no-daemon
+        run: ./gradlew test --no-daemon --console=plain

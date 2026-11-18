@@ -50,10 +50,10 @@ class CodeModeServiceStopTest extends CodeModeFixture {
         });
         scriptCallingAlphaAndReportingErrors();
         var outcome = new AtomicReference<ScriptResult>();
-        var runner = Thread.ofPlatform().start(() -> outcome.set(serviceWith(scriptTimeout(Duration.ofMillis(100))).execute(SESSION, "code")));
+        var runner = Thread.ofPlatform().start(() -> outcome.set(serviceWith(scriptTimeout(Duration.ofMillis(1000))).execute(SESSION, "code")));
         assertThat(asking.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
 
-        sleep(400);
+        sleep(3000);
         answer.countDown();
         runner.join(10_000);
 

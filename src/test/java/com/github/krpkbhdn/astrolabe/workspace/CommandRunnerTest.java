@@ -14,6 +14,7 @@ class CommandRunnerTest {
 
     @Test
     void outputUnderTheLimitIsIntactAndExitCodeIsReported() throws IOException {
+        PtyAvailability.assumePtyDeliversOutput();
         var result = CommandRunner.run(shell("echo hello & exit 3"), null, TIMEOUT);
 
         assertThat(result.stdout().strip()).isEqualTo("hello");
@@ -24,6 +25,7 @@ class CommandRunnerTest {
 
     @Test
     void outputOverTheLimitIsTruncated() throws IOException {
+        PtyAvailability.assumePtyDeliversOutput();
         var result = CommandRunner.run(shell("echo 0123456789012345678901234567890123456789"), null, TIMEOUT, 10);
 
         assertThat(result.stdout()).isEqualTo("0123456789");
@@ -48,6 +50,7 @@ class CommandRunnerTest {
 
     @Test
     void extraEnvironmentReachesTheChildAndTheInheritedOneIsKept() throws IOException {
+        PtyAvailability.assumePtyDeliversOutput();
         var windows = System.getProperty("os.name").toLowerCase().contains("win");
         var command = windows
                 ? List.of("cmd", "/c", "echo %ASTROLABE_TEST_VAR%;%SystemRoot%")

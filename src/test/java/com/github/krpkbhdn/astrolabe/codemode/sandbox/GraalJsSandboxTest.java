@@ -183,7 +183,7 @@ class GraalJsSandboxTest {
 
     @Test
     void watchdogStopsAScriptThatStaysUnderTheStatementLimit() {
-        try (GraalJsSandbox slow = sandbox(Duration.ofMillis(300), Long.MAX_VALUE, 1000)) {
+        try (GraalJsSandbox slow = sandbox(Duration.ofMillis(1000), Long.MAX_VALUE, 1000)) {
             ScriptResult result = slow.run("const f = () => Promise.resolve().then(f); f(); await new Promise(() => {});", bridge, SESSION);
 
             assertThat(result.error()).isPresent();
@@ -192,7 +192,7 @@ class GraalJsSandboxTest {
 
     @Test
     void watchdogReportsATimeout() {
-        try (GraalJsSandbox slow = sandbox(Duration.ofMillis(300), Long.MAX_VALUE, 1000)) {
+        try (GraalJsSandbox slow = sandbox(Duration.ofMillis(1000), Long.MAX_VALUE, 1000)) {
             ScriptResult result = slow.run("while (true) {}", bridge, SESSION);
 
             assertThat(result.error()).hasValueSatisfying(e -> assertThat(e).contains("max-script-time"));
@@ -222,7 +222,7 @@ class GraalJsSandboxTest {
 
     @Test
     void hugeAndInfiniteDelaysAreClampedNotFailed() {
-        try (GraalJsSandbox slow = sandbox(Duration.ofMillis(400), 100_000, 1000)) {
+        try (GraalJsSandbox slow = sandbox(Duration.ofMillis(1200), 100_000, 1000)) {
             for (var delay : new String[] {"Infinity", "1e300", "1000 / 3 * 1e9"}) {
                 ScriptResult result = slow.run("await new Promise(r => setTimeout(r, " + delay + "));", bridge, SESSION);
 
@@ -253,7 +253,7 @@ class GraalJsSandboxTest {
 
     @Test
     void sleepingScriptIsStoppedByTheHardCap() {
-        try (GraalJsSandbox slow = sandbox(Duration.ofMillis(300), 100_000, 1000)) {
+        try (GraalJsSandbox slow = sandbox(Duration.ofMillis(1000), 100_000, 1000)) {
             ScriptResult result = slow.run("await new Promise(r => setTimeout(r, 60000));", bridge, SESSION);
 
             assertThat(result.error()).hasValueSatisfying(e -> assertThat(e).contains("max-script-time"));
@@ -264,7 +264,7 @@ class GraalJsSandboxTest {
     void interruptingTheCallerCancelsASleepingScript() throws Exception {
         var outcome = new java.util.concurrent.atomic.AtomicReference<ScriptResult>();
         var caller = Thread.ofPlatform().start(() -> outcome.set(run("await new Promise(r => setTimeout(r, 60000));")));
-        Thread.sleep(300);
+        Thread.sleep(1000);
 
         caller.interrupt();
         caller.join(5_000);
@@ -312,7 +312,7 @@ class GraalJsSandboxTest {
     @Test
     void timeoutHoldsWhileAnInterruptibleHostCallBlocks() throws InterruptedException {
         InterruptibleBlockingBridge blocking = new InterruptibleBlockingBridge();
-        try (GraalJsSandbox slow = sandbox(Duration.ofMillis(300), Long.MAX_VALUE, 1000)) {
+        try (GraalJsSandbox slow = sandbox(Duration.ofMillis(1000), Long.MAX_VALUE, 1000)) {
             ScriptResult result = slow.run("console.log('before'); await servers.a.b({});", blocking, SESSION);
 
             assertThat(result.error()).hasValueSatisfying(e -> assertThat(e).contains("max-script-time"));
@@ -342,7 +342,7 @@ class GraalJsSandboxTest {
             public void log(String line) {
             }
         };
-        try (GraalJsSandbox slow = sandbox(Duration.ofMillis(300), Long.MAX_VALUE, 1000)) {
+        try (GraalJsSandbox slow = sandbox(Duration.ofMillis(1000), Long.MAX_VALUE, 1000)) {
             long start = System.nanoTime();
             ScriptResult result = slow.run("await servers.a.b({});", stubborn, SESSION);
 

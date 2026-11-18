@@ -8,11 +8,15 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.Timeout
+import java.util.concurrent.TimeUnit
 import org.mockito.MockedStatic
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.mockStatic
 import org.mockito.Mockito.`when`
 
+// mockStatic is thread-local, so the default separate-thread timeout would run tests off the mocking thread
+@Timeout(value = 2, unit = TimeUnit.MINUTES, threadMode = Timeout.ThreadMode.SAME_THREAD)
 class ShortcutDispatcherTest {
     private val window = mock(Window::class.java)
     private val manager = mock(KeyboardFocusManager::class.java)
