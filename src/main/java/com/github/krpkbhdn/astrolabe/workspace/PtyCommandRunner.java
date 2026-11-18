@@ -27,7 +27,9 @@ public final class PtyCommandRunner {
     private static final int READ_BUFFER_BYTES = 4096;
     /** Output past this is drained and dropped; the whole text is rendered on every chunk, so the cap also bounds that work. */
     static final int MAX_RAW_CHARS = 1024 * 1024;
-    private static final Duration READER_GRACE = Duration.ofSeconds(2);
+    /** ConPTY may deliver the last output well after the exit and never closes the stream, so the reader is awaited until the text stops growing. */
+    private static final Duration READER_GRACE = Duration.ofSeconds(5);
+    static final Duration READER_QUIET = Duration.ofSeconds(1);
 
     private PtyCommandRunner() {}
 
@@ -57,12 +59,25 @@ public final class PtyCommandRunner {
             if (!finished) {
                 ProcessTree.kill(process);
             }
-            reader.join(READER_GRACE);
+            awaitOutput(reader, output);
             return new CommandRunner.Result(finished ? process.exitValue() : -1, snapshot(output), "", !finished);
         } catch (InterruptedException e) {
             ProcessTree.kill(process);
             Thread.currentThread().interrupt();
             throw new IOException("Interrupted while running " + command.getFirst(), e);
+        }
+    }
+
+    private static void awaitOutput(Thread reader, StringBuilder output) throws InterruptedException {
+        var deadline = System.nanoTime() + READER_GRACE.toNanos();
+        var last = snapshot(output);
+        while (reader.isAlive() && System.nanoTime() < deadline) {
+            reader.join(READER_QUIET);
+            var current = snapshot(output);
+            if (current.equals(last)) {
+                return;
+            }
+            last = current;
         }
     }
 

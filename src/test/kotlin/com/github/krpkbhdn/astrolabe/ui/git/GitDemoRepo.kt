@@ -1,9 +1,10 @@
 package com.github.krpkbhdn.astrolabe.ui.git
 
+import com.github.krpkbhdn.astrolabe.TestProcesses
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Duration
 import java.util.Comparator
-import java.util.concurrent.TimeUnit
 
 private const val GIT_TIMEOUT_SECONDS = 30L
 
@@ -70,9 +71,9 @@ object GitDemoRepo {
 
     fun git(directory: Path, vararg arguments: String): String {
         val process = ProcessBuilder(listOf("git") + arguments).directory(directory.toFile()).redirectErrorStream(true).start()
-        val output = process.inputStream.bufferedReader().readText()
-        check(process.waitFor(GIT_TIMEOUT_SECONDS, TimeUnit.SECONDS) && process.exitValue() == 0) { "git ${arguments.joinToString(" ")} failed: $output" }
-        return output
+        val result = TestProcesses.run(process, Duration.ofSeconds(GIT_TIMEOUT_SECONDS))
+        check(result.exitCode() == 0) { "git ${arguments.joinToString(" ")} failed: ${result.stdout()}" }
+        return result.stdout()
     }
 
     private fun deleteRecursively(path: Path) {

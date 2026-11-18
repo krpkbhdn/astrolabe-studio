@@ -1,5 +1,6 @@
 package com.github.krpkbhdn.astrolabe.ui.git.model
 
+import com.github.krpkbhdn.astrolabe.TestProcesses
 import com.github.krpkbhdn.astrolabe.git.GitBranchService
 import com.github.krpkbhdn.astrolabe.git.GitConflictService
 import com.github.krpkbhdn.astrolabe.git.GitException
@@ -36,7 +37,7 @@ class GitTaskMergeTest {
 
     @BeforeEach
     fun setUp() {
-        Assumptions.assumeTrue(runCatching { ProcessBuilder("git", "--version").start().waitFor() == 0 }.getOrDefault(false), "git is not installed")
+        Assumptions.assumeTrue(runCatching { TestProcesses.run(ProcessBuilder("git", "--version").start()).exitCode() == 0 }.getOrDefault(false), "git is not installed")
         val empty = Files.createFile(root.resolve("empty.gitconfig")).toString()
         runner = GitRunner(GitProperties.defaults(), mapOf("GIT_CONFIG_GLOBAL" to empty, "GIT_CONFIG_SYSTEM" to empty, "GIT_CONFIG_NOSYSTEM" to "1"))
         repo = Files.createDirectories(root.resolve("work"))

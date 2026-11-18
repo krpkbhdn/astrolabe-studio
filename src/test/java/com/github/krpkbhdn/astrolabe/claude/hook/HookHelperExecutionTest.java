@@ -3,6 +3,7 @@ package com.github.krpkbhdn.astrolabe.claude.hook;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import com.github.krpkbhdn.astrolabe.TestProcesses;
 import com.sun.net.httpserver.HttpServer;
 import java.io.File;
 import java.io.IOException;
@@ -16,7 +17,6 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -155,9 +155,7 @@ class HookHelperExecutionTest {
             return new Result(-1, "", e.toString());
         }
         process.getOutputStream().write(PAYLOAD);
-        process.getOutputStream().close();
-        var stdout = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        var stderr = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-        return new Result(process.waitFor(60, TimeUnit.SECONDS) ? process.exitValue() : -1, stdout, stderr);
+        var drained = TestProcesses.run(process);
+        return new Result(drained.exitCode(), drained.stdout(), drained.stderr());
     }
 }

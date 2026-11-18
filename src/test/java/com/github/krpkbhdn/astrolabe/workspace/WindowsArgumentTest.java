@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import com.github.krpkbhdn.astrolabe.TestProcesses;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -87,9 +88,9 @@ class WindowsArgumentTest {
 
         var process = new ProcessBuilder(script.toString(), "--cwd", WindowsArgument.directoryArgument(script.toString(), directory),
                 WindowsArgument.quote(json)).redirectErrorStream(true).start();
-        var output = new String(process.getInputStream().readAllBytes());
+        var drained = TestProcesses.run(process);
 
-        assertThat(process.waitFor()).as(output).isZero();
+        assertThat(drained.exitCode()).as(drained.stdout()).isZero();
         assertThat(Files.readString(out)).isEqualTo("--cwd\n" + directory + "\n" + json);
     }
 
@@ -104,9 +105,9 @@ class WindowsArgumentTest {
 
         var process = new ProcessBuilder(script.toString(), "--cwd", WindowsArgument.directoryArgument(script.toString(), root))
                 .redirectErrorStream(true).start();
-        var output = new String(process.getInputStream().readAllBytes());
+        var drained = TestProcesses.run(process);
 
-        assertThat(process.waitFor()).as(output).isZero();
+        assertThat(drained.exitCode()).as(drained.stdout()).isZero();
         assertThat(Files.readString(out)).isEqualTo("--cwd\n" + root);
     }
 

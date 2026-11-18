@@ -7,6 +7,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.github.krpkbhdn.astrolabe.TestProcesses;
 import com.github.krpkbhdn.astrolabe.config.AppProperties;
 import com.github.krpkbhdn.astrolabe.extension.ClaudeCli;
 import com.github.krpkbhdn.astrolabe.extension.ExtensionProperties;
@@ -227,7 +228,8 @@ class GeneralPresetEndToEndTest {
     private void runGit(String... args) throws Exception {
         var command = new java.util.ArrayList<String>(List.of("git", "-C", project.toString()));
         command.addAll(List.of(args));
-        assertThat(new ProcessBuilder(command).redirectErrorStream(true).start().waitFor()).isZero();
+        var git = TestProcesses.run(new ProcessBuilder(command).redirectErrorStream(true).start());
+        assertThat(git.exitCode()).as(git.stdout()).isZero();
     }
 
     private static TreeMap<String, String> snapshot(Path root) throws IOException {

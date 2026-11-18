@@ -314,8 +314,7 @@ class GitToolsTest {
         var secret = repo.resolve("credentials.json");
         java.nio.file.Files.writeString(secret, "{}");
         var process = new ProcessBuilder("cmd", "/c", "for %I in (\"" + secret + "\") do @echo %~sI").redirectErrorStream(true).start();
-        var shortPath = new String(process.getInputStream().readAllBytes()).trim();
-        process.waitFor();
+        var shortPath = com.github.krpkbhdn.astrolabe.TestProcesses.run(process).stdout().trim();
         org.junit.jupiter.api.Assumptions.assumeTrue(shortPath.toUpperCase().endsWith("~1.JSO"), "8.3 names are disabled: " + shortPath);
 
         var alias = GitDiffTool.requireInside(repo, Path.of(shortPath).getFileName().toString());
