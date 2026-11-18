@@ -186,6 +186,8 @@ cd astrolabe-studio
 
 Перша збірка потребує інтернету: вона завантажує Gradle і JBR 25, тож триває довго. Без JBR застосунок повертається до звичайної рамки вікна ОС; `-Dastrolabe.nativeFrame=true` примусово вмикає нативну рамку ОС, навіть на JBR.
 
+- Linux `.tar.gz` (задача `packageTarGz`, також для Arch/Manjaro): `tar xzf astrolabe-studio-<версія>-linux-x64.tar.gz`, перейдіть у теку й запустіть `./install.sh`, щоб додати Astrolabe Studio до меню застосунків (`sudo ./install.sh` або `--system` для всіх користувачів). Скрипт копіює застосунок у `~/.local/opt/astrolabe-studio`, робить посилання `~/.local/bin/astrolabe-studio` і кладе іконку та `astrolabe-studio.desktop` у `~/.local/share` (системний режим: `/opt`, `/usr/local/bin`, `/usr/share`); повторний запуск оновлює. `./uninstall.sh` прибирає саме це; ваші дані в `~/.astrolabe-studio` лишаються.
+
 ## Гарячі клавіші
 
 <details>

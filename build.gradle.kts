@@ -306,13 +306,18 @@ compose.desktop {
         javaHome = javaToolchains.launcherFor(java.toolchain).get().metadata.installationPath.asFile.absolutePath
         jvmArgs += graalJsArgs + "-Dastrolabe.update.version=$version" + awtOpens
         nativeDistributions {
-            targetFormats(TargetFormat.Msi, TargetFormat.Exe, TargetFormat.Deb, TargetFormat.Dmg)
+            targetFormats(TargetFormat.Msi, TargetFormat.Exe, TargetFormat.Deb, TargetFormat.Rpm, TargetFormat.AppImage, TargetFormat.Dmg, TargetFormat.Pkg)
             packageName = "Astrolabe Studio"
             packageVersion = version.toString()
             vendor = "krpkbhdn"
             // Spring reflects over many JDK modules; a trimmed jlink image breaks it at runtime.
             includeAllModules = true
-            linux { iconFile.set(file("packaging/icon.png")) }
+            linux {
+                iconFile.set(file("packaging/icon.png"))
+                // deb/rpm names must be lowercase without spaces, unlike the shared packageName.
+                packageName = "astrolabe-studio"
+                rpmLicenseType = "ASL 2.0"
+            }
             macOS {
                 iconFile.set(file("packaging/icon.icns"))
                 // Only effective once signing is enabled (macOS { signing { sign.set(true) } }); unsigned builds ignore the entitlements.
@@ -371,6 +376,44 @@ val addJcefToAppImage = tasks.register("addJcefToAppImage") {
 }
 if (isMac) tasks.matching { it.name == "packageDmg" }.configureEach { dependsOn(addJcefToAppImage) }
 
+// Windows/Linux installers (and createDistributable) are built from the jlink runtime image, not from an app image, so JCEF is added there.
+// jlink already carries the JCEF libraries (libcef, jcef.dll...); the helper, resource paks, snapshot, icu data and locales are missing.
+val jcefFileName = Regex("""(?i).*(cef|libegl|libgles|swiftshader|vulkan).*|.*\.(pak|bin)|icudtl\.dat|locales""")
+if (!isMac) tasks.withType<org.jetbrains.compose.desktop.application.tasks.AbstractJLinkTask>().matching { it.name == "createRuntimeImage" }.configureEach {
+    val jbr = jbrHome
+    doLast {
+        val image = destinationDir.get().asFile
+        for (dir in listOf("bin", "lib")) {
+            File(jbr.get(), dir).listFiles { f -> jcefFileName.matches(f.name) }.orEmpty().forEach {
+                val target = File(File(image, dir), it.name)
+                if (!target.exists()) it.copyRecursively(target)
+            }
+        }
+        val helper = listOf("bin/jcef_helper.exe", "lib/jcef_helper", "bin/jcef_helper").map { File(image, it) }
+        check(helper.any { it.isFile }) { "jcef_helper is missing in $image after copying JCEF from ${jbr.get()} (looked for $helper)." }
+        val libcef = listOf("bin", "lib").flatMap { File(image, it).listFiles { f -> f.name.matches(Regex("(lib)?cef\\.(dll|so)")) }.orEmpty().toList() }
+        check(libcef.isNotEmpty()) { "libcef is missing in $image after copying JCEF from ${jbr.get()}." }
+    }
+}
+val isLinux = org.gradle.internal.os.OperatingSystem.current().isLinux
+
+// Portable archive of the app image (for distros without deb/rpm, e.g. Arch); shortcut: Gradle 9.3 Tar follows symlinks, switch to symbolicLinks once available.
+val packageTarGz = tasks.register<Tar>("packageTarGz") {
+    group = "compose desktop"
+    description = "Packs the createDistributable app image into build/compose/binaries/main/tar/*.tar.gz"
+    onlyIf { isLinux }
+    dependsOn("createDistributable")
+    val arch = System.getProperty("os.arch").let { if (it == "amd64") "x64" else it }
+    from(layout.buildDirectory.dir("compose/binaries/main/app"))
+    from("packaging/linux") { filePermissions { unix("rwxr-xr-x") } }
+    from("packaging/icon.png")
+    compression = Compression.GZIP
+    archiveFileName = "astrolabe-studio-$version-linux-$arch.tar.gz"
+    destinationDirectory = layout.buildDirectory.dir("compose/binaries/main/tar")
+    isPreserveFileTimestamps = false
+}
+if (isLinux) tasks.named("packageDistributionForCurrentOS") { dependsOn(packageTarGz) }
+
 tasks.register<JavaExec>("generateIcons") {
     group = "application"
     description = "Renders the app icon into packaging/icon.ico, icon.icns and icon.png used by the installers"
@@ -379,3 +422,4 @@ tasks.register<JavaExec>("generateIcons") {
     javaLauncher = javaToolchains.launcherFor(java.toolchain)
     systemProperty("java.awt.headless", "true")
 }
+
