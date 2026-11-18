@@ -97,7 +97,7 @@ public class ExecutableLookup {
             addWindowsDirectories(result);
         } else {
             result.addAll(List.of(Path.of("/opt/homebrew/bin"), Path.of("/usr/local/bin"), Path.of("/usr/local/go/bin"),
-                    home.resolve(".dotnet")));
+                    home.resolve(".dotnet"), Path.of("/opt/homebrew/opt/openjdk@25/bin"), Path.of("/usr/local/opt/openjdk@25/bin")));
         }
         return result;
     }

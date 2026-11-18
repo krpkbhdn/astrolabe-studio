@@ -288,7 +288,7 @@ public class ToolInstallService implements ToolProbe.InstalledChannels {
         CommandRunner.Result result;
         try {
             result = runner.run(launchCommand(plan.command()), NEUTRAL_DIRECTORY, properties.installTimeout(),
-                    lookup.environment(), onOutput);
+                    unattendedEnvironment(), onOutput);
         } catch (IOException e) {
             return new InstallResult(Outcome.FAILED, -1, probe.probeFresh(toolId), "Could not run the install command: " + e.getMessage());
         }
@@ -303,6 +303,14 @@ public class ToolInstallService implements ToolProbe.InstalledChannels {
             return new InstallResult(Outcome.STILL_MISSING, 0, status, PATH_RESTART_HINT);
         }
         return new InstallResult(Outcome.INSTALLED, 0, status, "Installed " + plan.tool().name());
+    }
+
+    /** The install runs in a PTY nobody types into, so brew must never wait for a confirmation. */
+    private Map<String, String> unattendedEnvironment() {
+        var environment = new java.util.LinkedHashMap<>(lookup.environment());
+        environment.put("NONINTERACTIVE", "1");
+        environment.put("HOMEBREW_NO_ENV_HINTS", "1");
+        return environment;
     }
 
     private InstallPlan plan(ToolDefinition tool, boolean fresh) {
