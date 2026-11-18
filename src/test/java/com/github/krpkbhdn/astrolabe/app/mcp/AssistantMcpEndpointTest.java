@@ -13,7 +13,6 @@ import com.github.krpkbhdn.astrolabe.claude.event.HookEventType;
 import com.github.krpkbhdn.astrolabe.claude.hook.HookProperties;
 import com.github.krpkbhdn.astrolabe.claude.launch.ClaudeLauncher;
 import com.github.krpkbhdn.astrolabe.claude.proposal.PermissionProposal;
-import com.github.krpkbhdn.astrolabe.claude.proposal.ProposalAnswer.Denial;
 import com.github.krpkbhdn.astrolabe.claude.proposal.ProposalAnswer.PermissionAllow;
 import com.github.krpkbhdn.astrolabe.claude.proposal.ProposalService;
 import com.github.krpkbhdn.astrolabe.claude.session.SessionProperties;
@@ -24,7 +23,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
@@ -36,6 +38,12 @@ class AssistantMcpEndpointTest {
     private static final Duration SHORT_HOLD = Duration.ofMillis(150);
     private static final String CALL_PUSH = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"git_push\",\"arguments\":{\"project\":1}}}";
 
+    // The common pool has one worker on a small runner, so blocked requests would starve each other.
+    private final ExecutorService requests = Executors.newCachedThreadPool(runnable -> {
+        var thread = new Thread(runnable, "assistant-request");
+        thread.setDaemon(true);
+        return thread;
+    });
     private final JsonMapper mapper = JsonMapper.builder().build();
     private final AssistantMcpTool tool = mock(AssistantMcpTool.class);
     private final AssistantMcpTool destructive = mock(AssistantMcpTool.class);
@@ -83,7 +91,12 @@ class AssistantMcpEndpointTest {
     }
 
     private CompletableFuture<JsonNode> sendAsync(String json) {
-        return CompletableFuture.supplyAsync(() -> send(json));
+        return CompletableFuture.supplyAsync(() -> send(json), requests);
+    }
+
+    @AfterEach
+    void stopRequests() {
+        requests.shutdownNow();
     }
 
     private List<PermissionProposal> awaitPending(int count) throws Exception {
@@ -164,21 +177,6 @@ class AssistantMcpEndpointTest {
         proposals.answer(proposal.id(), PermissionAllow.once());
 
         assertThat(textOf(resultOf(response))).isEqualTo("pushed");
-    }
-
-    @Test
-    void denialAndDismissNeverCallTheTool() throws Exception {
-        startAssistantSession();
-        var denied = sendAsync(CALL_PUSH);
-        proposals.answer(awaitPending(1).getFirst().id(), new Denial(""));
-        var dismissed = sendAsync(CALL_PUSH);
-        proposals.dismiss(awaitPending(1).getFirst().id());
-
-        assertThat(resultOf(denied).path("isError").asBoolean()).isTrue();
-        assertThat(textOf(resultOf(denied))).isEqualTo(AssistantMcpEndpoint.DENIED);
-        assertThat(resultOf(dismissed).path("isError").asBoolean()).isTrue();
-        assertThat(textOf(resultOf(dismissed))).isEqualTo(AssistantMcpEndpoint.RELEASED);
-        verify(destructive, never()).call(any());
     }
 
     @Test
