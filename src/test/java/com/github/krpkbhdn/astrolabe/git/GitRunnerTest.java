@@ -180,7 +180,9 @@ class GitRunnerTest {
 
     @Test
     void interruptKillsTheRunningGitAndItsChildInsteadOfLeavingThemBehind() throws Exception {
-        var sandbox = GitCliSandbox.create(root);
+        // Outside @TempDir: Windows may still lock the killed child's folder and the JUnit cleanup would fail the test.
+        var own = java.nio.file.Files.createTempDirectory("git-interrupt");
+        var sandbox = GitCliSandbox.create(own);
         var before = ProcessHandle.current().descendants().map(ProcessHandle::pid).collect(java.util.stream.Collectors.toSet());
         var failure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
         var runner = new Thread(() -> {
@@ -211,6 +213,9 @@ class GitRunnerTest {
             }
         } finally {
             running.forEach(ProcessHandle::destroyForcibly);
+            try (var paths = java.nio.file.Files.walk(own)) {
+                paths.sorted(java.util.Comparator.reverseOrder()).forEach(path -> path.toFile().delete());
+            }
         }
     }
 

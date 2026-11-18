@@ -7,10 +7,14 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardWatchEventKinds;
 import java.time.Duration;
+import java.util.Comparator;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -29,6 +33,20 @@ class GitWatcherTest {
         var defaults = GitProperties.defaults();
         return new GitProperties(defaults.commandTimeout(), defaults.syncTimeout(), Duration.ofMillis(60), 50,
                 defaults.maxDiffLines(), defaults.maxUntrackedBytes());
+    }
+
+    @BeforeAll
+    static void fileSystemDeliversWatchEvents() throws IOException, InterruptedException {
+        var probe = Files.createTempDirectory("watch-probe");
+        try (var service = probe.getFileSystem().newWatchService()) {
+            probe.register(service, StandardWatchEventKinds.ENTRY_CREATE);
+            Files.writeString(probe.resolve("probe.txt"), "x");
+            assumeTrue(service.poll(5, TimeUnit.SECONDS) != null, "the file system delivers no watch events here");
+        } finally {
+            try (var paths = Files.walk(probe)) {
+                paths.sorted(Comparator.reverseOrder()).forEach(path -> path.toFile().delete());
+            }
+        }
     }
 
     @BeforeEach
