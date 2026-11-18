@@ -15,7 +15,7 @@ plugins {
 }
 
 group = "com.github.krpkbhdn"
-version = "2.3.34"
+version = "2.3.35"
 
 java {
     toolchain {
@@ -313,7 +313,18 @@ compose.desktop {
             // Spring reflects over many JDK modules; a trimmed jlink image breaks it at runtime.
             includeAllModules = true
             linux { iconFile.set(file("packaging/icon.png")) }
-            macOS { iconFile.set(file("packaging/icon.icns")) }
+            macOS {
+                iconFile.set(file("packaging/icon.icns"))
+                // Only effective once signing is enabled (macOS { signing { sign.set(true) } }); unsigned builds ignore the entitlements.
+                entitlementsFile.set(file("packaging/entitlements.plist"))
+                runtimeEntitlementsFile.set(file("packaging/entitlements.plist"))
+                infoPlist {
+                    extraKeysRawXml = """
+                        <key>NSMicrophoneUsageDescription</key>
+                        <string>Astrolabe Studio uses the microphone for voice dictation.</string>
+                    """.trimIndent()
+                }
+            }
             windows {
                 iconFile.set(file("packaging/icon.ico"))
                 menu = true

@@ -1,5 +1,7 @@
 package com.github.krpkbhdn.astrolabe.voice.audio;
 
+import com.github.krpkbhdn.astrolabe.workspace.HostEnvironment;
+import com.github.krpkbhdn.astrolabe.workspace.HostEnvironment.OperatingSystem;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
@@ -18,6 +20,18 @@ public class Microphone {
     private static final DataLine.Info INFO = new DataLine.Info(TargetDataLine.class, FORMAT);
     private static final int BLOCK_BYTES = 3200;
     private static final long STOP_WAIT_MILLIS = 1000;
+    private static final String MAC_PRIVACY_HINT = " (allow microphone access in System Settings > Privacy & Security > Microphone)";
+
+    private final String openHint;
+
+    public Microphone(HostEnvironment host) {
+        this.openHint = openHint(host.os());
+    }
+
+    /** macOS reports a denied microphone permission as an unusable line, so the message names the setting. */
+    static String openHint(OperatingSystem os) {
+        return os == OperatingSystem.MACOS ? MAC_PRIVACY_HINT : "";
+    }
 
     public List<String> inputs() {
         var names = new ArrayList<String>();
@@ -30,7 +44,7 @@ public class Microphone {
     }
 
     public AutoCloseable open(String input, Consumer<float[]> onBlock) {
-        var line = openLine(input);
+        var line = openLine(input, openHint);
         var thread = new Thread(() -> pump(line, onBlock), "voice-microphone");
         thread.setDaemon(true);
         thread.start();
@@ -41,7 +55,7 @@ public class Microphone {
         };
     }
 
-    private static TargetDataLine openLine(String input) {
+    private static TargetDataLine openLine(String input, String hint) {
         try {
             var line = (TargetDataLine) lineFor(input);
             line.open(FORMAT);
@@ -53,7 +67,7 @@ public class Microphone {
             }
             return line;
         } catch (LineUnavailableException | IllegalArgumentException e) {
-            throw new IllegalStateException("No usable microphone: " + e.getMessage(), e);
+            throw new IllegalStateException("No usable microphone: " + e.getMessage() + hint, e);
         }
     }
 

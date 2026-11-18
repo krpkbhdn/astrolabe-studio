@@ -23,6 +23,7 @@ public class VoiceAssetService {
     private static final String VOICE_DIRECTORY = "voice";
     private static final String DOWNLOAD_PREFIX = "download-";
     private static final String PARTIAL_SUFFIX = ".part";
+    private static final String TAR_GZ_SUFFIX = ".tar.gz";
     private static final int HASH_BUFFER_BYTES = 1 << 20;
 
     private final Path root;
@@ -102,15 +103,26 @@ public class VoiceAssetService {
             Files.createDirectories(target.getParent());
             return fetch(asset, target, progress);
         }
-        var zip = root.resolve(DOWNLOAD_PREFIX + System.nanoTime() + ".zip");
+        var archive = root.resolve(DOWNLOAD_PREFIX + System.nanoTime() + ".archive");
         try {
-            fetch(asset, zip, progress);
+            fetch(asset, archive, progress);
             Files.createDirectories(target.getParent());
-            ZipExtraction.extract(zip, target);
+            unpack(asset, archive, target);
         } finally {
-            Files.deleteIfExists(zip);
+            Files.deleteIfExists(archive);
         }
         return target;
+    }
+
+    private static void unpack(VoiceAsset asset, Path archive, Path target) throws IOException {
+        var limit = ZipExtraction.unpackedLimit(asset.sizeBytes());
+        if (asset.url().endsWith(TAR_GZ_SUFFIX)) {
+            TarGzExtraction.extract(archive, target, limit);
+        } else if (!asset.archiveEntry().isEmpty()) {
+            ZipExtraction.extractEntry(archive, target, asset.archiveEntry(), limit);
+        } else {
+            ZipExtraction.extract(archive, target, ZipExtraction.MAX_ENTRIES, limit);
+        }
     }
 
     private Path fetch(VoiceAsset asset, Path target, DoubleConsumer progress) throws IOException {
