@@ -34,7 +34,10 @@ object JcefRuntime {
     internal fun helperExecutable(javaHome: Path, osName: String): Path? {
         val candidates = when {
             "win" in osName -> listOf(javaHome.resolve("bin/jcef_helper.exe"))
-            "mac" in osName -> listOf(javaHome.resolve("../Frameworks/jcef Helper.app/Contents/MacOS/jcef Helper").normalize())
+            "mac" in osName -> listOf(
+                javaHome.resolve("../Frameworks/jcef Helper.app/Contents/MacOS/jcef Helper").normalize(),
+                javaHome.resolve("../Frameworks/cef_server.app/Contents/Frameworks/jcef Helper.app/Contents/MacOS/jcef Helper").normalize(),
+            )
             else -> listOf(javaHome.resolve("lib/jcef_helper"), javaHome.resolve("bin/jcef_helper"))
         }
         return candidates.firstOrNull { Files.isRegularFile(it) }
