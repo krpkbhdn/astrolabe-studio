@@ -15,7 +15,7 @@ plugins {
 }
 
 group = "com.github.krpkbhdn"
-version = "2.3.35"
+version = "2.3.36"
 
 java {
     toolchain {
@@ -412,7 +412,7 @@ val packageTarGz = tasks.register<Tar>("packageTarGz") {
     destinationDirectory = layout.buildDirectory.dir("compose/binaries/main/tar")
     isPreserveFileTimestamps = false
 }
-if (isLinux) tasks.named("packageDistributionForCurrentOS") { dependsOn(packageTarGz) }
+if (isLinux) tasks.matching { it.name == "packageDistributionForCurrentOS" }.configureEach { dependsOn(packageTarGz) }
 
 tasks.register<JavaExec>("generateIcons") {
     group = "application"
