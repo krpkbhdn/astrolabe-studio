@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
 
+import com.github.krpkbhdn.astrolabe.TestProcesses;
 import com.github.krpkbhdn.astrolabe.git.GitException.Kind;
 import com.github.krpkbhdn.astrolabe.git.GitMisc.CommitRequest;
 import java.io.IOException;
@@ -223,8 +224,8 @@ class GitIndexServiceTest {
     /** A junction on Windows (works without developer mode), a symbolic link elsewhere. */
     private static void createDirectoryLink(Path link, Path target) throws IOException, InterruptedException {
         if (System.getProperty("os.name").startsWith("Windows")) {
-            var exit = new ProcessBuilder("cmd", "/c", "mklink", "/J", link.toString(), target.toString()).redirectErrorStream(true).start().waitFor();
-            assertThat(exit).as("mklink /J").isZero();
+            var junction = TestProcesses.run(new ProcessBuilder("cmd", "/c", "mklink", "/J", link.toString(), target.toString()).redirectErrorStream(true).start());
+            assertThat(junction.exitCode()).as("mklink /J: %s", junction.stdout()).isZero();
         } else {
             Files.createSymbolicLink(link, target);
         }

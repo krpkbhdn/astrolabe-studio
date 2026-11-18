@@ -3,6 +3,7 @@ package com.github.krpkbhdn.astrolabe.codemode.sandbox;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import com.github.krpkbhdn.astrolabe.TestProcesses;
 import com.github.krpkbhdn.astrolabe.codemode.HostBridge;
 import com.github.krpkbhdn.astrolabe.codemode.SessionContext;
 import com.github.krpkbhdn.astrolabe.codemode.TestProperties;
@@ -164,8 +165,8 @@ class SandboxParityTest {
 
     private static boolean nodeAvailable() {
         try {
-            return new ProcessBuilder("node", "--version").redirectErrorStream(true).start().waitFor() == 0;
-        } catch (IOException | InterruptedException e) {
+            return TestProcesses.run(new ProcessBuilder("node", "--version").start()).exitCode() == 0;
+        } catch (IOException e) {
             return false;
         }
     }

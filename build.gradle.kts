@@ -3,6 +3,7 @@ import java.net.URI
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
+import java.time.Duration
 
 plugins {
     java
@@ -14,7 +15,7 @@ plugins {
 }
 
 group = "com.github.krpkbhdn"
-version = "2.3.26"
+version = "2.3.27"
 
 java {
     toolchain {
@@ -71,6 +72,17 @@ val claudeFullscreen = mapOf("CLAUDE_CODE_NO_FLICKER" to "1")
 tasks.test {
     environment(claudeFullscreen)
     useJUnitPlatform()
+    testLogging { events("failed", "skipped") }
+    val slowMillis = 10_000
+    afterSuite(KotlinClosure2<TestDescriptor, TestResult, Unit>({ d, r ->
+        val ms = r.endTime - r.startTime
+        if (d.parent != null && d.className != null && ms > slowMillis) println("SLOW class ${d.className}: ${ms / 1000}s (${r.testCount} tests)")
+    }))
+    afterTest(KotlinClosure2<TestDescriptor, TestResult, Unit>({ d, r ->
+        val ms = r.endTime - r.startTime
+        if (ms > slowMillis) println("SLOW test ${d.className}.${d.name}: ${ms / 1000}s")
+    }))
+    timeout.set(Duration.ofMinutes(20))
     maxParallelForks = (Runtime.getRuntime().availableProcessors() / 2).coerceIn(1, 4)
     // java.awt.event is opened only so the real-browser test can give synthetic key events the native rawCode CEF reads.
     jvmArgs(graalJsArgs + "--add-opens=java.desktop/java.awt.event=ALL-UNNAMED" + awtOpens)

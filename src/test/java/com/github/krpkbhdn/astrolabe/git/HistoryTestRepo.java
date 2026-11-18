@@ -1,13 +1,12 @@
 package com.github.krpkbhdn.astrolabe.git;
 
+import com.github.krpkbhdn.astrolabe.TestProcesses;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
-
 /** A throw-away repository driven by the real git CLI, with a repo-local identity and no signing. */
 final class HistoryTestRepo {
 
@@ -22,8 +21,8 @@ final class HistoryTestRepo {
 
         private static boolean probe() {
             try {
-                return new ProcessBuilder("git", "--version").start().waitFor(10, TimeUnit.SECONDS);
-            } catch (IOException | InterruptedException e) {
+                return TestProcesses.run(new ProcessBuilder("git", "--version").start(), Duration.ofSeconds(10)).exitCode() == 0;
+            } catch (IOException | AssertionError e) {
                 return false;
             }
         }
@@ -63,13 +62,12 @@ final class HistoryTestRepo {
         command.addAll(List.of(args));
         try {
             var process = new ProcessBuilder(command).directory(root.toFile()).redirectErrorStream(true).start();
-            var output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            process.waitFor(30, TimeUnit.SECONDS);
-            if (process.exitValue() != 0) {
-                throw new IllegalStateException("git " + String.join(" ", args) + " failed: " + output);
+            var drained = TestProcesses.run(process);
+            if (drained.exitCode() != 0) {
+                throw new IllegalStateException("git " + String.join(" ", args) + " failed: " + drained.stdout());
             }
-            return output.strip();
-        } catch (IOException | InterruptedException e) {
+            return drained.stdout().strip();
+        } catch (IOException e) {
             throw new IllegalStateException(e);
         }
     }

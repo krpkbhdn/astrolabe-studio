@@ -3,13 +3,15 @@ package com.github.krpkbhdn.astrolabe.codemode.sandbox;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import com.github.krpkbhdn.astrolabe.TestProcesses;
+import com.github.krpkbhdn.astrolabe.workspace.ProcessTree;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.concurrent.TimeUnit;
+import java.time.Duration;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.json.JsonMapper;
@@ -41,7 +43,7 @@ class RunnerJsTest {
         out.write((MAPPER.createObjectNode().put("type", "run").put("code", code) + "\n").getBytes(StandardCharsets.UTF_8));
         out.flush();
         String line;
-        while ((line = in.readLine()) != null) {
+        while ((line = TestProcesses.readLine(in)) != null) {
             var message = MAPPER.readTree(line);
             if ("call".equals(message.path("type").asString())) {
                 out.write((MAPPER.createObjectNode().put("type", "result").put("id", message.path("id").asInt()).put("value", callReply
@@ -62,7 +64,7 @@ class RunnerJsTest {
 
             assertThat(done).isEqualTo("{\"type\":\"done\",\"value\":\"[\\\"object\\\",\\\"undefined\\\",\\\"undefined\\\",\\\"function\\\"]\"}");
         } finally {
-            process.destroyForcibly().waitFor(5, TimeUnit.SECONDS);
+            ProcessTree.killAndWait(process, Duration.ofSeconds(5));
         }
     }
 
@@ -74,7 +76,7 @@ class RunnerJsTest {
 
             assertThat(done).isEqualTo("{\"type\":\"done\",\"value\":\"[object Object]|[object Object]|[object Object]|[object Object]|function|function|undefined|undefined|toString\"}");
         } finally {
-            process.destroyForcibly().waitFor(5, TimeUnit.SECONDS);
+            ProcessTree.killAndWait(process, Duration.ofSeconds(5));
         }
     }
 
@@ -86,7 +88,7 @@ class RunnerJsTest {
 
             assertThat(done).isEqualTo("{\"type\":\"done\",\"value\":\"then\"}");
         } finally {
-            process.destroyForcibly().waitFor(5, TimeUnit.SECONDS);
+            ProcessTree.killAndWait(process, Duration.ofSeconds(5));
         }
     }
 
@@ -96,19 +98,19 @@ class RunnerJsTest {
         try {
             assertThat(exchange(process, "return 'x';", "{}")).isEqualTo("{\"type\":\"done\",\"value\":\"x\"}");
         } finally {
-            process.destroyForcibly().waitFor(5, TimeUnit.SECONDS);
+            ProcessTree.killAndWait(process, Duration.ofSeconds(5));
         }
         process = node();
         try {
             assertThat(exchange(process, "return [1, 'a'];", "{}")).isEqualTo("{\"type\":\"done\",\"value\":\"[1,\\\"a\\\"]\"}");
         } finally {
-            process.destroyForcibly().waitFor(5, TimeUnit.SECONDS);
+            ProcessTree.killAndWait(process, Duration.ofSeconds(5));
         }
         process = node();
         try {
             assertThat(exchange(process, "return undefined;", "{}")).isEqualTo("{\"type\":\"done\",\"value\":\"\"}");
         } finally {
-            process.destroyForcibly().waitFor(5, TimeUnit.SECONDS);
+            ProcessTree.killAndWait(process, Duration.ofSeconds(5));
         }
     }
 
@@ -118,7 +120,7 @@ class RunnerJsTest {
             var done = MAPPER.readTree(exchange(process, script, "{}"));
             return done.path("value").asString(done.path("message").asString());
         } finally {
-            process.destroyForcibly().waitFor(5, TimeUnit.SECONDS);
+            ProcessTree.killAndWait(process, Duration.ofSeconds(5));
         }
     }
 
@@ -143,13 +145,13 @@ class RunnerJsTest {
             var code = "try { await servers.a.b({}); } catch (e) { return [e.message, typeof e.constructor.constructor('return typeof process')()].join('|'); }";
             out.write((MAPPER.createObjectNode().put("type", "run").put("code", code) + "\n").getBytes(StandardCharsets.UTF_8));
             out.flush();
-            var call = MAPPER.readTree(in.readLine());
+            var call = MAPPER.readTree(TestProcesses.readLine(in));
             out.write((MAPPER.createObjectNode().put("type", "result").put("id", call.path("id").asInt()).put("error", "denied") + "\n").getBytes(StandardCharsets.UTF_8));
             out.flush();
 
-            assertThat(MAPPER.readTree(in.readLine()).path("value").asString()).isEqualTo("denied|string");
+            assertThat(MAPPER.readTree(TestProcesses.readLine(in)).path("value").asString()).isEqualTo("denied|string");
         } finally {
-            process.destroyForcibly().waitFor(5, TimeUnit.SECONDS);
+            ProcessTree.killAndWait(process, Duration.ofSeconds(5));
         }
     }
 
@@ -178,7 +180,7 @@ class RunnerJsTest {
 
             assertThat(done).isEqualTo("{\"type\":\"done\",\"value\":\"{}|undefined|[object Object]\"}");
         } finally {
-            process.destroyForcibly().waitFor(5, TimeUnit.SECONDS);
+            ProcessTree.killAndWait(process, Duration.ofSeconds(5));
         }
     }
 }

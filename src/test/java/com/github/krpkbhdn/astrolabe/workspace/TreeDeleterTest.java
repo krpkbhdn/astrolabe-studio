@@ -3,6 +3,7 @@ package com.github.krpkbhdn.astrolabe.workspace;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import com.github.krpkbhdn.astrolabe.TestProcesses;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -79,8 +80,8 @@ class TreeDeleterTest {
     private static void link(Path link, Path target) throws IOException, InterruptedException {
         if (System.getProperty("os.name").startsWith("Windows")) {
             var junction = new ProcessBuilder("cmd", "/c", "mklink", "/J", link.toString(), target.toString()).redirectErrorStream(true).start();
-            var output = new String(junction.getInputStream().readAllBytes());
-            assertThat(junction.waitFor()).as("mklink /J failed: %s", output).isZero();
+            var drained = TestProcesses.run(junction);
+            assertThat(drained.exitCode()).as("mklink /J failed: %s", drained.stdout()).isZero();
         } else {
             Files.createSymbolicLink(link, target);
         }
