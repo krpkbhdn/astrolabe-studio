@@ -51,7 +51,13 @@ public class WebScreenshotStore {
         try {
             var directory = directory(projectId, revisionId);
             Files.createDirectories(directory);
-            Files.write(directory.resolve(fileName(n)), png);
+            var temp = Files.createTempFile(directory, "item-", ".tmp");
+            try {
+                Files.write(temp, png);
+                Files.move(temp, directory.resolve(fileName(n)), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } finally {
+                Files.deleteIfExists(temp);
+            }
             return fileName(n);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
@@ -74,6 +80,8 @@ public class WebScreenshotStore {
             if (width <= MAX_SIDE && height <= MAX_SIDE && (long) width * height <= MAX_PIXELS) {
                 reader.read(0);
             }
+        } catch (OutOfMemoryError e) {
+            throw new IllegalArgumentException("The screenshot is too large to decode.");
         } catch (IOException | RuntimeException e) {
             throw new IllegalArgumentException("The screenshot is not a valid PNG image.", e);
         } finally {

@@ -3,6 +3,7 @@ package com.github.krpkbhdn.astrolabe.ui.run
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.github.krpkbhdn.astrolabe.claude.launch.LaunchedSession
+import com.github.krpkbhdn.astrolabe.shell.LaunchedShell
 import com.github.krpkbhdn.astrolabe.run.ActiveRun
 import com.github.krpkbhdn.astrolabe.run.RunConfiguration
 import com.github.krpkbhdn.astrolabe.run.RunConfigurationService
@@ -29,7 +30,8 @@ class RunStateTest {
     private val runs = mock(RunService::class.java)
     private val events = CopyOnWriteArrayList<String>()
     private val terminal = object : TerminalPort {
-        override fun open(session: LaunchedSession) { events += "open:${session.astrolabeSessionId()}" }
+        override fun open(session: LaunchedSession) { events += "claude:${session.astrolabeSessionId()}" }
+        override fun openShell(shell: LaunchedShell) { events += "open:${shell.terminalId()}" }
         override fun send(astrolabeSessionId: String, text: String) = Unit
         override fun close(astrolabeSessionId: String) { events += "close:$astrolabeSessionId" }
 

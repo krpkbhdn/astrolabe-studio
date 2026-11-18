@@ -43,7 +43,10 @@ private fun Color.toJediColor() = com.jediterm.core.Color(toArgb() and 0xFFFFFF)
  * One terminal as the UI sees it. Everything that must survive navigation lives here (emulator, scrollback,
  * selection, zoom); the composable only draws it. [frame] changes whenever the screen has to be redrawn.
  */
-internal class TerminalSession(connector: TtyConnector, scrollbackCap: Int = SCROLLBACK_LINES) {
+internal class TerminalSession(connector: TtyConnector, scrollbackCap: Int = TerminalProperties.DEFAULT_SCROLLBACK_LINES) {
+    @Volatile
+    private var requestedSize = INITIAL_COLUMNS to INITIAL_ROWS
+
     private val frameState = mutableLongStateOf(0)
     private var knownHistory = 0
     private val pendingGrowth = AtomicInteger()
@@ -255,7 +258,8 @@ internal class TerminalSession(connector: TtyConnector, scrollbackCap: Int = SCR
     }
 
     fun fit(newColumns: Int, newRows: Int) {
-        if (newColumns == columns && newRows == rows) return
+        if (requestedSize == newColumns to newRows) return
+        requestedSize = newColumns to newRows
         selection = null
         emulator.resize(newColumns, newRows)
     }

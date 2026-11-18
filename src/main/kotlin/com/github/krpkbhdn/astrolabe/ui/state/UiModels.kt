@@ -6,6 +6,7 @@ import com.github.krpkbhdn.astrolabe.notification.NotificationKind
 import com.github.krpkbhdn.astrolabe.project.Project
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** Snapshot of all live sessions plus the per-project traffic light. */
@@ -44,12 +45,16 @@ data class ConfirmRequest(
 
 data class RenameRequest(val project: Project)
 
-/** Coalesces bursts of change callbacks into sequential reloads (one consumer, latest request wins). */
-class Refresher(scope: CoroutineScope, private val load: suspend () -> Unit) {
+/** Coalesces bursts of change callbacks into sequential reloads (one consumer, latest request wins), at least [minIntervalMillis] apart. */
+class Refresher(scope: CoroutineScope, private val minIntervalMillis: Long = 0L, private val load: suspend () -> Unit) {
     private val requests = Channel<Unit>(Channel.CONFLATED)
 
     init {
-        scope.launch { for (ignored in requests) load() }
+        scope.launch { for (ignored in requests) {
+                load()
+                if (minIntervalMillis > 0) delay(minIntervalMillis)
+            }
+        }
     }
 
     fun request() {

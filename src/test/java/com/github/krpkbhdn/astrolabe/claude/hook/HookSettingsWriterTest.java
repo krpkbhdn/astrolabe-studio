@@ -388,6 +388,20 @@ class HookSettingsWriterTest {
     }
 
     @Test
+    void startupDoesNotFailWhenAStaleEntryCannotBeDeleted() throws Exception {
+        var hooks = dataDir.resolve("hooks");
+        Files.createDirectories(hooks.resolve(DEAD_PID));
+        var undeletable = Files.createDirectories(hooks.resolve("locked").resolve("child"));
+        try (var deleter = org.mockito.Mockito.mockStatic(com.github.krpkbhdn.astrolabe.workspace.TreeDeleter.class)) {
+            deleter.when(() -> com.github.krpkbhdn.astrolabe.workspace.TreeDeleter.delete(org.mockito.ArgumentMatchers.any()))
+                    .thenThrow(new java.io.UncheckedIOException(new java.io.IOException("secret detail")));
+
+            org.assertj.core.api.Assertions.assertThatCode(() -> writer.deleteStaleFiles()).doesNotThrowAnyException();
+        }
+        assertThat(undeletable).exists();
+    }
+
+    @Test
     void startupKeepsTheDirectoryOfALivePidHoweverOldItIs() throws Exception {
         var otherPid = ProcessHandle.current().parent();
         assumeTrue(otherPid.isPresent());

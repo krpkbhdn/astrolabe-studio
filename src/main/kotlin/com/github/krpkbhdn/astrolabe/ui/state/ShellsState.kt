@@ -11,6 +11,7 @@ import com.github.krpkbhdn.astrolabe.workspace.ProcessTree
 import java.nio.file.Path
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.future.await
 import kotlinx.coroutines.launch
 
 /** Detecting the installed shells and opening, labelling and closing the plain shell tabs of the projects. */
@@ -90,7 +91,11 @@ class ShellsState(
 
     private fun closeWhenExited(shell: LaunchedShell) {
         scope.launch {
-            io { runCatching { shell.process().waitFor() } }
+            try {
+                shell.process().onExit().await()
+            } catch (e: RuntimeException) {
+                // an exceptionally completed exit future still means the shell is gone
+            }
             if (owns(shell.terminalId())) close(shell.projectId(), shell.terminalId())
         }
     }

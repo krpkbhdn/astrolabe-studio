@@ -301,8 +301,8 @@ public class TranscriptIndexer {
         if (indexedBytes == 0) {
             return false;
         }
-        if (indexedBytes == size && known.modifiedAt() != modifiedMillis(file)) {
-            return true;
+        if (indexedBytes == size) {
+            return known.modifiedAt() != modifiedMillis(file);
         }
         try (var reader = new RandomAccessFile(file.toFile(), "r")) {
             reader.seek(indexedBytes - 1);

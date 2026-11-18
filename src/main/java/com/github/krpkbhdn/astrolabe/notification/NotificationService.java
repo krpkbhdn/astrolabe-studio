@@ -9,7 +9,6 @@ import com.github.krpkbhdn.astrolabe.claude.session.SubagentSnapshot;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -17,7 +16,6 @@ import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -40,7 +38,7 @@ public class NotificationService {
 
     public NotificationService(SessionRegistry registry, NotificationProperties properties) {
         this.properties = properties;
-        registry.subscribe(() -> onSessionsChanged(registry));
+        registry.subscribeSessions(id -> onSessionChanged(registry, id));
     }
 
     /** Newest last, in-memory, capped. */
@@ -65,14 +63,17 @@ public class NotificationService {
         return notification;
     }
 
-    private void onSessionsChanged(SessionRegistry registry) {
-        var created = new ArrayList<AppNotification>();
+    private void onSessionChanged(SessionRegistry registry, String astrolabeSessionId) {
+        Optional<AppNotification> created;
         synchronized (this) {
-            var sessions = registry.sessions().stream().filter(session -> session.projectId() != ClaudeLauncher.ASSISTANT_PROJECT_ID).toList();
-            seen.keySet().retainAll(sessions.stream().map(SessionSnapshot::astrolabeSessionId).collect(Collectors.toSet()));
-            sessions.forEach(session -> observe(session).ifPresent(created::add));
+            var session = registry.find(astrolabeSessionId).filter(found -> found.projectId() != ClaudeLauncher.ASSISTANT_PROJECT_ID);
+            if (session.isEmpty()) {
+                seen.remove(astrolabeSessionId);
+                return;
+            }
+            created = observe(session.get());
         }
-        created.forEach(this::deliver);
+        created.ifPresent(this::deliver);
     }
 
     private Optional<AppNotification> observe(SessionSnapshot session) {

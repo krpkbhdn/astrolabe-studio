@@ -28,9 +28,13 @@ object TerminalHost {
     private var registry: SessionRegistry? = null
 
     /** Gives the host the registry that learns about Esc interrupts; call once before [open]. */
-    fun configure(sessionRegistry: SessionRegistry) {
+    fun configure(sessionRegistry: SessionRegistry, terminalProperties: TerminalProperties = TerminalProperties(TerminalProperties.DEFAULT_SCROLLBACK_LINES)) {
         registry = sessionRegistry
+        properties = terminalProperties
     }
+
+    @Volatile
+    private var properties = TerminalProperties(TerminalProperties.DEFAULT_SCROLLBACK_LINES)
 
     fun open(session: LaunchedSession) = open(session.astrolabeSessionId(), session.label(), session.process(), isClaude = true)
 
@@ -111,6 +115,6 @@ object TerminalHost {
 
     private fun createTerminal(id: String, label: String, process: PtyProcess, isClaude: Boolean): OpenTerminal {
         val connector = PtyTtyConnector(process, label) { registry?.markInterrupted(id) }
-        return OpenTerminal(TerminalSession(connector), process, connector, isClaude)
+        return OpenTerminal(TerminalSession(connector, properties.scrollbackLines()), process, connector, isClaude)
     }
 }

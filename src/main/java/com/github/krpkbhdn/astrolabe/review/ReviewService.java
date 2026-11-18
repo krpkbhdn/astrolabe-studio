@@ -224,22 +224,28 @@ public class ReviewService {
         if (oneLineTitle.isEmpty()) {
             throw new IllegalArgumentException("The review needs a title.");
         }
-        var id = transaction.execute(status -> {
-            if (jdbc.sql("SELECT COUNT(*) FROM review WHERE project_id = ?").param(projectId).query(Integer.class).single() >= properties.maxReviewsPerProject()) {
-                throw new IllegalArgumentException(tooManyMessage);
-            }
-            return jdbc.sql("INSERT INTO review (project_id, astrolabe_session_id, title, note) VALUES (?, ?, ?, ?) RETURNING id")
-                    .param(projectId).param(astrolabeSessionId).param(oneLineTitle).param(note == null ? "" : note).query(Long.class).single();
-        });
+        long id;
+        captureLock.lock();
         try {
-            insertImages(id, imageStore.store(directoryOf(id), images));
-        } catch (RuntimeException e) {
+            id = transaction.execute(status -> {
+                if (jdbc.sql("SELECT COUNT(*) FROM review WHERE project_id = ?").param(projectId).query(Integer.class).single() >= properties.maxReviewsPerProject()) {
+                    throw new IllegalArgumentException(tooManyMessage);
+                }
+                return jdbc.sql("INSERT INTO review (project_id, astrolabe_session_id, title, note) VALUES (?, ?, ?, ?) RETURNING id")
+                        .param(projectId).param(astrolabeSessionId).param(oneLineTitle).param(note == null ? "" : note).query(Long.class).single();
+            });
             try {
-                removeQuietly(id);
-            } catch (RuntimeException cleanupFailure) {
-                e.addSuppressed(cleanupFailure);
+                insertImages(id, imageStore.store(directoryOf(id), images));
+            } catch (RuntimeException e) {
+                try {
+                    removeQuietly(id);
+                } catch (RuntimeException cleanupFailure) {
+                    e.addSuppressed(cleanupFailure);
+                }
+                throw e;
             }
-            throw e;
+        } finally {
+            captureLock.unlock();
         }
         listeners.fire();
         return find(id).orElseThrow();
@@ -382,8 +388,11 @@ public class ReviewService {
         captureLock.lock();
         try {
             if (jdbc.sql("DELETE FROM review WHERE id = ?").param(reviewId).update() > 0) {
-                deleteFolder(directoryOf(reviewId));
-                listeners.fire();
+                try {
+                    deleteFolder(directoryOf(reviewId));
+                } finally {
+                    listeners.fire();
+                }
             }
         } finally {
             captureLock.unlock();

@@ -26,6 +26,7 @@ public class ManagedToolsDirectory {
     private static final Pattern VERSION = Pattern.compile("[0-9A-Za-z][0-9A-Za-z.-]{0,63}");
     private static final Pattern VERSION_PART = Pattern.compile("\\d+|\\D+");
     private static final String STATE = "state";
+    private static final String PARTIAL = ".partial-";
 
     private final Path root;
 
@@ -71,7 +72,7 @@ public class ManagedToolsDirectory {
             return children.filter(Files::isDirectory)
                     .filter(dir -> Files.exists(dir.resolve(COMPLETE_MARKER)))
                     .map(dir -> dir.getFileName().toString())
-                    .filter(name -> VERSION.matcher(name).matches())
+                    .filter(name -> VERSION.matcher(name).matches() && !name.contains(PARTIAL))
                     .max(ManagedToolsDirectory::compareVersions);
         } catch (IOException e) {
             log.warn("Cannot list installed versions of {}: {}", id, e.toString());
@@ -121,7 +122,7 @@ public class ManagedToolsDirectory {
         var tool = toolDirectory(id);
         if (Files.isDirectory(tool)) {
             try (Stream<Path> children = Files.list(tool)) {
-                children.filter(child -> child.getFileName().toString().contains(".partial-")).forEach(ManagedToolsDirectory::deleteTree);
+                children.filter(child -> child.getFileName().toString().contains(PARTIAL)).forEach(ManagedToolsDirectory::deleteTree);
             } catch (IOException e) {
                 log.warn("Cannot list {}: {}", tool, e.toString());
             }

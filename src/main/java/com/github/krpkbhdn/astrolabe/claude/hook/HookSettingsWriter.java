@@ -96,18 +96,28 @@ public class HookSettingsWriter {
 
     /** Removes the files of app processes that no longer run (a live process's directory stays however quiet its sessions are), and loose files from before the per-process directories. */
     @PostConstruct
-    void deleteStaleFiles() throws IOException {
+    void deleteStaleFiles() {
         if (!Files.isDirectory(hooksRoot)) {
             return;
         }
         try (var entries = Files.newDirectoryStream(hooksRoot)) {
             for (var entry : entries) {
-                if (!Files.isDirectory(entry)) {
-                    Files.deleteIfExists(entry);
-                } else if (!entry.equals(hooksDir) && !isLiveProcess(entry.getFileName().toString())) {
-                    TreeDeleter.delete(entry);
-                }
+                deleteIfStale(entry);
             }
+        } catch (IOException | RuntimeException e) {
+            log.warn("Could not list stale hook files: {}", e.getClass().getSimpleName());
+        }
+    }
+
+    private void deleteIfStale(Path entry) {
+        try {
+            if (!Files.isDirectory(entry)) {
+                Files.deleteIfExists(entry);
+            } else if (!entry.equals(hooksDir) && !isLiveProcess(entry.getFileName().toString())) {
+                TreeDeleter.delete(entry);
+            }
+        } catch (IOException | RuntimeException e) {
+            log.warn("Could not delete stale hook entry {}: {}", entry.getFileName(), e.getClass().getSimpleName());
         }
     }
 
@@ -157,7 +167,7 @@ public class HookSettingsWriter {
 
     /**
      * The Assistant session gets only the app server in its mcp file; the project server and the project-session secret stay out of it.
-     * The file holds only a reference to the token env variable of the Assistant process, so it contains no secret.
+     * The owner-only file holds the literal Bearer secret of the app server, never an environment reference.
      * The token alone reaches only auto-approved tools, every other tool needs the user's Allow in the app.
      */
     public SessionFiles writeAssistant(String astrolabeSessionId) {

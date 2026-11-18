@@ -170,8 +170,8 @@ class ProjectGits(
     fun loadNew(projectIds: Set<Long>) = loadOneByOne(projectIds.filter { it !in states }.mapNotNull(::mainOf), withWorktrees = true)
 
     /** Local state only (no fetch): the open project has its watcher, the others would otherwise go stale. */
-    fun reloadUnopened(openProjectId: Long?, afterRunningSweep: Boolean = false) =
-        loadOneByOne(states.filterKeys { it != openProjectId }.values.toList(), rerunIfBusy = afterRunningSweep)
+    fun reloadUnopened(openProjectId: Long?, afterRunningSweep: Boolean = false, include: (Long) -> Boolean = { true }) =
+        loadOneByOne(states.filter { (id, _) -> id != openProjectId && include(id) }.values.toList(), rerunIfBusy = afterRunningSweep)
 
     fun retain(projectIds: Set<Long>) {
         states.keys.filter { it !in projectIds }.forEach { states.remove(it)?.close() }

@@ -32,6 +32,17 @@ class WebScreenshotStoreTest {
     }
 
     @Test
+    void overwritesAtomicallyAndLeavesNoTempFile() throws java.io.IOException {
+        var store = store(1000);
+        store.save(3, 7, 2, PNG);
+        store.save(3, 7, 2, PNG);
+
+        try (var files = Files.list(temp.resolve("web-review/3/7"))) {
+            assertThat(files.map(path -> path.getFileName().toString())).containsExactly("item-2.png");
+        }
+    }
+
+    @Test
     void rejectsTruncatedPng() {
         var truncated = java.util.Arrays.copyOf(PNG, PNG.length / 2);
 

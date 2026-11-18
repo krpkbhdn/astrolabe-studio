@@ -65,7 +65,19 @@ class ClaudePermissionRulesTest {
     }
 
     @Test
-    void toolRuleAllowsOnlyThatTool() throws IOException {
+    void denyAndAskRulesMatchTheNormalizedToolNameButAllowDoesNot() throws IOException {
+        userSettings("{\"permissions\":{\"deny\":[\"mcp__plugin_playwright_playwright__get_user\"],\"ask\":[\"mcp__plugin_playwright_playwright__list_all\"]}}");
+
+        assertThat(verdict("get.user")).isEqualTo(Verdict.DENY);
+        assertThat(verdict("list all")).isEqualTo(Verdict.ASK);
+
+        userSettings("{\"permissions\":{\"allow\":[\"mcp__plugin_playwright_playwright__get_user\"]}}");
+
+        assertThat(verdict("get.user")).isEqualTo(Verdict.UNDECIDED);
+    }
+
+    @Test
+    void toolRuleAllowsOnlyThatTool()throws IOException {
         userSettings("{\"permissions\":{\"allow\":[\"mcp__plugin_playwright_playwright__browser_navigate\"]}}");
 
         assertThat(verdict("browser_navigate")).isEqualTo(Verdict.ALLOW);

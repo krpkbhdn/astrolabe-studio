@@ -2,6 +2,7 @@ package com.github.krpkbhdn.astrolabe.claude.session;
 
 import com.github.krpkbhdn.astrolabe.claude.event.ActivityFormatter;
 import com.github.krpkbhdn.astrolabe.claude.session.TranscriptEntry.Kind;
+import com.github.krpkbhdn.astrolabe.security.SecretFilter;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -80,6 +81,6 @@ public class TranscriptLineParser {
     }
 
     private static String cut(String value, int limit) {
-        return ActivityFormatter.cut(value.strip(), limit);
+        return ActivityFormatter.cut(SecretFilter.mask(value.strip()), limit);
     }
 }

@@ -30,6 +30,7 @@ public class ClaudePermissionRules implements PermissionRules {
     private static final String PREFIX = "mcp__";
     private static final String SEPARATOR = "__";
     private static final String WILDCARD = "*";
+    private static final java.util.regex.Pattern UNSAFE_NAME_CHARACTERS = java.util.regex.Pattern.compile("[^A-Za-z0-9_-]");
     private static final String GLOB_CHARACTERS = "*?[";
     private static final String[] SETTINGS_FILES = {".claude/settings.json", ".claude/settings.local.json"};
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
@@ -85,10 +86,12 @@ public class ClaudePermissionRules implements PermissionRules {
         var wholeServer = PREFIX + server + SEPARATOR + WILDCARD;
         var exactServer = PREFIX + server;
         var exactTool = PREFIX + server + SEPARATOR + tool;
-        if (deny.contains(exactServer) || deny.contains(wholeServer) || deny.contains(exactTool)) {
+        var normalizedTool = PREFIX + server + SEPARATOR + UNSAFE_NAME_CHARACTERS.matcher(tool).replaceAll("_");
+        if (deny.contains(exactServer) || deny.contains(wholeServer) || deny.contains(exactTool) || deny.contains(normalizedTool)) {
             return Verdict.DENY;
         }
-        if (ask.contains(exactServer) || ask.contains(wholeServer) || ask.contains(exactTool) || hasOtherPattern(deny, server) || hasOtherPattern(ask, server)) {
+        if (ask.contains(exactServer) || ask.contains(wholeServer) || ask.contains(exactTool) || ask.contains(normalizedTool) || hasOtherPattern(deny, server)
+                || hasOtherPattern(ask, server)) {
             return Verdict.ASK;
         }
         if (allow.contains(exactServer) || allow.contains(wholeServer) || allow.contains(exactTool)) {

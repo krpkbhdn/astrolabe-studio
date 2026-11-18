@@ -4,9 +4,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.github.krpkbhdn.astrolabe.claude.session.SessionRegistry
+import com.github.krpkbhdn.astrolabe.ui.state.Refresher
 import com.github.krpkbhdn.astrolabe.ui.state.TerminalPort
+import com.github.krpkbhdn.astrolabe.ui.state.runGuarded
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
+
+private const val QUEUE_EVALUATE_MIN_INTERVAL_MILLIS = 100L
 
 /** Prompts waiting for the live sessions to be free; the sending decision lives in [QueueDispatch]. Runs on the UI scope only. */
 class QueueState(
@@ -15,9 +18,11 @@ class QueueState(
     private val scope: CoroutineScope,
     isAttached: (String) -> Boolean,
     sendPrompt: suspend (astrolabeSessionId: String, text: String) -> Boolean,
+    private val reportError: (String) -> Unit,
 ) {
     private val queues = PromptQueues()
     private val dispatch = QueueDispatch(queues, registry::sessions, terminal::draftMayExist, isAttached, sendPrompt, scope)
+    private val evaluation = Refresher(scope, QUEUE_EVALUATE_MIN_INTERVAL_MILLIS) { runGuarded(reportError) { dispatch.sessionsChanged() } }
     private var unsubscribe: Runnable? = null
 
     /** The session whose queue panel is open, if any. */
@@ -39,11 +44,12 @@ class QueueState(
     fun clear(astrolabeSessionId: String) = queues.clear(astrolabeSessionId)
 
     fun start() {
-        unsubscribe = registry.subscribe { scope.launch { dispatch.evaluate() } }
+        unsubscribe = registry.subscribe { evaluation.request() }
     }
 
     fun dispose() {
         unsubscribe?.run()
+        evaluation.close()
         dispatch.dispose()
     }
 }

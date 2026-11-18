@@ -21,7 +21,6 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 import org.slf4j.LoggerFactory
 
-internal const val SCROLLBACK_LINES = 10_000
 private const val FRAME_MILLIS = 16L
 private const val CONNECTOR_RESIZE_MILLIS = 100L
 private const val WORKER_IDLE_SECONDS = 2L
@@ -31,7 +30,20 @@ private const val EXIT_POLL_MILLIS = 20L
 private val LOG = LoggerFactory.getLogger(TerminalEmulator::class.java)
 
 /** Writes queued behind a child that does not read stdin; past this they are dropped instead of replayed as a burst. */
-private const val MAX_PENDING_WRITES = 1024
+internal const val MAX_PENDING_WRITES = 1024
+
+/** Replies and mouse reports made by the emulator give way first: they are dropped from this share of the queue on. */
+internal const val MAX_PENDING_EMULATOR_WRITES = MAX_PENDING_WRITES / 2
+
+/** Control bytes pass the normal cap but not this one, so a held Enter against a dead reader cannot grow the queue forever. */
+internal const val MAX_PENDING_CONTROL_WRITES = MAX_PENDING_WRITES * 2
+private const val MAX_PARSE_FAILURES = 50
+private const val CTRL_C: Byte = 0x03
+private const val ESC: Byte = 0x1B
+private const val ENTER: Byte = 0x0D
+
+/** Ctrl+C, Esc and Enter must reach the process even behind a full queue: they cancel or answer what the user sees. */
+internal fun isControlWrite(bytes: ByteArray) = bytes.size == 1 && (bytes[0] == CTRL_C || bytes[0] == ESC || bytes[0] == ENTER)
 
 /**
  * The terminal emulation of one process: reads its output on its own thread into [buffer], writes user input and
@@ -43,7 +55,7 @@ internal class TerminalEmulator(
     rows: Int,
     defaultStyle: TextStyle,
     private val onFrame: () -> Unit,
-    scrollbackLines: Int = SCROLLBACK_LINES,
+    scrollbackLines: Int = TerminalProperties.DEFAULT_SCROLLBACK_LINES,
 ) {
     // the idle worker thread exits (an ended session keeps its tab) and is started again on demand
     private val worker = ScheduledThreadPoolExecutor(1) { task -> Thread(task, "TerminalWorker-${connector.name}").apply { isDaemon = true } }
@@ -57,6 +69,7 @@ internal class TerminalEmulator(
         .apply { setKeepAliveTime(WORKER_IDLE_SECONDS, TimeUnit.SECONDS); allowCoreThreadTimeOut(true) }
 
     private val pendingWrites = AtomicInteger()
+    private val dropLogged = AtomicBoolean()
 
     val modes = ScreenModes(::invalidate)
     val buffer: TerminalTextBuffer
@@ -82,10 +95,14 @@ internal class TerminalEmulator(
         thread(name = "TerminalEmulator-${connector.name}", isDaemon = true) { readOutput() }
     }
 
-    fun write(bytes: ByteArray) {
+    fun write(bytes: ByteArray) = enqueue(bytes, MAX_PENDING_WRITES)
+
+    private fun enqueue(bytes: ByteArray, limit: Int) {
         if (bytes.isEmpty()) return
-        if (pendingWrites.incrementAndGet() > MAX_PENDING_WRITES) {
+        val pending = pendingWrites.incrementAndGet()
+        if (pending > limit && !(isControlWrite(bytes) && pending <= MAX_PENDING_CONTROL_WRITES)) {
             pendingWrites.decrementAndGet()
+            if (dropLogged.compareAndSet(false, true)) LOG.warn("Input of {} is dropped: the process does not read stdin", connector.name)
             return
         }
         val queued = runCatching { writer.execute { try { writeNow(bytes) } finally { pendingWrites.decrementAndGet() } } }
@@ -113,15 +130,19 @@ internal class TerminalEmulator(
         val emulator = JediEmulator(dataStream, terminal)
         try {
             var reading = true
+            var failures = 0
             while (reading) {
                 try {
-                    while (emulator.hasNext()) emulator.next()
+                    while (emulator.hasNext()) {
+                        emulator.next()
+                        failures = 0
+                    }
                     reading = false
                 } catch (_: IOException) {
                     reading = false
                 } catch (e: RuntimeException) {
                     LOG.warn("Terminal output of {} failed to parse: {}: {}", connector.name, e.javaClass.name, e.message)
-                    reading = connector.isConnected
+                    reading = connector.isConnected && ++failures < MAX_PARSE_FAILURES
                 }
             }
         } finally {
@@ -144,9 +165,9 @@ internal class TerminalEmulator(
     }
 
     private fun output() = object : TerminalOutputStream {
-        override fun sendBytes(response: ByteArray, userInput: Boolean) = write(response)
+        override fun sendBytes(response: ByteArray, userInput: Boolean) = enqueue(response, MAX_PENDING_EMULATOR_WRITES)
 
-        override fun sendString(string: String, userInput: Boolean) = write(string.toByteArray(Charsets.UTF_8))
+        override fun sendString(string: String, userInput: Boolean) = enqueue(string.toByteArray(Charsets.UTF_8), MAX_PENDING_EMULATOR_WRITES)
     }
 
     private fun writeNow(bytes: ByteArray) {

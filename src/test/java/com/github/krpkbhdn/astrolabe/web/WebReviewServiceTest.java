@@ -304,6 +304,21 @@ class WebReviewServiceTest {
     }
 
     @Test
+    void touchPageKeepsOnlyTheNewestPagesWithoutItems() {
+        var properties = new WebReviewProperties(600, List.of("display"), 1024, 3, Duration.ofDays(30), 3, Duration.ofMinutes(10),
+                Duration.ofSeconds(20), 2);
+        var limited = new WebReviewService(jdbc, new TransactionTemplate(new DataSourceTransactionManager(dataSource)), properties,
+                new WebScreenshotStore(new AppProperties(temp), properties), new WebFeedbackWriter(properties));
+        limited.addItem(projectId, "http://localhost:5173/with-item", "Item", anchor(), "c", List.of());
+        for (var name : List.of("a", "b", "c", "d")) {
+            limited.touchPage(projectId, "http://localhost:5173/" + name, name);
+        }
+
+        assertThat(limited.pages(projectId)).extracting(WebPage::title).contains("Item", "d").doesNotContain("a");
+        assertThat(limited.pages(projectId)).hasSizeLessThanOrEqualTo(3);
+    }
+
+    @Test
     void touchPageUpsertsWithoutTouchingRevisionsAndFiresOnlyOnChange() {
         var fired = new AtomicInteger();
         service.subscribe(fired::incrementAndGet);

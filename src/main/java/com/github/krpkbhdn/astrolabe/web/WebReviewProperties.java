@@ -21,8 +21,9 @@ public record WebReviewProperties(@DefaultValue("600") int outerHtmlLimit,
                 "flex-direction", "gap"}) List<String> computedKeys,
         @DefaultValue("5242880") long maxScreenshotBytes, @DefaultValue("200") int maxItemsPerRevision,
         @DefaultValue("30d") Duration retention, @DefaultValue("3") int maxLiveBrowsers, @DefaultValue("10m") Duration idleBrowserTtl,
-        @DefaultValue("20s") Duration screenshotTimeout) {
+        @DefaultValue("20s") Duration screenshotTimeout, @DefaultValue("200") int maxPagesPerProject) {
 
+    private static final int DEFAULT_MAX_PAGES_PER_PROJECT = 200;
     private static final Duration DEFAULT_RETENTION = Duration.ofDays(30);
     /** Also the default of the browser host when it is opened without the configured value. */
     public static final Duration DEFAULT_SCREENSHOT_TIMEOUT =Duration.ofSeconds(20);
@@ -38,12 +39,13 @@ public record WebReviewProperties(@DefaultValue("600") int outerHtmlLimit,
         positive("astrolabe.web-review.max-live-browsers", maxLiveBrowsers);
         positive("astrolabe.web-review.idle-browser-ttl", idleBrowserTtl);
         positive("astrolabe.web-review.screenshot-timeout", screenshotTimeout);
+        positive("astrolabe.web-review.max-pages-per-project", maxPagesPerProject);
         computedKeys = List.copyOf(computedKeys);
     }
 
     /** The limits with the default retention and browser settings. */
     public WebReviewProperties(int outerHtmlLimit, List<String> computedKeys, long maxScreenshotBytes, int maxItemsPerRevision) {
         this(outerHtmlLimit, computedKeys, maxScreenshotBytes, maxItemsPerRevision, DEFAULT_RETENTION, DEFAULT_MAX_LIVE_BROWSERS,
-                DEFAULT_IDLE_BROWSER_TTL, DEFAULT_SCREENSHOT_TIMEOUT);
+                DEFAULT_IDLE_BROWSER_TTL, DEFAULT_SCREENSHOT_TIMEOUT, DEFAULT_MAX_PAGES_PER_PROJECT);
     }
 }

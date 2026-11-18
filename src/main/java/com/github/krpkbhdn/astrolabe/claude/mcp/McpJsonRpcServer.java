@@ -112,7 +112,8 @@ public abstract class McpJsonRpcServer<T extends McpToolDescriptor> {
         } catch (RpcException e) {
             return Optional.of(error(id, e.code, e.getMessage()));
         } catch (RuntimeException e) {
-            log.warn("MCP request {} failed", request.path("method").asString(""), e);
+            log.warn("MCP request {} failed: {}", request.path("method").asString(""), e.getClass().getSimpleName());
+            log.debug("MCP request failure detail", e);
             return Optional.of(error(id, INTERNAL_ERROR, "Internal error"));
         }
     }
@@ -157,7 +158,8 @@ public abstract class McpJsonRpcServer<T extends McpToolDescriptor> {
         } catch (IllegalArgumentException | IllegalStateException e) {
             return toolResult(e.getMessage(), true);
         } catch (RuntimeException e) {
-            log.warn("MCP tool {} failed", tool.name(), e);
+            log.warn("MCP tool {} failed: {}", tool.name(), e.getClass().getSimpleName());
+            log.debug("MCP tool failure detail", e);
             return toolResult("astrolabe could not run " + tool.name() + ": " + e.getClass().getSimpleName(), true);
         }
     }

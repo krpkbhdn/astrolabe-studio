@@ -34,7 +34,7 @@ class TranscriptLineParserTest {
 
     @Test
     void toolCallKeepsTheWholeInputAlthoughItsShownTextIsCut() {
-        var command = "echo " + "x".repeat(600) + " && cat .env";
+        var command = "echo " + "ab cd ".repeat(100) + " && cat .env";
         var call = parser.parse("{\"type\":\"assistant\",\"uuid\":\"u1\",\"message\":{\"content\":[{\"type\":\"tool_use\","
                 + "\"id\":\"t1\",\"name\":\"Bash\",\"input\":{\"command\":\"" + command + "\"}}]}}").orElseThrow();
 
@@ -42,6 +42,15 @@ class TranscriptLineParserTest {
 
         assertThat(entry.text()).doesNotContain(".env");
         assertThat(entry.fullInput()).contains(".env");
+    }
+
+    @Test
+    void secretStraddlingTheTextLimitIsMaskedBeforeTheCut() {
+        var secret = "sk-abcdefghijklmnopqrstuvwxyz123456";
+        var text = "a".repeat(5990) + " " + secret + " tail";
+        var line = parser.parse("{\"type\":\"user\",\"uuid\":\"u1\",\"message\":{\"content\":\"" + text + "\"}}").orElseThrow();
+
+        assertThat(line.entries().getFirst().text()).doesNotContain("sk-abcd");
     }
 
     @Test

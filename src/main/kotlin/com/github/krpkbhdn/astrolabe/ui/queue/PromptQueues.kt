@@ -11,6 +11,8 @@ class PromptQueues {
 
     fun of(astrolabeSessionId: String): List<QueuedPrompt> = queues[astrolabeSessionId].orEmpty()
 
+    fun isEmpty(): Boolean = queues.isEmpty()
+
     /** Returns the id of the new prompt. */
     fun add(astrolabeSessionId: String, text: String): Long {
         val prompt = QueuedPrompt(nextId++, text)

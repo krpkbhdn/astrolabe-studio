@@ -175,10 +175,9 @@ public class RunService {
             if (!existing.contains(configurationId)) {
                 stop(configurationId);
                 runs.remove(configurationId);
+                startLocks.remove(configurationId);
                 listeners.fire();
             }
         }
-        // A deleted configuration cannot be started again (ids are not reused), so its lock can go without a race.
-        startLocks.keySet().retainAll(existing);
     }
 }

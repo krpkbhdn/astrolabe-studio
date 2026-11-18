@@ -104,6 +104,18 @@ class TaskWorktreeServiceTest {
     }
 
     @Test
+    void createReusesTheNameOfAWorktreeRemovedOutsideTheApp() {
+        var gone = service.create(projectId, sandbox.repo, "x");
+        sandbox.git("worktree", "remove", "--force", gone.path().toString());
+        sandbox.git("branch", "-D", gone.branch());
+
+        var again = service.create(projectId, sandbox.repo, "x");
+
+        assertThat(again.path()).isEqualTo(gone.path());
+        assertThat(service.forProject(projectId)).containsExactly(again);
+    }
+
+    @Test
     void forgetDeletesOnlyTheRow() {
         var worktree = service.create(projectId, sandbox.repo, "x");
 
@@ -134,7 +146,8 @@ class TaskWorktreeServiceTest {
 
     @Test
     void failedRollbackKeepsTheOriginalExceptionAndAddsItSuppressed() throws Exception {
-        jdbc.sql("DROP TABLE task_worktree").update();
+        // the insert must fail after the worktree exists; dropping the table would fail earlier, in forget()
+        jdbc.sql("CREATE TRIGGER fail_insert BEFORE INSERT ON task_worktree BEGIN SELECT RAISE(ABORT, 'insert refused'); END").update();
         var failing = new GitWorktreeService(sandbox.runner) {
             @Override
             public void remove(Path repo, Path worktree, boolean force) {

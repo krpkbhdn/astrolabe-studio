@@ -255,9 +255,11 @@ class ToolProbeTest {
         var stale = CompletableFuture.supplyAsync(() -> probe.probe("node"));
         started.await();
 
-        probe.probeFresh("node");
+        // probes of one tool are serialised: the newer one waits for the older one to finish
+        var fresh = CompletableFuture.supplyAsync(() -> probe.probeFresh("node"));
         release.countDown();
         assertThat(stale.get().version()).isEqualTo("stale");
+        assertThat(fresh.get().version()).isEqualTo("new");
 
         assertThat(probe.probe("node").version()).isEqualTo("new");
         assertThat(calls).hasValue(2);
@@ -417,5 +419,29 @@ class ToolProbeTest {
         var status = probe((c, t, env) -> new CommandRunner.Result(0, "", "openjdk version \"21.0.2\"", false)).probe("java");
 
         assertThat(status.version()).isEqualTo("openjdk version \"21.0.2\"");
+    }
+
+    @Test
+    void concurrentFreshProbesOfOneToolNeverOverlap() throws Exception {
+        host = host.withFile(BIN.resolve("pyright-langserver"));
+        var running = new AtomicInteger();
+        var overlapped = new java.util.concurrent.atomic.AtomicBoolean();
+        when(handshake.perform(anyList(), any(), anyMap())).thenAnswer(call -> {
+            if (running.incrementAndGet() > 1) {
+                overlapped.set(true);
+            }
+            Thread.sleep(100);
+            running.decrementAndGet();
+            return new LspHandshake.Result(LspHandshake.Outcome.RESPONDED, "");
+        });
+        var probe = probe((c, t, env) -> { throw new AssertionError("version command must not run"); });
+
+        var first = CompletableFuture.supplyAsync(() -> probe.probeFresh("pyright"));
+        var second = CompletableFuture.supplyAsync(() -> probe.probeFresh("pyright"));
+
+        assertThat(first.get().state()).isEqualTo(ToolState.RESPONDING);
+        assertThat(second.get().state()).isEqualTo(ToolState.RESPONDING);
+        assertThat(overlapped).isFalse();
+        verify(handshake, times(2)).perform(anyList(), any(), anyMap());
     }
 }

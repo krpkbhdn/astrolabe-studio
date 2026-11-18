@@ -60,10 +60,13 @@ public class ProjectPresetService {
 
     /** @throws IllegalArgumentException with a user-readable message for invalid input */
     public ProjectPreset create(String name, String description) {
-        var cleanName = validate(name, description);
+        return insertFree(validate(name, description), description.strip(), List.of());
+    }
+
+    private ProjectPreset insertFree(String cleanName, String description, List<PresetComponentSpec> components) {
         var id = transaction.execute(status -> {
             requireFreeName(cleanName, -1);
-            return insert(cleanName, description.strip(), null, null, List.of());
+            return insert(cleanName, description, null, null, components);
         });
         listeners.fire();
         return require(id);
@@ -86,12 +89,7 @@ public class ProjectPresetService {
     public ProjectPreset duplicate(long id, String newName) {
         var source = require(id);
         var cleanName = validate(newName, source.description());
-        var copy = transaction.execute(status -> {
-            requireFreeName(cleanName, -1);
-            return insert(cleanName, source.description(), null, null, source.components().stream().map(c -> new PresetComponentSpec(c.kind(), c.name(), c.payload())).toList());
-        });
-        listeners.fire();
-        return require(copy);
+        return insertFree(cleanName, source.description(), source.components().stream().map(c -> new PresetComponentSpec(c.kind(), c.name(), c.payload())).toList());
     }
 
     /** A bundled preset is only marked deleted, so it is not seeded again; a user preset is removed. */

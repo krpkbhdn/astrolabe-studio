@@ -20,6 +20,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -67,6 +68,7 @@ public class ToolProbe {
     private final Clock clock;
     private final Map<String, Cached> cache = new ConcurrentHashMap<>();
 
+    private final Map<String, ReentrantLock> probeLocks = new ConcurrentHashMap<>();
     private final AtomicLong probeGeneration = new AtomicLong();
 
     private record Cached(ToolStatus status, Instant at, long generation) {}
@@ -114,13 +116,19 @@ public class ToolProbe {
         return probeFresh(toolId);
     }
 
-    /** Probes now and refreshes the cache, e.g. right after an install; a probe that started earlier never overwrites it. */
+    /** Probes now and refreshes the cache, e.g. right after an install; probes of one tool run one at a time, because a routed server shares one probe folder. */
     public ToolStatus probeFresh(String toolId) {
-        long generation = probeGeneration.incrementAndGet();
-        var status = probeUncached(toolId);
-        cache.merge(toolId, new Cached(status, clock.instant(), generation),
-                (current, probed) -> current.generation() > probed.generation() ? current : probed);
-        return status;
+        var lock = probeLocks.computeIfAbsent(toolId, id -> new ReentrantLock());
+        lock.lock();
+        try {
+            long generation = probeGeneration.incrementAndGet();
+            var status = probeUncached(toolId);
+            cache.merge(toolId, new Cached(status, clock.instant(), generation),
+                    (current, probed) -> current.generation() > probed.generation() ? current : probed);
+            return status;
+        } finally {
+            lock.unlock();
+        }
     }
 
     private ToolStatus probeUncached(String toolId) {

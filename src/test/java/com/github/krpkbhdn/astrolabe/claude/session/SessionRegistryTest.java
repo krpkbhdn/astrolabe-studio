@@ -125,7 +125,7 @@ class SessionRegistryTest {
     }
 
     private final TranscriptService transcripts = mock(TranscriptService.class);
-    private final SessionRegistry topicRegistry = new SessionRegistry(new SessionProperties(java.time.Duration.ofMinutes(10), java.time.Duration.ofMinutes(10)), transcripts);
+    private final SessionRegistry topicRegistry = new SessionRegistry(new SessionProperties(java.time.Duration.ofMinutes(10), java.time.Duration.ofMinutes(10)), transcripts, java.time.Clock.systemUTC());
 
     private SessionSnapshot afterEvent(String astrolabeId, String name, String json) {
         topicRegistry.on(eventFor(astrolabeId, name, json));
@@ -161,6 +161,33 @@ class SessionRegistryTest {
         afterEvent(id, "UserPromptSubmit", "{\"session_title\":\"My name\",\"transcript_path\":\"/t.jsonl\"}");
 
         assertThat(afterEvent(id, "Stop", "{\"transcript_path\":\"/t.jsonl\"}").title()).isEqualTo("My name");
+    }
+
+    @Test
+    void titleIsResolvedOffTheEventThreadAndAppliedAfterwards() {
+        var queued = new java.util.ArrayList<Runnable>();
+        var deferred = new SessionRegistry(new SessionProperties(java.time.Duration.ofMinutes(10), java.time.Duration.ofMinutes(10)), transcripts,
+                java.time.Clock.systemUTC(), queued::add);
+        when(transcripts.title("/t.jsonl")).thenReturn(Optional.of("Fix login"));
+        var id = deferred.register(1);
+
+        deferred.on(eventFor(id, "UserPromptSubmit", "{\"transcript_path\":\"/t.jsonl\"}"));
+
+        verifyNoInteractions(transcripts);
+        assertThat(deferred.find(id).orElseThrow().title()).isNotEqualTo("Fix login");
+        queued.forEach(Runnable::run);
+        assertThat(deferred.find(id).orElseThrow().title()).isEqualTo("Fix login");
+    }
+
+    @Test
+    void sessionSubscribersGetTheIdOfTheChangedSession() {
+        var ids = new java.util.ArrayList<String>();
+        topicRegistry.subscribeSessions(ids::add);
+
+        var id = topicRegistry.register(1);
+        topicRegistry.discard(id);
+
+        assertThat(ids).containsExactly(id, id);
     }
 
     @Test

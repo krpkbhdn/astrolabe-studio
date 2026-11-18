@@ -215,6 +215,18 @@ class SafeArchiveExtractorTest {
     }
 
     @Test
+    void tarWhoseDeclaredSizesExceedTheCapIsRefusedBeforeAnythingIsWritten() throws IOException {
+        Path archive = tar(t -> {
+            tarFile(t, "pkg/a.bin", "0".repeat(600), 0644);
+            tarFile(t, "pkg/b.bin", "0".repeat(600), 0644);
+        });
+
+        assertThatThrownBy(() -> extractor.extract(archive, target(), true, MANY, 1000))
+                .isInstanceOf(IOException.class).hasMessageContaining("unpacks");
+        assertThat(target().resolve("a.bin")).doesNotExist();
+    }
+
+    @Test
     void keepsOwnerExecAndDropsSetuidAndWritableBits() throws IOException {
         assumeTrue(POSIX);
         Path archive = tar(t -> {

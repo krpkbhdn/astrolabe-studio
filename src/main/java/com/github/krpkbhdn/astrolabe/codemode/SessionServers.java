@@ -6,11 +6,9 @@ import com.github.krpkbhdn.astrolabe.codemode.client.McpClient;
 import com.github.krpkbhdn.astrolabe.extension.mcp.McpServerDefinition;
 import java.time.Instant;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 /** The state of one session's servers (open clients, catalog, failures, pinned aliases); every access holds the instance's monitor. */
 final class SessionServers {
@@ -35,7 +33,7 @@ final class SessionServers {
     final ToolCatalog catalog;
     final Map<String, Open> open = new HashMap<>();
     final Map<String, String> failures = new HashMap<>();
-    final Set<String> signInNeeded = new HashSet<>();
+    final Map<String, McpServerDefinition> signInNeeded = new HashMap<>();
     final Map<String, String> aliases = new HashMap<>();
     List<Candidate> lastFound = List.of();
     Instant scannedAt = Instant.MIN;

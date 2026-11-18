@@ -130,6 +130,7 @@ private class PointerGestures(
     private fun onMove(event: PointerEvent, point: Offset): Boolean {
         if (reportingDrag) return report(MouseEvent.Type.DRAGGED, event, point)
         if (selecting) {
+            if (!event.buttons.isPrimaryPressed) return endSelection()
             extendSelection(point)
             return true
         }
@@ -138,9 +139,14 @@ private class PointerGestures(
         return false
     }
 
-    private fun onRelease(event: PointerEvent, point: Offset): Boolean {
+    private fun endSelection(): Boolean {
         autoscroll?.cancel()
         selecting = false
+        return false
+    }
+
+    private fun onRelease(event: PointerEvent, point: Offset): Boolean {
+        endSelection()
         if (!reportingDrag) return false
         reportingDrag = false
         return report(MouseEvent.Type.RELEASED, event, point)
@@ -193,7 +199,7 @@ private class PointerGestures(
     }
 
     private suspend fun autoscrollWhileOutside() {
-        while (scope.isActive) {
+        while (scope.isActive && selecting) {
             delay(AUTOSCROLL_MILLIS)
             val top = geometry.value.paddingY
             val bottom = size.value.height - top

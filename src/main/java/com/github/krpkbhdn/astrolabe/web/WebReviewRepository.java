@@ -121,6 +121,13 @@ class WebReviewRepository {
         return new PageUpsert(id, before.isEmpty() || !before.get().equals(List.of(url, title)));
     }
 
+    /** Deletes pages without items except the {@code keep} most recently visited ones of the project. */
+    int prunePages(long projectId, int keep) {
+        return jdbc.sql("DELETE FROM web_review_page WHERE project_id = ? AND NOT EXISTS (SELECT 1 FROM web_review_item i WHERE i.page_id = web_review_page.id) "
+                + "AND id NOT IN (SELECT id FROM web_review_page WHERE project_id = ? ORDER BY last_visited_at DESC, id DESC LIMIT ?)")
+                .param(projectId).param(projectId).param(keep).update();
+    }
+
     List<WebItem> overlayItems(long projectId, String pageKey) {
         return readable(jdbc.sql(ITEM_SELECT + " JOIN web_review_page p ON p.id = i.page_id WHERE p.project_id = ? AND p.page_key = ? "
                 + "AND i.status <> 'DISMISSED' ORDER BY i.n").param(projectId).param(pageKey).query(WebReviewRepository::mapItem).list());

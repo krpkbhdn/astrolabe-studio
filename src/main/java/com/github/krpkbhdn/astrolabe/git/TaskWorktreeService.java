@@ -45,6 +45,9 @@ public class TaskWorktreeService {
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("Cannot create a task worktree for this project folder: " + e.getMessage(), e);
         }
+        if (!Files.exists(target)) {
+            forget(target);
+        }
         worktrees.add(repo, branch, "", target);
         try {
             jdbc.sql("INSERT INTO task_worktree (project_id, path, branch, base_branch, task) VALUES (?, ?, ?, ?, ?)")

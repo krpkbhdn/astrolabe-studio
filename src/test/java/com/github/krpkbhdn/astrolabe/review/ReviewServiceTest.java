@@ -443,6 +443,25 @@ class ReviewServiceTest {
     }
 
     @Test
+    void submitHoldsTheCaptureLockWhileItStoresItsImages() throws Exception {
+        var other = submit("other");
+        var blocked = new java.util.concurrent.atomic.AtomicReference<Thread>();
+        org.mockito.Mockito.doAnswer(call -> {
+            var thread = Thread.ofVirtual().start(() -> service.approve(other.id()));
+            blocked.set(thread);
+            thread.join(300);
+            assertThat(thread.isAlive()).isTrue();
+            Files.createDirectories(call.<Path>getArgument(0));
+            return List.of(new StoredImage("1.png", "first", 10, 20));
+        }).when(store).store(any(), any());
+
+        submit("second");
+
+        blocked.get().join();
+        assertThat(service.find(other.id()).orElseThrow().status()).isEqualTo(ReviewStatus.APPROVED);
+    }
+
+    @Test
     void deleteRemovesRowsAndFolder() {
         var review = submit("t");
 

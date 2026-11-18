@@ -26,12 +26,17 @@ public class ToolChannelStore {
     /** VERIFIED when nothing, nothing readable or an unknown value is stored. */
     public synchronized ToolChannel selected(String toolId) {
         try {
-            return ToolChannel.valueOf(read().getProperty(toolId, ""));
+            var stored = read().getProperty(toolId);
+            return stored == null ? ToolChannel.VERIFIED : ToolChannel.valueOf(stored);
         } catch (IllegalArgumentException e) {
+            return ToolChannel.VERIFIED;
+        } catch (IOException | RuntimeException e) {
+            log.warn("Cannot read {}: {}", file, e.getClass().getSimpleName());
             return ToolChannel.VERIFIED;
         }
     }
 
+    /** @throws IOException when the stored file cannot be read, so the channels of the other tools are never overwritten */
     public synchronized void select(String toolId, ToolChannel channel) throws IOException {
         var all = read();
         all.setProperty(toolId, channel.name());
@@ -47,14 +52,13 @@ public class ToolChannelStore {
         }
     }
 
-    private Properties read() {
+    private Properties read() throws IOException {
         var all = new Properties();
         if (Files.isRegularFile(file)) {
             try (InputStream in = Files.newInputStream(file)) {
                 all.load(in);
-            } catch (IOException | RuntimeException e) {
-                log.warn("Cannot read {}: {}", file, e.getClass().getSimpleName());
-                return new Properties();
+            } catch (RuntimeException e) {
+                throw new IOException("Malformed " + file.getFileName(), e);
             }
         }
         return all;

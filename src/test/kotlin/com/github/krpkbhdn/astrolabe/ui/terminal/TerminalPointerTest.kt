@@ -119,6 +119,15 @@ class TerminalPointerTest {
     private fun sgr(code: Int, column: Int, row: Int, final: Char = 'M') = "$ESC[<$code;${column + 1};${row + 1}$final"
 
     @Test
+    fun aMoveWithoutThePrimaryButtonEndsTheSelectionWhenTheReleaseWasLost() {
+        play("${ESC}[2J${ESC}[Hhello brave new world")
+        press(point(0, 0))
+        drag(point(4, 0))
+        pointer(PointerEventType.Move, point(10, 0))
+        assertThat(session.selection).isEqualTo(CellSelection(Cell(0, 0), Cell(4, 0)))
+    }
+
+    @Test
     fun dragSelectsFromTheAnchorToTheCellUnderThePointer() {
         play("${ESC}[2J${ESC}[Hhello brave new world")
         press(point(0, 0))

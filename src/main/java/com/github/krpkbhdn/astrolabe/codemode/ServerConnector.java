@@ -39,7 +39,7 @@ final class ServerConnector {
         } catch (McpAuthRequiredException e) {
             closeQuietly(client);
             synchronized (pool) {
-                pool.signInNeeded.add(candidate.name());
+                pool.signInNeeded.put(candidate.name(), candidate.definition());
                 pool.failures.put(candidate.name(), ServerConnections.NEEDS_SIGN_IN);
             }
             throw new IllegalStateException(candidate.name() + ": " + ServerConnections.NEEDS_SIGN_IN);
@@ -75,7 +75,11 @@ final class ServerConnector {
             existing.verifiedAt = existing.lastUsed;
             return existing.client;
         }
-        if (pool.signInNeeded.contains(candidate.name())) {
+        var failed = pool.signInNeeded.get(candidate.name());
+        if (failed != null && !failed.equals(candidate.definition())) {
+            pool.signInNeeded.remove(candidate.name());
+            pool.failures.remove(candidate.name());
+        } else if (failed != null) {
             throw new IllegalStateException(candidate.name() + ": " + ServerConnections.NEEDS_SIGN_IN);
         }
         return null;

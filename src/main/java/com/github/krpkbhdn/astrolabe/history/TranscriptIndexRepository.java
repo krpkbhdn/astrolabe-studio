@@ -10,7 +10,6 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -124,11 +123,12 @@ public class TranscriptIndexRepository {
                     var name = parent == null ? "" : parent.getFileName().toString();
                     return ignoreCase ? name.equalsIgnoreCase(directory) : name.equals(directory);
                 }).forEach(files::add);
-        var ends = files.stream().collect(Collectors.toMap(Map.Entry::getKey, file -> lineEnd.apply(file.getValue())));
-        inWriteTransaction(() -> ends.forEach((fileId, end) -> {
-            deleteEntries(fileId);
+        // the line end is read inside the write lock, so no indexer batch can commit between reading it and moving the offset
+        inWriteTransaction(() -> files.forEach(file -> {
+            var end = lineEnd.apply(file.getValue());
+            deleteEntries(file.getKey());
             jdbc.sql("UPDATE transcript_file SET entry_count = 0, indexed_bytes = COALESCE(?, indexed_bytes) WHERE id = ?")
-                    .params(end.stream().boxed().findFirst().orElse(null), fileId).update();
+                    .params(end.stream().boxed().findFirst().orElse(null), file.getKey()).update();
         }));
     }
 

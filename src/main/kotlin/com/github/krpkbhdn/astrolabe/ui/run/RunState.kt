@@ -4,10 +4,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import com.github.krpkbhdn.astrolabe.claude.launch.LaunchedSession
 import com.github.krpkbhdn.astrolabe.run.RunConfiguration
 import com.github.krpkbhdn.astrolabe.run.RunConfigurationService
 import com.github.krpkbhdn.astrolabe.run.RunService
+import com.github.krpkbhdn.astrolabe.shell.LaunchedShell
+import com.github.krpkbhdn.astrolabe.shell.ShellProfile
 import com.github.krpkbhdn.astrolabe.ui.git.model.sameFolder
 import com.github.krpkbhdn.astrolabe.ui.state.ConfirmRequest
 import com.github.krpkbhdn.astrolabe.ui.state.Refresher
@@ -18,6 +19,8 @@ import java.nio.file.Files
 import java.nio.file.Path
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+
+private val RUN_EXECUTABLE: Path = Path.of("run")
 
 /**
  * Run configurations of the projects shown so far and their latest runs. Claude may add or delete configurations at any
@@ -96,7 +99,7 @@ class RunState(
             runGuarded(reportError) {
                 val session = io { runs.start(configurationId) }
                 select(session.projectId(), configurationId)
-                showConsole(configurationId, session)
+                showConsole(configurationId, LaunchedShell(session.astrolabeSessionId(), session.projectId(), ShellProfile(session.label(), RUN_EXECUTABLE, emptyList()), session.process()))
                 showRunTab(session.projectId())
                 reload.request()
             }
@@ -159,15 +162,16 @@ class RunState(
 
     /** Runs started by someone else (Claude) get their console here; consoles of replaced or deleted runs are closed. */
     private fun syncConsoles(all: List<RunEntry>) {
-        all.forEach { entry -> entry.run?.let { showConsole(entry.id, LaunchedSession(it.runId(), entry.configuration.projectId(), it.label(), it.process())) } }
+        all.forEach { entry -> entry.run?.let { showConsole(entry.id, LaunchedShell(it.runId(), entry.configuration.projectId(), ShellProfile(it.label(), RUN_EXECUTABLE, emptyList()), it.process())) } }
         val live = all.filter { it.run != null }.map { it.id }.toSet()
         consoles.keys.filter { it !in live }.forEach { closeConsole(consoles.remove(it)) }
     }
 
-    private fun showConsole(configurationId: Long, session: LaunchedSession) {
-        if (consoles[configurationId] == session.astrolabeSessionId()) return
-        terminal.open(session)
-        closeConsole(consoles.put(configurationId, session.astrolabeSessionId()))
+    /** A run is not a claude session: it goes through the shell path, so it gets no Ctrl+C grace and no Esc reports. */
+    private fun showConsole(configurationId: Long, console: LaunchedShell) {
+        if (consoles[configurationId] == console.terminalId()) return
+        terminal.openShell(console)
+        closeConsole(consoles.put(configurationId, console.terminalId()))
     }
 
     private fun closeConsole(runId: String?) {

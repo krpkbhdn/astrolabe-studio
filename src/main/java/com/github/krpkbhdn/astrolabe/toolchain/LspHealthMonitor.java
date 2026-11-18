@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -14,8 +15,11 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -126,7 +130,10 @@ public class LspHealthMonitor extends ScheduledSweep {
     @Override
     public void sweep() {
         try {
-            watchers.stream().map(watcher -> watcher.directory).distinct().forEach(directory -> check(directory, true));
+            inParallel(watchers.stream().map(watcher -> watcher.directory).distinct().toList(), directory -> {
+                check(directory, true);
+                return null;
+            });
         } catch (RuntimeException | Error e) {
             log.warn("Language server health check failed: {}", e.getClass().getSimpleName());
         }
@@ -135,13 +142,30 @@ public class LspHealthMonitor extends ScheduledSweep {
     private void check(Path directory, boolean recover) {
         try {
             awaitingImport.remove(directory);
-            var current = projectTools.detected(directory).stream().map(found -> fresh(directory, found, recover)).toList();
+            var current = inParallel(projectTools.detected(directory), found -> fresh(directory, found, recover));
             watchers.stream().filter(watcher -> watcher.directory.equals(directory)).forEach(watcher -> watcher.deliver(current));
             if (awaitingImport.contains(directory)) {
                 later.run(() -> recheck(directory), properties.markerRecheck());
             }
         } catch (RuntimeException e) {
             log.warn("Language server health check of a project failed: {}", e.getClass().getSimpleName());
+        }
+    }
+
+    /** Runs each item on its own thread so one tool's recovery pauses never hold up the others; results keep the input order. */
+    private static <T, R> List<R> inParallel(List<T> items, Function<T, R> task) {
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var futures = items.stream().map(item -> executor.submit(() -> task.apply(item))).toList();
+            var results = new ArrayList<R>();
+            for (var future : futures) {
+                results.add(future.get());
+            }
+            return results;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted during a language server check", e);
+        } catch (ExecutionException e) {
+            throw e.getCause() instanceof RuntimeException runtime ? runtime : new IllegalStateException(e.getCause());
         }
     }
 
@@ -237,12 +261,17 @@ public class LspHealthMonitor extends ScheduledSweep {
     /** One try per cooldown, and none after a try that did not help until the tool was seen healthy; the cooldown is recorded before the try. */
     private ToolState reinstalled(String id) {
         var now = clock.instant();
-        var previous = lastReinstall.get(id);
-        if (!installer.runsManagedLauncher(id) || notRepairedByReinstall.contains(id) || channelOf(id) == ToolChannel.LATEST
-                || previous != null && previous.plus(properties.reinstallCooldown()).isAfter(now)) {
+        if (!installer.runsManagedLauncher(id) || notRepairedByReinstall.contains(id) || channelOf(id) == ToolChannel.LATEST) {
             return ToolState.FAILED;
         }
-        lastReinstall.put(id, now);
+        var claimed = new boolean[1];
+        lastReinstall.compute(id, (key, previous) -> {
+            claimed[0] = previous == null || !previous.plus(properties.reinstallCooldown()).isAfter(now);
+            return claimed[0] ? now : previous;
+        });
+        if (!claimed[0]) {
+            return ToolState.FAILED;
+        }
         var result = installer.reinstall(id);
         if (result.outcome() == ToolInstallService.Outcome.BLOCKED) {
             lastReinstall.remove(id);

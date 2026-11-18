@@ -45,9 +45,16 @@ public final class SafeArchiveExtractor {
     public int extract(Path archive, Path targetDir, boolean tarGz, long maxEntries, long maxUnpackedBytes)
             throws IOException {
         List<List<String>> names = new ArrayList<>();
+        long[] declared = {0};
         walk(archive, tarGz, (item, in) -> {
             if (names.size() >= maxEntries) {
                 throw new IOException("Archive has more than " + maxEntries + " entries");
+            }
+            if (item.kind() == Kind.FILE && item.size() > 0) {
+                declared[0] += item.size();
+                if (declared[0] > maxUnpackedBytes) {
+                    throw new IOException("Archive unpacks to more than " + maxUnpackedBytes + " bytes");
+                }
             }
             names.add(segments(item.name()));
         });
@@ -105,7 +112,7 @@ public final class SafeArchiveExtractor {
 
     private enum Kind { FILE, DIRECTORY, SYMLINK, HARDLINK }
 
-    private record Item(String name, Kind kind, int mode, String link) {
+    private record Item(String name, Kind kind, int mode, String link, long size) {
     }
 
     private interface EntrySink {
@@ -147,7 +154,7 @@ public final class SafeArchiveExtractor {
         } else {
             throw new IOException("Unsupported archive entry type: " + printable(entry.getName()));
         }
-        return new Item(entry.getName(), kind, entry.getMode(), entry.getLinkName());
+        return new Item(entry.getName(), kind, entry.getMode(), entry.getLinkName(), entry.getSize());
     }
 
     private static void walkZip(Path archive, EntrySink sink) throws IOException {
@@ -158,15 +165,15 @@ public final class SafeArchiveExtractor {
                 ZipArchiveEntry entry = entries.nextElement();
                 int type = entry.getUnixMode() & ZIP_TYPE_MASK;
                 if (entry.isDirectory() || type == ZIP_DIRECTORY) {
-                    sink.accept(new Item(entry.getName(), Kind.DIRECTORY, entry.getUnixMode(), null), null);
+                    sink.accept(new Item(entry.getName(), Kind.DIRECTORY, entry.getUnixMode(), null, 0), null);
                 } else if (type == ZIP_SYMLINK) {
                     try (InputStream in = zip.getInputStream(entry)) {
                         String target = new String(in.readNBytes(BUFFER_SIZE), StandardCharsets.UTF_8);
-                        sink.accept(new Item(entry.getName(), Kind.SYMLINK, entry.getUnixMode(), target), null);
+                        sink.accept(new Item(entry.getName(), Kind.SYMLINK, entry.getUnixMode(), target, 0), null);
                     }
                 } else if (type == 0 || type == ZIP_REGULAR) {
                     try (InputStream in = zip.getInputStream(entry)) {
-                        sink.accept(new Item(entry.getName(), Kind.FILE, entry.getUnixMode(), null), in);
+                        sink.accept(new Item(entry.getName(), Kind.FILE, entry.getUnixMode(), null, entry.getSize()), in);
                     }
                 } else {
                     throw new IOException("Unsupported archive entry type: " + printable(entry.getName()));

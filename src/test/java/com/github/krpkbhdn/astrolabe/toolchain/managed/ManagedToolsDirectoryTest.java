@@ -54,6 +54,14 @@ class ManagedToolsDirectoryTest {
     }
 
     @Test
+    void asideFolderOfAReplacedVersionIsNotAnInstalledVersion() throws IOException {
+        complete("jdtls", "1.0");
+        complete("jdtls", "1.0.partial-stale-123e4567-e89b-12d3-a456-426614174000");
+
+        assertThat(tools.installedVersion("jdtls")).contains("1.0");
+    }
+
+    @Test
     void newestCompleteVersionWinsNumerically() throws IOException {
         complete("jdtls", "1.9.0-202601010000");
         complete("jdtls", "1.10.0-202501010000");

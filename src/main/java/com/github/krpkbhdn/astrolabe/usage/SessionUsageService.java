@@ -19,7 +19,7 @@ public class SessionUsageService {
 
     public SessionUsageService(SessionRegistry sessions) {
         this.sessions = sessions;
-        sessions.subscribe(this::dropEndedSessions);
+        sessions.subscribeSessions(this::dropIfEnded);
     }
 
     @EventListener
@@ -49,7 +49,9 @@ public class SessionUsageService {
         return listeners.add(onChange);
     }
 
-    private void dropEndedSessions() {
-        bySession.keySet().removeIf(id -> sessions.find(id).isEmpty());
+    private void dropIfEnded(String astrolabeSessionId) {
+        if (bySession.containsKey(astrolabeSessionId) && sessions.find(astrolabeSessionId).isEmpty()) {
+            bySession.remove(astrolabeSessionId);
+        }
     }
 }

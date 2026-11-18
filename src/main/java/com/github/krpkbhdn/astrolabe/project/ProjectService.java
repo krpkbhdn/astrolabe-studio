@@ -76,8 +76,11 @@ public class ProjectService {
         if (name == null || name.isBlank()) {
             throw new IllegalArgumentException("Project name must not be empty");
         }
-        var updated = jdbc.sql("UPDATE project SET name = ? WHERE id = ?").param(name.strip()).param(id).update();
-        if (updated == 0) {
+        return updateProject(id, jdbc.sql("UPDATE project SET name = ? WHERE id = ?").param(name.strip()).param(id));
+    }
+
+    private Project updateProject(long id, JdbcClient.StatementSpec update) {
+        if (update.update() == 0) {
             throw new IllegalArgumentException("Project not found: " + id);
         }
         fireChanged();
@@ -86,13 +89,8 @@ public class ProjectService {
 
     /** Stores the model and effort new sessions of the project start with. */
     public Project selectModel(long id, ModelSelection selection) {
-        var updated = jdbc.sql("UPDATE project SET model = ?, effort = ? WHERE id = ?")
-                .param(selection.model()).param(selection.effort()).param(id).update();
-        if (updated == 0) {
-            throw new IllegalArgumentException("Project not found: " + id);
-        }
-        fireChanged();
-        return find(id).orElseThrow();
+        return updateProject(id, jdbc.sql("UPDATE project SET model = ?, effort = ? WHERE id = ?")
+                .param(selection.model()).param(selection.effort()).param(id));
     }
 
     /** Stores the trust level override of the sessions the project starts next; groups always ask, so their level cannot be set. */

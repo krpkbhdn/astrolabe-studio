@@ -15,6 +15,8 @@ import java.nio.file.Path
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
+private const val USAGE_REFRESH_MILLIS = 250L
+
 /** What the machine and the Claude account report: the installation, the IDE, account rate limits and per-session usage. */
 class ClaudeEnvironment(
     private val backend: Backend,
@@ -22,6 +24,7 @@ class ClaudeEnvironment(
     private val prefs: UiPreferences,
     private val reportError: (String) -> Unit,
 ) {
+    private val usageRefresh = Refresher(scope, USAGE_REFRESH_MILLIS) { runGuarded(reportError) { sessionUsage = backend.sessionUsage.all() } }
     private val ideIconExtractor = IdeIconExtractor()
     var installation by mutableStateOf<ClaudeInstallation?>(null)
         private set
@@ -48,7 +51,7 @@ class ClaudeEnvironment(
     fun start(onInstallation: (ClaudeInstallation?) -> Unit): List<Runnable> {
         val unsubscribers = listOf(
             backend.rateLimits.subscribe { scope.launch { rateLimits = backend.rateLimits.current().orElse(null) } },
-            backend.sessionUsage.subscribe { scope.launch { sessionUsage = backend.sessionUsage.all() } },
+            backend.sessionUsage.subscribe { usageRefresh.request() },
             backend.customIdes.subscribe { refreshIdes() },
         )
         scope.launch { rateLimits = backend.rateLimits.current().orElse(null) }

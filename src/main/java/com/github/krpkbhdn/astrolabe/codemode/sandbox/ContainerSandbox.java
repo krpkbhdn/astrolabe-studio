@@ -201,7 +201,10 @@ public class ContainerSandbox implements ScriptSandbox {
     private void stop(Process process, String name) {
         if (process.isAlive()) {
             try {
-                starter.start(List.of(ContainerRuntimeDetector.executable(runtime), "kill", name)).waitFor(5, TimeUnit.SECONDS);
+                var kill = starter.start(List.of(ContainerRuntimeDetector.executable(runtime), "kill", name));
+                if (!kill.waitFor(5, TimeUnit.SECONDS)) {
+                    kill.destroyForcibly();
+                }
             } catch (IOException e) {
                 // the process destroy below is the fallback
             } catch (InterruptedException e) {

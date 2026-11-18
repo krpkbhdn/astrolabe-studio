@@ -40,6 +40,11 @@ class QueueDispatch(
         check()
     }
 
+    /** Like [evaluate] for hook events: nothing is queued and nothing pending, so only the per-session tracking is dropped. */
+    fun sessionsChanged() {
+        if (queues.isEmpty() && retry?.isActive != true && sending.isEmpty()) dispatcher.retainSessions(emptySet()) else evaluate()
+    }
+
     private fun check() {
         val snapshots = sessions()
         val live = snapshots.map { it.astrolabeSessionId }.toSet()

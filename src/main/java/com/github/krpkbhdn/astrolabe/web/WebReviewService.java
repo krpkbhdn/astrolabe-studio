@@ -89,7 +89,13 @@ public class WebReviewService {
     /** Records a visit: upserts the page with its real URL and title and moves it last; listeners fire only for a new page or a changed URL or title. */
     public void touchPage(long projectId, String url, String title) {
         var pageKey = PageKey.of(url);
-        var changed = transaction.execute(status -> repository.upsertPage(projectId, pageKey, url.strip(), title == null ? "" : title).changed());
+        var changed = transaction.execute(status -> {
+            var upsert = repository.upsertPage(projectId, pageKey, url.strip(), title == null ? "" : title);
+            if (upsert.changed()) {
+                repository.prunePages(projectId, properties.maxPagesPerProject());
+            }
+            return upsert.changed();
+        });
         if (changed) {
             listeners.fire();
         }

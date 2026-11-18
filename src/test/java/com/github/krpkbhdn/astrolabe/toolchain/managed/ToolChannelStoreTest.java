@@ -1,6 +1,7 @@
 package com.github.krpkbhdn.astrolabe.toolchain.managed;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.github.krpkbhdn.astrolabe.config.AppProperties;
 import java.io.IOException;
@@ -32,6 +33,13 @@ class ToolChannelStoreTest {
     }
 
     @Test
+    void aMissingEntryInAnExistingFileMeansVerified() throws IOException {
+        store.select("other", ToolChannel.LATEST);
+
+        assertThat(store.selected("jdtls")).isEqualTo(ToolChannel.VERIFIED);
+    }
+
+    @Test
     void roundTripsPerTool() throws IOException {
         store.select("jdtls", ToolChannel.LATEST);
         store.select("other", ToolChannel.VERIFIED);
@@ -51,13 +59,13 @@ class ToolChannelStoreTest {
     }
 
     @Test
-    void writingRepairsACorruptFileAndLeavesNoTempFile() throws IOException {
+    void anUnreadableFileIsNeverOverwrittenByASelect() throws IOException {
         Files.createDirectories(file.getParent());
         Files.writeString(file, "\\u12");
 
-        store.select("jdtls", ToolChannel.LATEST);
+        assertThatThrownBy(() -> store.select("jdtls", ToolChannel.LATEST)).isInstanceOf(IOException.class);
 
-        assertThat(store.selected("jdtls")).isEqualTo(ToolChannel.LATEST);
+        assertThat(file).hasContent("\\u12");
         try (Stream<Path> files = Files.list(file.getParent())) {
             assertThat(files.map(path -> path.getFileName().toString())).containsExactly("channels.properties");
         }

@@ -96,6 +96,8 @@ class ShellsStateTest {
     private fun launchedShell(id: String, profile: ShellProfile, exit: CountDownLatch): LaunchedShell {
         val process = mock(PtyProcess::class.java)
         `when`(process.waitFor()).thenAnswer { exit.await(); 0 }
+        // production awaits onExit(), which a mock would otherwise answer with null
+        doReturn(java.util.concurrent.CompletableFuture.supplyAsync<Process> { exit.await(); process }).`when`(process).onExit()
         return LaunchedShell(id, 1, profile, process)
     }
 }
