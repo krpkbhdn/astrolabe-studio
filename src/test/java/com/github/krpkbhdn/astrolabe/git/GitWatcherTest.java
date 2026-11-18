@@ -195,10 +195,10 @@ class GitWatcherTest {
             }
         };
         var slowWatcher = new GitWatcher(slowGit);
-        var subscribing = java.util.concurrent.CompletableFuture.runAsync(() -> slowWatcher.subscribe(repo.root(), () -> {}));
+        var subscribing = java.util.concurrent.CompletableFuture.runAsync(() -> slowWatcher.subscribe(repo.root(), () -> {}), task -> Thread.ofPlatform().name("slow-subscribe").daemon().start(task));
         assertThat(started.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
 
-        var closing = java.util.concurrent.CompletableFuture.runAsync(slowWatcher::close);
+        var closing = java.util.concurrent.CompletableFuture.runAsync(slowWatcher::close, task -> Thread.ofPlatform().name("slow-close").daemon().start(task));
 
         try {
             closing.get(2, java.util.concurrent.TimeUnit.SECONDS);

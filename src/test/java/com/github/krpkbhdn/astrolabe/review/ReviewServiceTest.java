@@ -442,14 +442,27 @@ class ReviewServiceTest {
         assertThat(service.find(review.id()).orElseThrow().status()).isEqualTo(ReviewStatus.APPROVED);
     }
 
+    private static void awaitWaiting(Thread thread) throws InterruptedException {
+        var deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(30);
+        while (thread.getState() != Thread.State.WAITING && thread.getState() != Thread.State.BLOCKED && thread.getState() != Thread.State.TIMED_WAITING) {
+            assertThat(System.nanoTime()).as("approve never blocked").isLessThan(deadline);
+            Thread.sleep(5);
+        }
+    }
+
     @Test
     void submitHoldsTheCaptureLockWhileItStoresItsImages() throws Exception {
         var other = submit("other");
         var blocked = new java.util.concurrent.atomic.AtomicReference<Thread>();
+        var approver = new java.util.concurrent.CountDownLatch(1);
         org.mockito.Mockito.doAnswer(call -> {
-            var thread = Thread.ofVirtual().start(() -> service.approve(other.id()));
+            var thread = Thread.ofPlatform().daemon().start(() -> {
+                approver.countDown();
+                service.approve(other.id());
+            });
             blocked.set(thread);
-            thread.join(300);
+            assertThat(approver.await(30, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            awaitWaiting(thread);
             assertThat(thread.isAlive()).isTrue();
             Files.createDirectories(call.<Path>getArgument(0));
             return List.of(new StoredImage("1.png", "first", 10, 20));
@@ -457,7 +470,8 @@ class ReviewServiceTest {
 
         submit("second");
 
-        blocked.get().join();
+        blocked.get().join(30_000);
+        assertThat(blocked.get().isAlive()).isFalse();
         assertThat(service.find(other.id()).orElseThrow().status()).isEqualTo(ReviewStatus.APPROVED);
     }
 

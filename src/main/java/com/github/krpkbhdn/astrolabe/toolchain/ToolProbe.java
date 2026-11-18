@@ -16,9 +16,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
@@ -123,6 +120,9 @@ public class ToolProbe {
         try {
             long generation = probeGeneration.incrementAndGet();
             var status = probeUncached(toolId);
+            if (Thread.currentThread().isInterrupted()) {
+                return status; // a cancelled probe reports interruption, not the tool's health
+            }
             cache.merge(toolId, new Cached(status, clock.instant(), generation),
                     (current, probed) -> current.generation() > probed.generation() ? current : probed);
             return status;
@@ -155,15 +155,7 @@ public class ToolProbe {
     }
 
     private List<ToolStatus> probeEach(Function<String, ToolStatus> probing) {
-        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            var futures = new ArrayList<Future<ToolStatus>>();
-            catalog.all().forEach(tool -> futures.add(executor.submit(() -> probeOrFail(tool.id(), probing))));
-            var result = new ArrayList<ToolStatus>();
-            for (var future : futures) {
-                result.add(await(future));
-            }
-            return List.copyOf(result);
-        }
+        return ParallelTasks.run(catalog.all(), tool -> "tool-probe-" + tool.id(), tool -> probeOrFail(tool.id(), probing));
     }
 
     private static ToolStatus probeOrFail(String toolId, Function<String, ToolStatus> probing) {
@@ -172,17 +164,6 @@ public class ToolProbe {
         } catch (RuntimeException e) {
             log.debug("Probe of {} failed", toolId, e);
             return new ToolStatus(toolId, ToolState.FAILED, "", "probe failed: " + e.getClass().getSimpleName());
-        }
-    }
-
-    private static ToolStatus await(Future<ToolStatus> future) {
-        try {
-            return future.get();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Interrupted while probing tools", e);
-        } catch (ExecutionException e) {
-            throw new IllegalStateException("Tool probe failed", e.getCause());
         }
     }
 

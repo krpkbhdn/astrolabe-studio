@@ -226,9 +226,7 @@ class GeneralPresetEndToEndTest {
     }
 
     private void runGit(String... args) throws Exception {
-        var command = new java.util.ArrayList<String>(List.of("git", "-C", project.toString()));
-        command.addAll(List.of(args));
-        var git = TestProcesses.run(new ProcessBuilder(command).redirectErrorStream(true).start());
+        var git = TestProcesses.run(TestProcesses.git(args).directory(project.toFile()).redirectErrorStream(true).start());
         assertThat(git.exitCode()).as(git.stdout()).isZero();
     }
 

@@ -70,7 +70,7 @@ object GitDemoRepo {
     }
 
     fun git(directory: Path, vararg arguments: String): String {
-        val process = ProcessBuilder(listOf("git") + arguments).directory(directory.toFile()).redirectErrorStream(true).start()
+        val process = TestProcesses.git(*arguments).directory(directory.toFile()).redirectErrorStream(true).start()
         val result = TestProcesses.run(process, Duration.ofSeconds(GIT_TIMEOUT_SECONDS))
         check(result.exitCode() == 0) { "git ${arguments.joinToString(" ")} failed: ${result.stdout()}" }
         return result.stdout()

@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 /** A throw-away repository driven by the real git CLI, with a repo-local identity and no signing. */
 final class HistoryTestRepo {
@@ -58,10 +57,8 @@ final class HistoryTestRepo {
     }
 
     String git(String... args) {
-        var command = new ArrayList<>(List.of("git"));
-        command.addAll(List.of(args));
         try {
-            var process = new ProcessBuilder(command).directory(root.toFile()).redirectErrorStream(true).start();
+            var process = TestProcesses.git(args).directory(root.toFile()).redirectErrorStream(true).start();
             var drained = TestProcesses.run(process);
             if (drained.exitCode() != 0) {
                 throw new IllegalStateException("git " + String.join(" ", args) + " failed: " + drained.stdout());
