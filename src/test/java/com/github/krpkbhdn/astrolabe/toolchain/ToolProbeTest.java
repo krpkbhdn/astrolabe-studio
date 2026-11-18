@@ -252,17 +252,46 @@ class ToolProbeTest {
             }
             return output(0, "new");
         });
-        var stale = CompletableFuture.supplyAsync(() -> probe.probe("node"));
-        started.await();
+        // own threads: the common pool may have a single worker on a small runner
+        java.util.concurrent.Executor threads = task -> Thread.ofPlatform().daemon().start(task);
+        var stale = CompletableFuture.supplyAsync(() -> probe.probe("node"), threads);
+        assertThat(started.await(30, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
 
         // probes of one tool are serialised: the newer one waits for the older one to finish
-        var fresh = CompletableFuture.supplyAsync(() -> probe.probeFresh("node"));
+        var fresh = CompletableFuture.supplyAsync(() -> probe.probeFresh("node"), threads);
         release.countDown();
-        assertThat(stale.get().version()).isEqualTo("stale");
-        assertThat(fresh.get().version()).isEqualTo("new");
+        assertThat(stale.get(30, java.util.concurrent.TimeUnit.SECONDS).version()).isEqualTo("stale");
+        assertThat(fresh.get(30, java.util.concurrent.TimeUnit.SECONDS).version()).isEqualTo("new");
 
         assertThat(probe.probe("node").version()).isEqualTo("new");
         assertThat(calls).hasValue(2);
+    }
+
+    @Test
+    void cancelledProbeAllLeavesNoFailedStatusInTheCache() throws Exception {
+        host = host.withFile(BIN.resolve("node"));
+        var started = new CountDownLatch(1);
+        var calls = new AtomicInteger();
+        var probe = probe((c, t, env) -> {
+            if (calls.incrementAndGet() == 1) {
+                started.countDown();
+                try {
+                    new CountDownLatch(1).await(30, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("interrupted", e);
+                }
+            }
+            return output(0, "1");
+        });
+        var caller = Thread.ofPlatform().name("cancelled-probe-all").daemon().start(probe::probeAll);
+        assertThat(started.await(30, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+
+        caller.interrupt();
+        caller.join(30_000);
+
+        assertThat(caller.isAlive()).isFalse();
+        assertThat(probe.probe("node").state()).isEqualTo(ToolState.INSTALLED);
     }
 
     @Test

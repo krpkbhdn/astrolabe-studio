@@ -25,6 +25,16 @@ class TestProcessesTest {
     }
 
     @Test
+    void gitRunsWithoutPromptsAndExitsCleanly() throws Exception {
+        var builder = TestProcesses.git("--version");
+
+        assertThat(builder.environment()).containsEntry("GIT_TERMINAL_PROMPT", "0");
+        var drained = TestProcesses.run(builder.start());
+        assertThat(drained.exitCode()).isZero();
+        assertThat(drained.stdout()).startsWith("git version");
+    }
+
+    @Test
     void runFailsFastAndKillsAChildThatNeverExits() throws Exception {
         var process = start("ping -n 60 127.0.0.1 >nul", "sleep 60");
         var started = System.nanoTime();
