@@ -57,7 +57,22 @@ private const val WINDOW_ICON_SIZE = 256
 private const val BROWSER_SHUTDOWN_MILLIS = 3_000L
 private const val STATE_DISPOSE_MILLIS = 5_000L
 
-private val SHUTDOWN_LOG = LoggerFactory.getLogger("com.github.krpkbhdn.astrolabe.ui.AppShutdown")
+private const val LINUX_TRAY_PADDING = 2
+
+/** Linux trays crop an icon that fills the cell: draw it at the tray's own size on a transparent ARGB canvas with a small margin. */
+private fun trayIconImage(waiting: Int): java.awt.image.BufferedImage {
+    if (!System.getProperty("os.name").lowercase().contains("linux")) return drawAppIcon(TRAY_ICON_SIZE, waiting)
+    val cell = java.awt.SystemTray.getSystemTray().trayIconSize.let { minOf(it.width, it.height) }.coerceAtLeast(1)
+    val inner = (cell - 2 * LINUX_TRAY_PADDING).coerceAtLeast(1)
+    val canvas = java.awt.image.BufferedImage(cell, cell, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+    val g = canvas.createGraphics()
+    g.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+    g.drawImage(drawAppIcon(inner, waiting), LINUX_TRAY_PADDING, LINUX_TRAY_PADDING, null)
+    g.dispose()
+    return canvas
+}
+
+private val SHUTDOWN_LOG =LoggerFactory.getLogger("com.github.krpkbhdn.astrolabe.ui.AppShutdown")
 
 /** Runs one exit step so that its failure is logged and never skips the next; a hung step gets [limitMillis] on a daemon thread, then is left behind. */
 internal fun shutdownStep(name: String, limitMillis: Long? = null, step: () -> Unit) {
@@ -117,8 +132,8 @@ fun ApplicationScope.AppWindow(backend: Backend, onShutdown: () -> Unit, setting
     val taskbar = remember { TaskbarAttention() }
     state.flashTaskbar = { taskbar.flashFor(state.settings, it, state.windowActive) }
     if (isTraySupported) {
-        val plainIcon = remember { BitmapPainter(drawAppIcon(TRAY_ICON_SIZE).toComposeImageBitmap()) }
-        val badgedIcon = remember(waiting) { BitmapPainter(drawAppIcon(TRAY_ICON_SIZE, waiting).toComposeImageBitmap()) }
+        val plainIcon = remember { BitmapPainter(trayIconImage(0).toComposeImageBitmap()) }
+        val badgedIcon = remember(waiting) { BitmapPainter(trayIconImage(waiting).toComposeImageBitmap()) }
         Tray(
             icon = if (waiting > 0) badgedIcon else plainIcon,
             tooltip = if (waiting > 0) "$WINDOW_TITLE: $waiting waiting" else WINDOW_TITLE,
