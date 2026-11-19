@@ -15,7 +15,7 @@ plugins {
 }
 
 group = "com.github.krpkbhdn"
-version = "2.3.36"
+version = "2.3.37"
 
 java {
     toolchain {
@@ -391,6 +391,8 @@ if (!isMac) tasks.withType<org.jetbrains.compose.desktop.application.tasks.Abstr
         }
         val helper = listOf("bin/jcef_helper.exe", "lib/jcef_helper", "bin/jcef_helper").map { File(image, it) }
         check(helper.any { it.isFile }) { "jcef_helper is missing in $image after copying JCEF from ${jbr.get()} (looked for $helper)." }
+        // jlink and copyRecursively drop the execute bit, and CEF cannot start its child process without it.
+        helper.filter { it.isFile }.forEach { it.setExecutable(true, false) }
         val libcef = listOf("bin", "lib").flatMap { File(image, it).listFiles { f -> f.name.matches(Regex("(lib)?cef\\.(dll|so)")) }.orEmpty().toList() }
         check(libcef.isNotEmpty()) { "libcef is missing in $image after copying JCEF from ${jbr.get()}." }
     }

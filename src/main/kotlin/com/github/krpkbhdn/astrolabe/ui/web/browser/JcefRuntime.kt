@@ -17,6 +17,7 @@ object JcefRuntime {
     private const val INIT_TIMEOUT_SECONDS = 30L
     private const val POLL_MILLIS = 50L
     private const val CEF_CLASS = "org.cef.CefApp"
+    private const val REMOTE_ENV = "ASTROLABE_JCEF_REMOTE"
     @Volatile private var app: CefApp? = null
     private var keepAlive: CefClient? = null
 
@@ -61,7 +62,7 @@ object JcefRuntime {
             // Without it CEF re-launches the java executable as its child processes and they die on "--type=...".
             browser_subprocess_path = helper.toString()
         }
-        CefApp.setIsRemoteEnabled(false)
+        CefApp.setIsRemoteEnabled(remoteRequested())
         CefApp.startup(emptyArray())
         val created = CefApp.getInstance(emptyArray(), settings, null)
         awaitInitialized(CefApp::getState, TimeUnit.SECONDS.toMillis(INIT_TIMEOUT_SECONDS))
@@ -90,6 +91,9 @@ object JcefRuntime {
         app?.dispose()
         app = null
     }
+
+    /** Experimental opt-in: CEF in a separate native process (JBR remote mode), set by ASTROLABE_JCEF_REMOTE=1. */
+    private fun remoteRequested() = System.getenv(REMOTE_ENV) == "1"
 
     private fun cefClassPresent() = try {
         Class.forName(CEF_CLASS, false, JcefRuntime::class.java.classLoader)
