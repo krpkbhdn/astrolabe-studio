@@ -17,7 +17,6 @@ object JcefRuntime {
     private const val INIT_TIMEOUT_SECONDS = 30L
     private const val POLL_MILLIS = 50L
     private const val CEF_CLASS = "org.cef.CefApp"
-    private const val REMOTE_ENV = "ASTROLABE_JCEF_REMOTE"
     @Volatile private var app: CefApp? = null
     private var keepAlive: CefClient? = null
 
@@ -28,8 +27,17 @@ object JcefRuntime {
         !cefPresent -> Availability.Unsupported("This Java runtime has no embedded browser (JetBrains Runtime with JCEF is required)")
         helperExecutable(javaHome, osName) == null ->
             Availability.Unsupported("The browser helper (jcef_helper) was not found in the Java runtime at $javaHome")
+        serverExecutable(javaHome, osName) == null ->
+            Availability.Unsupported("The browser server (cef_server) was not found in the Java runtime at $javaHome")
         else -> Availability.Ready
     }
+
+    /** The separate process that hosts CEF in remote mode (file or app bundle), or null if it is not there. */
+    internal fun serverExecutable(javaHome: Path, osName: String): Path? = when {
+        "win" in osName -> javaHome.resolve("bin/cef_server.exe")
+        "mac" in osName -> javaHome.resolve("../Frameworks/cef_server.app").normalize()
+        else -> javaHome.resolve("lib/cef_server")
+    }.takeIf { Files.exists(it) }
 
     /** Where the browser's child-process executable lives in the JBR layout of [osName], or null if it is not there. */
     internal fun helperExecutable(javaHome: Path, osName: String): Path? {
@@ -62,7 +70,8 @@ object JcefRuntime {
             // Without it CEF re-launches the java executable as its child processes and they die on "--type=...".
             browser_subprocess_path = helper.toString()
         }
-        CefApp.setIsRemoteEnabled(remoteRequested())
+        // In-process libcef cannot load on Linux (static TLS), so CEF always runs in the separate cef_server process.
+        CefApp.setIsRemoteEnabled(true)
         CefApp.startup(emptyArray())
         val created = CefApp.getInstance(emptyArray(), settings, null)
         awaitInitialized(CefApp::getState, TimeUnit.SECONDS.toMillis(INIT_TIMEOUT_SECONDS))
@@ -91,9 +100,6 @@ object JcefRuntime {
         app?.dispose()
         app = null
     }
-
-    /** Experimental opt-in: CEF in a separate native process (JBR remote mode), set by ASTROLABE_JCEF_REMOTE=1. */
-    private fun remoteRequested() = System.getenv(REMOTE_ENV) == "1"
 
     private fun cefClassPresent() = try {
         Class.forName(CEF_CLASS, false, JcefRuntime::class.java.classLoader)
