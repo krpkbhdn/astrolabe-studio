@@ -15,7 +15,7 @@ plugins {
 }
 
 group = "com.github.krpkbhdn"
-version = "2.3.39"
+version = "2.3.40"
 
 java {
     toolchain {
@@ -395,9 +395,11 @@ if (!isMac) tasks.withType<org.jetbrains.compose.desktop.application.tasks.Abstr
         // jlink and copyRecursively drop the execute bit, and CEF cannot start its child process without it.
         helper.filter { it.isFile }.forEach { it.setExecutable(true, false) }
         // Remote-mode CEF server: bin/cef_server.exe on Windows, lib/cef_server (file or folder) on Linux.
-        val server = listOf("bin/cef_server.exe", "lib/cef_server").map { File(image, it) }.filter { it.exists() }
+        // shortcut: lib/cef_server may be a folder on Linux (unverified), then every file in it is marked executable.
+        val server = listOf("bin/cef_server.exe", "lib/cef_server").map { File(image, it) }
+            .flatMap { if (it.isDirectory) it.walkTopDown().filter(File::isFile).toList() else listOf(it).filter(File::isFile) }
         check(server.isNotEmpty()) { "cef_server is missing in $image after copying JCEF from ${jbr.get()}." }
-        server.forEach { s -> s.walkTopDown().filter { it.isFile }.forEach { it.setExecutable(true, false) } }
+        server.forEach { it.setExecutable(true, false) }
         val libcef = listOf("bin", "lib").flatMap { File(image, it).listFiles { f -> f.name.matches(Regex("(lib)?cef\\.(dll|so)")) }.orEmpty().toList() }
         check(libcef.isNotEmpty()) { "libcef is missing in $image after copying JCEF from ${jbr.get()}." }
     }

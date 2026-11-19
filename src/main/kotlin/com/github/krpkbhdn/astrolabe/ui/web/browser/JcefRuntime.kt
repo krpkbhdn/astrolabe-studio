@@ -5,7 +5,9 @@ import org.cef.CefClient
 import org.cef.CefSettings
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 sealed interface Availability {
     data object Ready : Availability
@@ -17,6 +19,10 @@ object JcefRuntime {
     private const val INIT_TIMEOUT_SECONDS = 30L
     private const val POLL_MILLIS = 50L
     private const val CEF_CLASS = "org.cef.CefApp"
+    private const val SERVER_NAME = "cef_server"
+    private const val KILL_WAIT_MILLIS = 2_000L
+    private val servers: MutableSet<ProcessHandle> = ConcurrentHashMap.newKeySet()
+    private val hookRegistered = AtomicBoolean(false)
     @Volatile private var app: CefApp? = null
     private var keepAlive: CefClient? = null
 
@@ -73,11 +79,39 @@ object JcefRuntime {
         // In-process libcef cannot load on Linux (static TLS), so CEF always runs in the separate cef_server process.
         CefApp.setIsRemoteEnabled(true)
         CefApp.startup(emptyArray())
+        if (hookRegistered.compareAndSet(false, true)) Runtime.getRuntime().addShutdownHook(Thread(::killServers, "jcef-kill-servers"))
         val created = CefApp.getInstance(emptyArray(), settings, null)
-        awaitInitialized(CefApp::getState, TimeUnit.SECONDS.toMillis(INIT_TIMEOUT_SECONDS))
-        // CEF terminates the app when its last client is disposed; this one keeps it usable for the next browser.
-        keepAlive = created.createClient()
+        try {
+            snapshotServers()
+            awaitInitialized(CefApp::getState, TimeUnit.SECONDS.toMillis(INIT_TIMEOUT_SECONDS))
+            // CEF terminates the app when its last client is disposed; this one keeps it usable for the next browser.
+            keepAlive = created.createClient()
+        } catch (e: Throwable) {
+            // A retry must not find a second server next to a half-started one.
+            runCatching { created.dispose() }
+            killServers()
+            throw e
+        }
+        snapshotServers()
         return created.also { app = it }
+    }
+
+    /** Remembers our cef_server processes while the tree is intact: once the root dies its children are re-parented and invisible. */
+    private fun snapshotServers() {
+        ProcessHandle.current().descendants().filter(::isCefServer).forEach(servers::add)
+    }
+
+    private fun isCefServer(p: ProcessHandle) = p.info().command().map { it.contains(SERVER_NAME, ignoreCase = true) }.orElse(false)
+
+    /** CefApp.dispose() in remote mode leaves the server tree running, so end it here; only processes seen as our own descendants. */
+    private fun killServers() {
+        snapshotServers()
+        val victims = servers.filter { it.isAlive }
+        victims.forEach { it.destroy() }
+        val end = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(KILL_WAIT_MILLIS)
+        while (victims.any { it.isAlive } && System.nanoTime() < end) Thread.sleep(POLL_MILLIS)
+        victims.filter { it.isAlive }.forEach { it.destroyForcibly() }
+        servers.clear()
     }
 
     /** Polls the state so a failed start (the app is TERMINATED) is reported at once instead of after the whole timeout. */
@@ -95,10 +129,12 @@ object JcefRuntime {
 
     @Synchronized
     fun shutdown() {
-        keepAlive?.dispose()
+        snapshotServers()
+        runCatching { keepAlive?.dispose() }
         keepAlive = null
-        app?.dispose()
+        runCatching { app?.dispose() }
         app = null
+        killServers()
     }
 
     private fun cefClassPresent() = try {

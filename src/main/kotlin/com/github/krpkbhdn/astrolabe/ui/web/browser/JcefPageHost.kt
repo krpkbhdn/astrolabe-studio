@@ -274,6 +274,7 @@ class JcefPageHost(app: CefApp, url: String = "about:blank", private val screens
 
     private fun renderHandler() = object : CefNativeRenderHandler {
         @Volatile private var sharedMemory: SharedMemoryCache? = SharedMemoryCache()
+        @Volatile private var droppedFrameLogged = false
 
         override fun getViewRect(b: CefBrowser) = Rectangle(0, 0, viewWidth, viewHeight)
         override fun getScreenInfo(b: CefBrowser, info: CefScreenInfo): Boolean {
@@ -297,7 +298,11 @@ class JcefPageHost(app: CefApp, url: String = "about:blank", private val screens
 
         // Remote mode (separate cef_server process) delivers the frame in shared memory.
         override fun onPaintWithSharedMem(b: CefBrowser, popup: Boolean, dirtyRectsCount: Int, sharedMemName: String, sharedMemHandle: Long, width: Int, height: Int) {
-            val mem = sharedMemory?.get(sharedMemName, sharedMemHandle) ?: return
+            val mem = sharedMemory?.get(sharedMemName, sharedMemHandle)
+            if (mem == null) {
+                if (!droppedFrameLogged) { droppedFrameLogged = true; log.warn("Dropping a shared-memory frame: no cached buffer for '{}'", sharedMemName) }
+                return
+            }
             mem.setWidth(width)
             mem.setHeight(height)
             mem.setDirtyRectsCount(dirtyRectsCount)
