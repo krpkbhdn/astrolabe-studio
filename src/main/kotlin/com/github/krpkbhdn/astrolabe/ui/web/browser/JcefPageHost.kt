@@ -101,6 +101,13 @@ class JcefPageHost(app: CefApp, url: String = "about:blank", private val screens
         browser.createImmediately()
     }
 
+    /** Called from onAfterCreated and from any later callback: remote mode may not deliver onAfterCreated, but a loading-state callback proves the browser exists. */
+    private fun markCreated(b: CefBrowser) = synchronized(loadLock) {
+        created = true
+        pendingUrl?.let { b.loadURL(it) }
+        pendingUrl = null
+    }
+
     /** A load before the native browser exists is silently dropped by CEF, so it waits for onAfterCreated. */
     override fun load(url: String) {
         val allowed = NavigationPolicy.require(url)
@@ -222,8 +229,10 @@ class JcefPageHost(app: CefApp, url: String = "about:blank", private val screens
     }
 
     private fun loadHandler() = object : CefLoadHandlerAdapter() {
-        override fun onLoadingStateChange(b: CefBrowser, isLoading: Boolean, canGoBack: Boolean, canGoForward: Boolean) =
+        override fun onLoadingStateChange(b: CefBrowser, isLoading: Boolean, canGoBack: Boolean, canGoForward: Boolean) {
+            markCreated(b)
             pageState.update { it.copy(loading = isLoading, canGoBack = canGoBack, canGoForward = canGoForward) }
+        }
 
         override fun onLoadEnd(b: CefBrowser, f: CefFrame, httpStatusCode: Int) {
             if (!f.isMain) return
@@ -250,13 +259,7 @@ class JcefPageHost(app: CefApp, url: String = "about:blank", private val screens
 
     /** target=_blank and window.open stay in the same view. */
     private fun lifeSpanHandler() = object : CefLifeSpanHandlerAdapter() {
-        override fun onAfterCreated(b: CefBrowser) {
-            synchronized(loadLock) {
-                created = true
-                pendingUrl?.let { b.loadURL(it) }
-                pendingUrl = null
-            }
-        }
+        override fun onAfterCreated(b: CefBrowser) = markCreated(b)
 
         override fun onBeforePopup(b: CefBrowser, f: CefFrame, targetUrl: String, targetFrameName: String): Boolean {
             if (NavigationPolicy.isAllowedFromPage(targetUrl, pageState.value.url)) b.loadURL(targetUrl)
