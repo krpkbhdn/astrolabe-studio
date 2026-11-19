@@ -17,6 +17,14 @@ class UpdateInstaller {
 
     private static final String APP_PATH_PROPERTY = "jpackage.app-path";
 
+    /** Runs {@code cmd /d /c ""script" "msi" "exe""} hidden without waiting, then deletes itself; the doubled quotes survive cmd's outer-quote rule. */
+    private static final String LAUNCHER = """
+            Set a = WScript.Arguments
+            q = Chr(34)
+            CreateObject("WScript.Shell").Run "cmd /d /c " & q & q & a(0) & q & " " & q & a(1) & q & " " & q & a(2) & q & q, 0, False
+            CreateObject("Scripting.FileSystemObject").DeleteFile WScript.ScriptFullName
+            """;
+
     private final HostEnvironment host;
 
     UpdateInstaller(HostEnvironment host) {
@@ -34,14 +42,19 @@ class UpdateInstaller {
             throw new IllegalStateException("The app was not started from an installed package");
         }
         Path script = null;
+        Path launcher = null;
         try {
             script = Files.createTempFile("astrolabe-update", ".cmd");
+            launcher = Files.createTempFile("astrolabe-update", ".vbs");
             Files.writeString(script, script(ProcessHandle.current().pid()));
-            CommandRunner.startDetached(command(script, msi, appExecutable));
+            Files.writeString(launcher, LAUNCHER);
+            CommandRunner.startDetached(command(launcher, script, msi, appExecutable));
         } catch (IOException e) {
-            if (script != null) {
+            for (var file : new Path[] {script, launcher}) {
                 try {
-                    Files.deleteIfExists(script);
+                    if (file != null) {
+                        Files.deleteIfExists(file);
+                    }
                 } catch (IOException ignored) {
                     // the temp directory is cleaned by the OS eventually
                 }
@@ -51,11 +64,13 @@ class UpdateInstaller {
     }
 
     /**
-     * The script runs directly, the JDK quotes the arguments. Not through {@code cmd /c start}: start re-runs a .cmd as
-     * {@code cmd /K "script" "arg"}, whose outer-quote rule breaks a path with spaces ("... is not recognized") and leaves an idle console.
+     * The app has no console, so Windows gives a cmd script its own window, and the relaunched app keeps that window open as long as
+     * it runs. wscript runs the script hidden (window style 0) and the JDK quotes the arguments. Not through {@code cmd /c start}:
+     * start re-runs a .cmd as {@code cmd /K "script" "arg"}, whose outer-quote rule breaks a path with spaces.
      */
-    static List<String> command(Path script, Path msi, String appExecutable) {
-        return List.of(script.toString(), msi.toString(), Path.of(appExecutable).toAbsolutePath().toString());
+    static List<String> command(Path launcher, Path script, Path msi, String appExecutable) {
+        return List.of("wscript.exe", "//B", "//Nologo", launcher.toString(), script.toString(), msi.toString(),
+                Path.of(appExecutable).toAbsolutePath().toString());
     }
 
     static String script(long pid) {
@@ -72,7 +87,7 @@ class UpdateInstaller {
                 msiexec /i "%%~1" /passive /norestart /l*v "%%~dp1update-msi.log"
                 echo %%date%% %%time%% msiexec exit code %%errorlevel%%, starting "%%~2" >> %%LOG%%
                 start "" "%%~2" >> %%LOG%% 2>&1
-                del "%%~f0"
+                (goto) 2>nul & del "%%~f0" & exit
                 """.formatted(pid, pid);
     }
 }
