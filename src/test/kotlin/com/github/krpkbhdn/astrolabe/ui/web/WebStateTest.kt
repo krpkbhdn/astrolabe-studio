@@ -233,6 +233,16 @@ class WebStateTest {
     }
 
     @Test
+    fun `a page that fails to load is reported to the user`() {
+        openView()
+
+        host.emitEvent(com.github.krpkbhdn.astrolabe.ui.web.browser.PageEvent.LoadFailed("http://localhost:3000", "ERR_CONNECTION_REFUSED"))
+
+        await { errors.isNotEmpty() }
+        assertThat(errors).containsExactly("Could not load http://localhost:3000: ERR_CONNECTION_REFUSED")
+    }
+
+    @Test
     fun `a project that is gone loses its browser`() {
         openView()
 

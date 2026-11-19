@@ -30,7 +30,11 @@ internal class WebPageEvents(
     suspend fun onEvent(view: WebView, event: PageEvent) {
         when (event) {
             is PageEvent.Console -> view.addConsole(ConsoleLine(event.level, event.text, event.source, event.line, System.currentTimeMillis()))
-            is PageEvent.LoadFailed -> view.addConsole(ConsoleLine(ConsoleLevel.ERROR, "Could not load ${event.url}: ${event.error}", event.url, 0, System.currentTimeMillis()))
+            is PageEvent.LoadFailed -> {
+                val message = "Could not load ${event.url}: ${event.error}"
+                view.addConsole(ConsoleLine(ConsoleLevel.ERROR, message, event.url, 0, System.currentTimeMillis()))
+                reportError(message)
+            }
             is PageEvent.Inspector -> withContext(Dispatchers.Default) { InspectorMessage.parse(event.json) }?.let { onInspector(view, it) }
         }
     }
