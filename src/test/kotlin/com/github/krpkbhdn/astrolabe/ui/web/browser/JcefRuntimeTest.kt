@@ -24,11 +24,30 @@ class JcefRuntimeTest {
     }
 
     @Test
-    fun is_ready_when_the_windows_helper_exists(@TempDir home: Path) {
+    fun reports_a_missing_server_executable(@TempDir home: Path) {
         Files.createDirectories(home.resolve("bin"))
         Files.createFile(home.resolve("bin/jcef_helper.exe"))
 
+        val result = JcefRuntime.availability(home, "windows 11", cefPresent = true)
+
+        assertThat((result as Availability.Unsupported).reason).contains("cef_server")
+    }
+
+    @Test
+    fun is_ready_when_the_windows_helper_and_server_exist(@TempDir home: Path) {
+        Files.createDirectories(home.resolve("bin"))
+        Files.createFile(home.resolve("bin/jcef_helper.exe"))
+        Files.createFile(home.resolve("bin/cef_server.exe"))
+
         assertThat(JcefRuntime.availability(home, "windows 11", cefPresent = true)).isEqualTo(Availability.Ready)
+    }
+
+    @Test
+    fun finds_the_linux_server_in_lib(@TempDir home: Path) {
+        Files.createDirectories(home.resolve("lib"))
+        val server = Files.createFile(home.resolve("lib/cef_server"))
+
+        assertThat(JcefRuntime.serverExecutable(home, "linux")).isEqualTo(server)
     }
 
     @Test

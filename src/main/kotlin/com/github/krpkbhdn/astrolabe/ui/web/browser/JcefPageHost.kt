@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import com.jetbrains.cef.SharedMemoryCache
 import org.cef.CefApp
 import org.slf4j.LoggerFactory
 import org.cef.CefClient
@@ -27,7 +28,7 @@ import org.cef.handler.CefLifeSpanHandlerAdapter
 import org.cef.handler.CefLoadHandler
 import org.cef.handler.CefLoadHandlerAdapter
 import org.cef.handler.CefMessageRouterHandlerAdapter
-import org.cef.handler.CefRenderHandler
+import org.cef.handler.CefNativeRenderHandler
 import org.cef.handler.CefRequestHandlerAdapter
 import org.cef.handler.CefScreenInfo
 import org.cef.misc.BoolRef
@@ -271,7 +272,10 @@ class JcefPageHost(app: CefApp, url: String = "about:blank", private val screens
         emit(PageEvent.LoadFailed(where, "blocked: this page may not open that kind of URL"))
     }
 
-    private fun renderHandler() = object : CefRenderHandler {
+    private fun renderHandler() = object : CefNativeRenderHandler {
+        @Volatile private var sharedMemory: SharedMemoryCache? = SharedMemoryCache()
+        @Volatile private var droppedFrameLogged = false
+
         override fun getViewRect(b: CefBrowser) = Rectangle(0, 0, viewWidth, viewHeight)
         override fun getScreenInfo(b: CefBrowser, info: CefScreenInfo): Boolean {
             val rect = Rectangle(0, 0, viewWidth, viewHeight)
@@ -289,7 +293,32 @@ class JcefPageHost(app: CefApp, url: String = "about:blank", private val screens
             popupRect = Rectangle(size)
         }
 
-        override fun onPaint(b: CefBrowser, popup: Boolean, dirty: Array<Rectangle>, buffer: ByteBuffer, width: Int, height: Int) {
+        override fun onPaint(b: CefBrowser, popup: Boolean, dirty: Array<Rectangle>, buffer: ByteBuffer, width: Int, height: Int) =
+            paint(popup, buffer, width, height)
+
+        // Remote mode (separate cef_server process) delivers the frame in shared memory.
+        override fun onPaintWithSharedMem(b: CefBrowser, popup: Boolean, dirtyRectsCount: Int, sharedMemName: String, sharedMemHandle: Long, width: Int, height: Int) {
+            val mem = sharedMemory?.get(sharedMemName, sharedMemHandle)
+            if (mem == null) {
+                if (!droppedFrameLogged) { droppedFrameLogged = true; log.warn("Dropping a shared-memory frame: no cached buffer for '{}'", sharedMemName) }
+                return
+            }
+            mem.setWidth(width)
+            mem.setHeight(height)
+            mem.setDirtyRectsCount(dirtyRectsCount)
+            mem.lock()
+            try {
+                paint(popup, mem.wrapRaster(), width, height)
+            } finally {
+                mem.unlock()
+            }
+        }
+
+        override fun disposeNativeResources() {
+            sharedMemory = null
+        }
+
+        private fun paint(popup: Boolean, buffer: ByteBuffer, width: Int, height: Int) {
             if (popup) {
                 val r = popupRect
                 popupFrames.publish(buffer, width, height)?.let { popupState.value = PopupFrame(it, r.x, r.y, r.width, r.height) }

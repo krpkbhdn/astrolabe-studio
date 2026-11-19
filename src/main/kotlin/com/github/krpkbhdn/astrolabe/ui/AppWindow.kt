@@ -44,6 +44,7 @@ import java.awt.Desktop
 import java.awt.GraphicsDevice
 import java.awt.GraphicsEnvironment
 import java.awt.Toolkit
+import java.awt.image.BufferedImage
 import javax.swing.SwingUtilities
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -56,6 +57,14 @@ private const val TRAY_ICON_SIZE = 64
 private const val WINDOW_ICON_SIZE = 256
 private const val BROWSER_SHUTDOWN_MILLIS = 3_000L
 private const val STATE_DISPOSE_MILLIS = 5_000L
+
+// The Linux tray draws the image unscaled, so a 64 px icon is cropped (48 px is an unverified estimate of the cell).
+private const val LINUX_TRAY_ICON_SIZE = 48
+
+private fun trayIconImage(waiting: Int): BufferedImage {
+    val linux = System.getProperty("os.name").lowercase().contains("linux")
+    return drawAppIcon(if (linux) LINUX_TRAY_ICON_SIZE else TRAY_ICON_SIZE, waiting)
+}
 
 private val SHUTDOWN_LOG = LoggerFactory.getLogger("com.github.krpkbhdn.astrolabe.ui.AppShutdown")
 
@@ -117,8 +126,8 @@ fun ApplicationScope.AppWindow(backend: Backend, onShutdown: () -> Unit, setting
     val taskbar = remember { TaskbarAttention() }
     state.flashTaskbar = { taskbar.flashFor(state.settings, it, state.windowActive) }
     if (isTraySupported) {
-        val plainIcon = remember { BitmapPainter(drawAppIcon(TRAY_ICON_SIZE).toComposeImageBitmap()) }
-        val badgedIcon = remember(waiting) { BitmapPainter(drawAppIcon(TRAY_ICON_SIZE, waiting).toComposeImageBitmap()) }
+        val plainIcon = remember { BitmapPainter(trayIconImage(0).toComposeImageBitmap()) }
+        val badgedIcon = remember(waiting) { BitmapPainter(trayIconImage(waiting).toComposeImageBitmap()) }
         Tray(
             icon = if (waiting > 0) badgedIcon else plainIcon,
             tooltip = if (waiting > 0) "$WINDOW_TITLE: $waiting waiting" else WINDOW_TITLE,
