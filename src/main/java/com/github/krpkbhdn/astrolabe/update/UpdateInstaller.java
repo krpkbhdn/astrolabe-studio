@@ -50,13 +50,12 @@ class UpdateInstaller {
         }
     }
 
-    /** Every path is quoted so that & ^ or spaces in it do not split the cmd line; the JDK passes a quoted argument through as is. */
+    /**
+     * The script runs directly, the JDK quotes the arguments. Not through {@code cmd /c start}: start re-runs a .cmd as
+     * {@code cmd /K "script" "arg"}, whose outer-quote rule breaks a path with spaces ("... is not recognized") and leaves an idle console.
+     */
     static List<String> command(Path script, Path msi, String appExecutable) {
-        return List.of("cmd.exe", "/c", "start", "\"\"", "/min", quoted(script.toString()), quoted(msi.toString()), quoted(appExecutable));
-    }
-
-    private static String quoted(String path) {
-        return "\"" + path + "\"";
+        return List.of(script.toString(), msi.toString(), Path.of(appExecutable).toAbsolutePath().toString());
     }
 
     static String script(long pid) {
@@ -68,8 +67,11 @@ class UpdateInstaller {
                   timeout /t 1 /nobreak >nul
                   goto wait
                 )
-                msiexec /i "%%~1" /passive /norestart
-                start "" "%%~2"
+                set LOG="%%~dp1update.log"
+                echo %%date%% %%time%% installing "%%~1" >> %%LOG%%
+                msiexec /i "%%~1" /passive /norestart /l*v "%%~dp1update-msi.log"
+                echo %%date%% %%time%% msiexec exit code %%errorlevel%%, starting "%%~2" >> %%LOG%%
+                start "" "%%~2" >> %%LOG%% 2>&1
                 del "%%~f0"
                 """.formatted(pid, pid);
     }
