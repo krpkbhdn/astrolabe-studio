@@ -79,7 +79,7 @@ class JcefPageHost(app: CefApp, url: String = "about:blank", private val screens
     private val hoverLimit = PerSecondLimit(HOVER_PER_SECOND)
     private val closed = AtomicBoolean()
     private val loadLock = Any()
-    private var created = false
+    @Volatile private var created = false
     private var pendingUrl: String? = null
     private val userNavigationDeadline = AtomicLong(NO_DEADLINE)
 
@@ -101,19 +101,23 @@ class JcefPageHost(app: CefApp, url: String = "about:blank", private val screens
         browser.createImmediately()
     }
 
-    /** Called from onAfterCreated and from any later callback: remote mode may not deliver onAfterCreated, but a loading-state callback proves the browser exists. */
+    /** Called from onAfterCreated, loading-state and paint callbacks: remote mode may not deliver onAfterCreated, but any of the others proves the browser exists. */
     private fun markCreated(b: CefBrowser) = synchronized(loadLock) {
+        val pending = pendingUrl
+        log.info("Browser created, pending URL: {}", pending != null)
         created = true
-        pendingUrl?.let { b.loadURL(it) }
+        pending?.let { b.loadURL(it) }
         pendingUrl = null
     }
 
-    /** A load before the native browser exists is silently dropped by CEF, so it waits for onAfterCreated. */
+    /** A load before the native browser exists may be dropped by CEF, so it is also kept and repeated once a callback proves the browser. */
     override fun load(url: String) {
         val allowed = NavigationPolicy.require(url)
         markUserNavigation()
         synchronized(loadLock) {
-            if (created) browser.loadURL(allowed) else pendingUrl = allowed
+            log.info("Load requested, browser created: {}", created)
+            if (!created) pendingUrl = allowed
+            browser.loadURL(allowed)
         }
     }
 
@@ -296,11 +300,14 @@ class JcefPageHost(app: CefApp, url: String = "about:blank", private val screens
             popupRect = Rectangle(size)
         }
 
-        override fun onPaint(b: CefBrowser, popup: Boolean, dirty: Array<Rectangle>, buffer: ByteBuffer, width: Int, height: Int) =
+        override fun onPaint(b: CefBrowser, popup: Boolean, dirty: Array<Rectangle>, buffer: ByteBuffer, width: Int, height: Int) {
+            if (!created) markCreated(b)
             paint(popup, buffer, width, height)
+        }
 
         // Remote mode (separate cef_server process) delivers the frame in shared memory.
         override fun onPaintWithSharedMem(b: CefBrowser, popup: Boolean, dirtyRectsCount: Int, sharedMemName: String, sharedMemHandle: Long, width: Int, height: Int) {
+            if (!created) markCreated(b)
             val mem = sharedMemory?.get(sharedMemName, sharedMemHandle)
             if (mem == null) {
                 if (!droppedFrameLogged) { droppedFrameLogged = true; log.warn("Dropping a shared-memory frame: no cached buffer for '{}'", sharedMemName) }
