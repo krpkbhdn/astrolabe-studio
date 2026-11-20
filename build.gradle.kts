@@ -34,7 +34,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-jdbc")
     implementation("org.springframework.boot:spring-boot-starter-json")
     implementation("org.springframework.boot:spring-boot-starter-flyway")
-    implementation("org.xerial:sqlite-jdbc:3.50.3.0")
+    implementation("org.xerial:sqlite-jdbc:3.54.1.0")
     implementation("org.jetbrains.pty4j:pty4j:0.14.0")
     implementation("org.jetbrains.jediterm:jediterm-core:3.76")
     implementation(compose.desktop.currentOs)
