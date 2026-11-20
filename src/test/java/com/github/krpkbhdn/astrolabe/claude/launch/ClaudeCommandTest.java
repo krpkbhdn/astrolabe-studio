@@ -153,6 +153,19 @@ class ClaudeCommandTest {
     }
 
     @Test
+    void macEnvironmentWithoutLocaleGetsUtf8Lang() {
+        assertThat(ClaudeCommand.terminalEnvironment(Map.of(), "Mac OS X")).containsEntry("LANG", "en_US.UTF-8");
+    }
+
+    @Test
+    void macEnvironmentKeepsUserLocaleAndOtherSystemsGetNone() {
+        assertThat(ClaudeCommand.terminalEnvironment(Map.of("LC_ALL", "ru_RU.UTF-8"), "Mac OS X")).doesNotContainKey("LANG");
+        assertThat(ClaudeCommand.terminalEnvironment(Map.of("LANG", "C"), "Mac OS X")).containsEntry("LANG", "C");
+        assertThat(ClaudeCommand.terminalEnvironment(Map.of("LC_CTYPE", "UTF-8"), "Mac OS X")).doesNotContainKey("LANG");
+        assertThat(ClaudeCommand.terminalEnvironment(Map.of(), "Linux")).doesNotContainKey("LANG");
+    }
+
+    @Test
     void sessionEnvironmentBypassesProxiesForLoopbackWhileShellsAreLeftAlone() {
         assertThat(ClaudeCommand.environment(Map.of(), "astrolabe-1", "t")).containsEntry("NO_PROXY", "127.0.0.1,localhost")
                 .containsEntry("no_proxy", "127.0.0.1,localhost");

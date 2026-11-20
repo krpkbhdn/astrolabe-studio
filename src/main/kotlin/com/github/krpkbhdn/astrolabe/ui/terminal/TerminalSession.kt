@@ -17,9 +17,8 @@ import com.jediterm.terminal.TextStyle
 import com.jediterm.terminal.TtyConnector
 import com.jediterm.terminal.emulator.mouse.MouseEventProcessingSettings
 import com.jediterm.terminal.emulator.mouse.MouseMode
-import java.awt.Toolkit
-import java.awt.datatransfer.DataFlavor
 import com.github.krpkbhdn.astrolabe.ui.components.copyToClipboard
+import com.github.krpkbhdn.astrolabe.ui.components.readClipboardText
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -219,8 +218,7 @@ internal class TerminalSession(connector: TtyConnector, scrollbackCap: Int = Ter
     fun paste() {
         runCatching {
             pasteExecutor.execute {
-                val clipboard = Toolkit.getDefaultToolkit().systemClipboard
-                val text = runCatching { clipboard.getData(DataFlavor.stringFlavor) as? String }.getOrNull().orEmpty()
+                val text = readClipboardText().orEmpty()
                 if (text.isEmpty()) return@execute emulator.write(byteArrayOf(CTRL_V_BYTE))
                 addToDraft(text.codePointCount(0, text.length))
                 emulator.write(pasteBytes(text, modes.bracketedPaste))
