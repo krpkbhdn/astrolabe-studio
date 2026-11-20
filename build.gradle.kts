@@ -40,7 +40,7 @@ dependencies {
     implementation(compose.desktop.currentOs)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing")
     implementation("org.jetbrains.jewel:jewel-int-ui-standalone:0.41.0-262.10968.63")
-    implementation("org.jetbrains.jewel:jewel-int-ui-decorated-window:0.41.0-262.10968.63")
+    implementation("org.jetbrains.jewel:jewel-int-ui-decorated-window:0.42.0-263.7307.200")
     implementation("org.jetbrains.runtime:jbr-api:1.9.0")
     implementation("org.graalvm.polyglot:polyglot:25.5.5.0.3")
     implementation("org.apache.commons:commons-compress:1.28.0")
