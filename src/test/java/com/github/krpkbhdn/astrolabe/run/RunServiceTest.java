@@ -77,6 +77,7 @@ class RunServiceTest {
 
     @Test
     void restartingUsesANewRunId() {
+        assumePtyDeliversOutput();
         var configuration = configurations.save(projectId, "again", "exit 0", temp);
 
         var first = runs.start(configuration.id());
