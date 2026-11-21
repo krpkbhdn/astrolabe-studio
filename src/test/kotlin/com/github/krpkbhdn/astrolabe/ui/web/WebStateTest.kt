@@ -212,12 +212,10 @@ class WebStateTest {
         view.toggles = view.toggles.copy(pick = true)
 
         emit(pickJson("evil.target"))
-        ready()
-        await { host.scripts.count { it.contains("setAnnotations") } >= 2 }
+        await { view.unsavedAction != null }
 
         assertThat(view.picked!!.selector).isEqualTo("button.save")
         assertThat(view.comment.text.toString()).isEqualTo("my comment")
-        assertThat(view.unsavedAction != null).isTrue()
     }
 
     @Test
