@@ -153,6 +153,26 @@ class SafeArchiveExtractorTest {
     }
 
     @Test
+    void rejectsWindowsReservedDeviceNames() throws IOException {
+        for (String name : new String[] {"NUL", "con.txt", "sub/COM1"}) {
+            Path archive = zip(name, 0100644, "x");
+
+            assertThatThrownBy(() -> extractor.extract(archive, target(), false, MANY, BIG))
+                    .as(name)
+                    .isInstanceOf(IOException.class);
+        }
+    }
+
+    @Test
+    void acceptsNamesThatMerelyStartLikeDeviceNames() throws IOException {
+        Path archive = zip("console.txt", 0100644, "x");
+
+        extractor.extract(archive, target(), false, MANY, BIG);
+
+        assertThat(target().resolve("console.txt")).exists();
+    }
+
+    @Test
     void rejectsSymlinkEscape() throws IOException {
         Path archive = tar(t -> {
             tarFile(t, "pkg/a.txt", "a", 0644);

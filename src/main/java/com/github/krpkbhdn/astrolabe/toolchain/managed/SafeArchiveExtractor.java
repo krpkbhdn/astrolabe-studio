@@ -17,6 +17,7 @@ import java.util.Enumeration;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.zip.GZIPInputStream;
 
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
@@ -36,6 +37,8 @@ public final class SafeArchiveExtractor {
     private static final int ZIP_DIRECTORY = 0040000;
     private static final int ZIP_REGULAR = 0100000;
     private static final int OWNER_EXEC_BIT = 0100;
+    private static final Pattern RESERVED_DEVICE =
+            Pattern.compile("(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\\..*)?");
     private static final boolean POSIX = FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
 
     /**
@@ -92,7 +95,7 @@ public final class SafeArchiveExtractor {
             if (segment.isEmpty() || segment.equals(".")) {
                 continue;
             }
-            if (segment.equals("..") || segment.indexOf(':') >= 0) {
+            if (segment.equals("..") || segment.indexOf(':') >= 0 || RESERVED_DEVICE.matcher(segment).matches()) {
                 throw new IOException("Unsafe archive entry: " + printable(name));
             }
             result.add(segment);

@@ -338,7 +338,7 @@ public class ClaudeLauncher {
         try {
             hookSettings.delete(astrolabeSessionId);
         } catch (RuntimeException e) {
-            log.debug("Could not delete hook settings of {}", astrolabeSessionId, e);
+            log.warn("Could not delete hook settings of {}: {}", astrolabeSessionId, e.getClass().getName());
         }
     }
 

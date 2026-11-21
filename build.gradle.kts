@@ -15,7 +15,7 @@ plugins {
 }
 
 group = "com.github.krpkbhdn"
-version = "2.3.52"
+version = "2.3.53"
 
 java {
     toolchain {
@@ -373,6 +373,7 @@ val addJcefToAppImage = tasks.register("addJcefToAppImage") {
         check(helper.isFile || serverHelper.isFile) { "jcef Helper is missing in $runtime/Frameworks after copying from $frameworks." }
         check(File(runtime, "Frameworks/cef_server.app").isDirectory) { "cef_server.app is missing in $runtime/Frameworks after copying from $frameworks." }
         if (File("/usr/bin/codesign").isFile) run("/usr/bin/codesign", "--force", "--deep", "-s", "-", app.absolutePath)
+        else logger.warn("/usr/bin/codesign is missing: ad-hoc signing of $app was skipped.")
     }
 }
 if (isMac) tasks.matching { it.name == "packageDmg" }.configureEach { dependsOn(addJcefToAppImage) }

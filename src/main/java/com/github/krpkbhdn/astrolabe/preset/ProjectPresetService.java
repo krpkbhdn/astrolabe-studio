@@ -68,6 +68,10 @@ public class ProjectPresetService {
             requireFreeName(cleanName, -1);
             return insert(cleanName, description, null, null, components);
         });
+        return firedFor(id);
+    }
+
+    private ProjectPreset firedFor(long id) {
         listeners.fire();
         return require(id);
     }
@@ -81,8 +85,7 @@ public class ProjectPresetService {
             jdbc.sql("UPDATE project_preset SET name = ?, description = ?, edited = CASE WHEN bundled_key IS NULL THEN 0 ELSE 1 END WHERE id = ?")
                     .param(cleanName).param(description.strip()).param(id).update();
         });
-        listeners.fire();
-        return require(id);
+        return firedFor(id);
     }
 
     /** @throws IllegalArgumentException with a user-readable message for invalid input */
