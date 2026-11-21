@@ -15,7 +15,7 @@ plugins {
 }
 
 group = "com.github.krpkbhdn"
-version = "2.3.46"
+version = "2.3.47"
 
 java {
     toolchain {

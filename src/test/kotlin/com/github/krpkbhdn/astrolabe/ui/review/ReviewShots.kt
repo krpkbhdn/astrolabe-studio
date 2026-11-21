@@ -82,7 +82,7 @@ private fun render(shot: Shot, dark: Boolean, width: Int, height: Int, out: Path
     ReviewPreviewData.seed(SEEDED)
     val scope = CoroutineScope(SupervisorJob() + loop)
     val errors = mutableListOf<String>()
-    val state = ReviewState(service, { com.github.krpkbhdn.astrolabe.ui.state.LiveSessions() }, { _, _ -> }, { _, _, _, _ -> }, scope, { errors += it })
+    val state = ReviewState(service, { com.github.krpkbhdn.astrolabe.ui.state.LiveSessions() }, { _, _ -> }, { _, _, _, _, _ -> }, scope, { errors += it })
     state.start()
     waitFor { state.reviews(shot.projectId).isNotEmpty() || shot.projectId == EMPTY_PROJECT }
     if (shot.projectId == SEEDED) {

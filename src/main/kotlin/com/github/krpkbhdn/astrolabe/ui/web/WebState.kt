@@ -11,6 +11,8 @@ import androidx.compose.ui.input.key.Key
 import com.github.krpkbhdn.astrolabe.review.ReviewService
 import com.github.krpkbhdn.astrolabe.review.ReviewStatus
 import com.github.krpkbhdn.astrolabe.ui.state.ConfirmRequest
+import com.github.krpkbhdn.astrolabe.team.Team
+import com.github.krpkbhdn.astrolabe.ui.review.TeamOptions
 import com.github.krpkbhdn.astrolabe.ui.state.LiveSessions
 import com.github.krpkbhdn.astrolabe.ui.state.Refresher
 import com.github.krpkbhdn.astrolabe.ui.state.io
@@ -61,11 +63,12 @@ class WebState(
     private val availability: () -> Availability = { Availability.Ready },
     private val prepareBrowser: (() -> Unit)? = null,
     clock: Clock = Clock.systemUTC(),
+    teamOptions: (projectId: Long) -> TeamOptions = { TeamOptions.NONE },
 ) {
     private val drafts = WebDrafts(service, scope, reportError)
     private val context = WebContextActions(scope, notify = reportError) { view, target -> drafts.captureAtPick(view, target) }
     private val events = WebPageEvents(service, drafts, scope, reportError, context)
-    private val delivery = WebDelivery(service, enqueue, startSession, live, scope, reportError)
+    private val delivery = WebDelivery(service, enqueue, startSession, live, scope, reportError, teamOptions)
     private val targets = WebCaptureTargets(reviewService, scope, reportError)
     private val screenshots = WebScreenshots(reviewService, targets, onCaptured, confirm, scope, reportError, clock)
 
@@ -94,6 +97,15 @@ class WebState(
                 pool.find(projectId)?.let { events.refreshPage(it) }
             }
         }
+    }
+
+    /** Which earlier review results keep their pins; the owner of the stored setting sets the start value and [onHistoryChange]. */
+    var history by mutableStateOf(HistoryModes())
+    var onHistoryChange: (HistoryModes) -> Unit = {}
+
+    fun chooseHistory(modes: HistoryModes) {
+        history = modes
+        onHistoryChange(modes)
     }
 
     /** Why the browser cannot run here, or null when it can (or [prepare] has not answered yet). */
@@ -204,6 +216,13 @@ class WebState(
         }
         view.jobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
             snapshotFlow { view.device.scope }.distinctUntilChanged().drop(1).collect { view.itemPopover = null; events.pushPins(view) }
+        }
+        view.jobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            snapshotFlow { history to (pendingCount(view.projectId) > 0) }.distinctUntilChanged().collect { (modes, cycleOpen) ->
+                view.history = modes
+                view.cycleOpen = cycleOpen
+                events.pushPins(view)
+            }
         }
         view.jobs += scope.launch { runGuarded(reportError) { events.restoreLastPage(view) } }
         if (sweeper == null) sweeper = scope.launch { while (true) { delay(SWEEP_INTERVAL_MILLIS); pool.closeIdle() } }
@@ -350,7 +369,7 @@ class WebState(
 
     fun send(revision: WebRevision) = delivery.send(revision)
 
-    fun sendTo(revision: WebRevision, astrolabeSessionId: String?) = delivery.sendTo(revision, astrolabeSessionId)
+    fun sendTo(revision: WebRevision, astrolabeSessionId: String?, team: Team? = null) = delivery.sendTo(revision, astrolabeSessionId, team)
 
     fun sendTarget(projectId: Long): WebSendTarget? = delivery.sendTarget(projectId)
 

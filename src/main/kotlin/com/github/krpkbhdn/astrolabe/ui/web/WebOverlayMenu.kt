@@ -44,9 +44,17 @@ private val groupLabels = mapOf(
 
 /** Master "Layers" button, one plain toggle per overlay group and a gear that opens every sub-option in one menu. */
 @Composable
-fun WebOverlayMenu(toggles: InspectorToggles, onChange: (InspectorToggles) -> Unit) {
+fun WebOverlayMenu(toggles: InspectorToggles, compact: Boolean = false, onChange: (InspectorToggles) -> Unit) {
     val count = overlayCount(toggles)
     var open by remember { mutableStateOf(false) }
+    if (compact) {
+        Box {
+            IconButton(Icons.Layers, { open = !open }, tooltip = "Overlays", active = open || toggles.overlaysOn)
+            if (count > 0 && toggles.overlaysOn) CountDot(count, Modifier.align(Alignment.TopEnd).padding(top = 1.dp, end = 1.dp))
+            if (open) AnchoredPopup({ open = false }, modifier = Modifier.menuSize()) { FlyoutMenu(listOf(overlayMasterEntry(toggles, onChange)), overlayGroupFlyouts(toggles, onChange)) }
+        }
+        return
+    }
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
         Box {
             IconButton(Icons.Layers, { onChange(toggles.toggleMaster()) }, tooltip = "Overlays (O)", active = toggles.overlaysOn)
@@ -62,6 +70,18 @@ fun WebOverlayMenu(toggles: InspectorToggles, onChange: (InspectorToggles) -> Un
         }
     }
 }
+
+/** Master on/off entry that heads the grouped overlays menu. */
+internal fun overlayMasterEntry(t: InspectorToggles, change: (InspectorToggles) -> Unit) =
+    MenuEntry("Overlays", hint = "O", checked = t.overlaysOn) { change(t.toggleMaster()) }
+
+/** One flyout per overlay group: its own on/off switch, then its sub-options. */
+internal fun overlayGroupFlyouts(t: InspectorToggles, change: (InspectorToggles) -> Unit): List<FlyoutGroup> =
+    OverlayGroup.entries.map { g ->
+        val (label, icon) = groupLabels.getValue(g)
+        FlyoutGroup(label, icon, listOf(MenuEntry("Show $label", hint = g.key.toString(), checked = t.isOn(g)) { change(t.toggleGroup(g)) }) +
+            groupEntries(g, t, change).mapIndexed { i, e -> if (i == 0) e.copy(dividerAbove = true) else e })
+    }
 
 /** Every group's sub-options under its own heading in one list; the menu stays open while several are toggled. */
 internal fun overlaySettingsEntries(t: InspectorToggles, change: (InspectorToggles) -> Unit): List<MenuEntry> =

@@ -107,5 +107,5 @@ fun WebScreen(projectId: Long, state: WebState, modifier: Modifier = Modifier) {
             WebConsolePanel(view)
         }
     }
-    state.sendTarget(projectId)?.let { SessionTargetDialog(it.candidates, { id -> state.sendTo(it.revision, id) }, { state.dismissSendTarget(projectId) }) }
+    state.sendTarget(projectId)?.let { SessionTargetDialog(it.candidates, { id, team -> state.sendTo(it.revision, id, team) }, { state.dismissSendTarget(projectId) }, it.teams) }
 }

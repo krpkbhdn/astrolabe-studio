@@ -16,6 +16,7 @@ fun WebPageOverlay(view: WebView, state: WebState, viewport: PageViewport, modif
             WebContextMenu(view, state)
             WebFeedbackPopover(view, state)
             WebItemPopover(view, viewport)
+            WebUnsavedDraftDialog(view, state)
         }
     }
 }

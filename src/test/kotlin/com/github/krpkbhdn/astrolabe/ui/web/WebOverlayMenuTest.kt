@@ -88,4 +88,22 @@ class WebOverlayMenuTest {
     fun everyGroupHasMenuEntries() {
         OverlayGroup.entries.forEach { assertThat(groupEntries(it, all) {}).isNotEmpty() }
     }
+
+    @Test
+    fun flyoutsHaveOneGroupEachWithItsOwnSwitchFirstAndOnlyItsOwnOptions() {
+        val flyouts = overlayGroupFlyouts(all) {}
+        assertThat(flyouts.map { it.label }).containsExactly("Inspect", "Spacing", "Audit", "Similar", "Contrast")
+        flyouts.zip(OverlayGroup.entries).forEach { (f, g) ->
+            assertThat(f.entries.first().label).isEqualTo("Show ${f.label}")
+            assertThat(f.entries.drop(1).map { it.label }).isEqualTo(groupEntries(g, all) {}.map { it.label })
+        }
+        assertThat(flyouts.first { it.label == "Audit" }.entries.map { it.label }).doesNotContain("Margins", "Outline all")
+    }
+
+    @Test
+    fun groupSwitchEntryTogglesOnlyThatGroup() {
+        var result = all
+        overlayGroupFlyouts(all) { result = it }.first { it.label == "Audit" }.entries.first().onSelect()
+        assertThat(result).isEqualTo(all.toggleGroup(OverlayGroup.AUDIT))
+    }
 }

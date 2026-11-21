@@ -2,6 +2,8 @@ package com.github.krpkbhdn.astrolabe.ui.state
 
 import com.github.krpkbhdn.astrolabe.git.GitMisc.PullMode
 import com.github.krpkbhdn.astrolabe.ui.assistant.AssistantStartup
+import com.github.krpkbhdn.astrolabe.ui.web.HistoryModes
+import com.github.krpkbhdn.astrolabe.ui.web.HistoryVisibility
 import com.github.krpkbhdn.astrolabe.ui.git.model.GitPrefs
 import com.github.krpkbhdn.astrolabe.ui.git.model.GitSubView
 import com.github.krpkbhdn.astrolabe.ui.picker.writeAtomically
@@ -35,6 +37,7 @@ data class UiSettings(
     val defaultIdeId: String? = null,
     val groupSessionsByProject: Boolean = false,
     val assistantStartup: AssistantStartup = AssistantStartup.ASK,
+    val webHistory: HistoryModes = HistoryModes(),
     val uiScalePercent: Int = DEFAULT_SCALE_PERCENT,
     val fontScalePercent: Int = DEFAULT_SCALE_PERCENT,
     val voiceEnabled: Boolean = false,
@@ -80,7 +83,9 @@ private const val KEY_LAST_SHELL = "shell.last"
 private const val KEY_DEFAULT_IDE = "ide.default"
 private const val KEY_GROUP_SESSIONS = "sessions.group"
 private const val KEY_ASSISTANT_STARTUP = "assistant.startup"
-private const val KEY_UI_SCALE = "scale.ui.percent"
+private const val KEY_WEB_HISTORY_SENT = "web.history.sent"
+private const val KEY_WEB_HISTORY_DONE = "web.history.done"
+private const val KEY_UI_SCALE ="scale.ui.percent"
 private const val KEY_FONT_SCALE = "scale.font.percent"
 private const val KEY_VOICE_ENABLED = "voice.enabled"
 private const val KEY_VOICE_MODEL = "voice.model"
@@ -132,6 +137,8 @@ class UiSettingsStore(private val file: Path?) {
             settings.defaultIdeId?.let { setProperty(KEY_DEFAULT_IDE, it) }
             setProperty(KEY_GROUP_SESSIONS, settings.groupSessionsByProject.toString())
             setProperty(KEY_ASSISTANT_STARTUP, settings.assistantStartup.name)
+            setProperty(KEY_WEB_HISTORY_SENT, settings.webHistory.sent.name)
+            setProperty(KEY_WEB_HISTORY_DONE, settings.webHistory.done.name)
             setProperty(KEY_UI_SCALE, settings.uiScalePercent.toString())
             setProperty(KEY_FONT_SCALE, settings.fontScalePercent.toString())
             setProperty(KEY_VOICE_ENABLED, settings.voiceEnabled.toString())
@@ -178,6 +185,10 @@ class UiSettingsStore(private val file: Path?) {
             defaultIdeId = props.getProperty(KEY_DEFAULT_IDE),
             groupSessionsByProject = props.flag(KEY_GROUP_SESSIONS, defaults.groupSessionsByProject),
             assistantStartup = AssistantStartup.entries.firstOrNull { it.name == props.getProperty(KEY_ASSISTANT_STARTUP) } ?: defaults.assistantStartup,
+            webHistory = HistoryModes(
+                sent = HistoryVisibility.entries.firstOrNull { it.name == props.getProperty(KEY_WEB_HISTORY_SENT) } ?: defaults.webHistory.sent,
+                done = HistoryVisibility.entries.firstOrNull { it.name == props.getProperty(KEY_WEB_HISTORY_DONE) } ?: defaults.webHistory.done,
+            ),
             uiScalePercent = props.scalePercent(KEY_UI_SCALE, UiSettings.UI_SCALE_RANGE, defaults.uiScalePercent),
             fontScalePercent = props.scalePercent(KEY_FONT_SCALE, UiSettings.FONT_SCALE_RANGE, defaults.fontScalePercent),
             voiceEnabled = props.flag(KEY_VOICE_ENABLED, defaults.voiceEnabled),

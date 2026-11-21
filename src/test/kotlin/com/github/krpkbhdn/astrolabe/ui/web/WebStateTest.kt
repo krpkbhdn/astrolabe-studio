@@ -5,6 +5,8 @@ import com.github.krpkbhdn.astrolabe.claude.session.SessionSnapshot
 import com.github.krpkbhdn.astrolabe.review.Review
 import com.github.krpkbhdn.astrolabe.review.ReviewService
 import com.github.krpkbhdn.astrolabe.review.ReviewStatus
+import com.github.krpkbhdn.astrolabe.team.Team
+import com.github.krpkbhdn.astrolabe.ui.review.TeamOptions
 import com.github.krpkbhdn.astrolabe.ui.await
 import com.github.krpkbhdn.astrolabe.ui.state.ConfirmRequest
 import com.github.krpkbhdn.astrolabe.ui.state.LiveSessions
@@ -62,7 +64,7 @@ class WebStateTest {
     private val started = CopyOnWriteArrayList<String>()
     private var liveSessions = LiveSessions()
     private var availability: Availability = Availability.Ready
-    private val state = WebState(service, { host }, { id, text -> enqueued += id to text }, { _, prompt, _, onStarted -> started += prompt; onStarted("new-session") }, { liveSessions }, scope, { errors += it }, reviews, { project, review -> opened += project to review }, { confirms += it }, { availability })
+    private val state = WebState(service, { host }, { id, text -> enqueued += id to text }, { _, _, prompt, _, onStarted -> started += prompt; onStarted("new-session") }, { liveSessions }, scope, { errors += it }, reviews, { project, review -> opened += project to review }, { confirms += it }, { availability })
 
     init {
         `when`(service.subscribe(any())).thenReturn(Runnable { })
@@ -123,7 +125,7 @@ class WebStateTest {
     @Test
     fun `a supported runtime becomes ready and a failed start can be retried`() {
         var attempts = 0
-        val retrying = WebState(service, { host }, { _, _ -> }, { _, _, _, _ -> }, { liveSessions }, scope, { errors += it }, reviews, { _, _ -> }, { }, { Availability.Ready }, prepareBrowser = {
+        val retrying = WebState(service, { host }, { _, _ -> }, { _, _, _, _, _ -> }, { liveSessions }, scope, { errors += it }, reviews, { _, _ -> }, { }, { Availability.Ready }, prepareBrowser = {
             if (attempts++ == 0) error("engine down")
         })
 
@@ -203,7 +205,7 @@ class WebStateTest {
     }
 
     @Test
-    fun `a forged pick never replaces a draft the user has typed`() {
+    fun `a pick over a draft the user has typed waits for the unsaved-draft decision`() {
         val view = openView()
         picked(view)
         view.comment.setTextAndPlaceCursorAtEnd("my comment")
@@ -215,9 +217,7 @@ class WebStateTest {
 
         assertThat(view.picked!!.selector).isEqualTo("button.save")
         assertThat(view.comment.text.toString()).isEqualTo("my comment")
-        state.setToggles(view, view.toggles.copy(pick = false))
-        state.setToggles(view, view.toggles.copy(pick = true))
-        assertThat(errors).containsExactly("Finish or cancel the current item before picking another element")
+        assertThat(view.unsavedAction != null).isTrue()
     }
 
     @Test
@@ -486,6 +486,27 @@ class WebStateTest {
     }
 
     @Test
+    fun `the chooser offers the project teams and a new session starts with the chosen team`() {
+        `when`(service.prepareFeedback(5)).thenReturn(WebFeedback(Path.of("web.md"), "Read web.md"))
+        val team = Team(1, "Dev team", emptyList())
+        val teams = CopyOnWriteArrayList<Team?>()
+        val withTeams = WebState(service, { host }, { _, _ -> }, { _, chosen, _, _, onStarted -> teams += chosen; onStarted("new-session") }, { liveSessions }, scope, { errors += it }, reviews, { _, _ -> }, { }, teamOptions = { TeamOptions(listOf(team), team) })
+        val revision = revision(5, ReviewStatus.PENDING)
+
+        withTeams.send(revision)
+        await { withTeams.sendTarget(1) != null }
+        assertThat(withTeams.sendTarget(1)!!.teams).isEqualTo(TeamOptions(listOf(team), team))
+        withTeams.sendTo(revision, null, team)
+        await { teams.isNotEmpty() }
+        assertThat(teams).containsExactly(team)
+
+        withTeams.sendTo(revision(5, ReviewStatus.PENDING), null, null)
+        await { teams.size == 2 }
+        assertThat(teams[1]).isNull()
+        withTeams.close()
+    }
+
+    @Test
     fun `a dead bound session reopens the chooser and marks nothing sent`() {
         state.send(revision(5, ReviewStatus.PENDING, "gone"))
 
@@ -512,7 +533,7 @@ class WebStateTest {
         assertThat(host.closed).isTrue()
     }
 
-    private fun preparing(start: () -> Unit) = WebState(service, { host }, { _, _ -> }, { _, _, _, _ -> }, { liveSessions }, scope, { errors += it }, reviews, { _, _ -> }, { }, prepareBrowser = start)
+    private fun preparing(start: () -> Unit) = WebState(service, { host }, { _, _ -> }, { _, _, _, _, _ -> }, { liveSessions }, scope, { errors += it }, reviews, { _, _ -> }, { }, prepareBrowser = start)
 
     @Test
     fun `the browser becomes ready after the engine started off the caller thread`() {
@@ -701,7 +722,7 @@ class WebStateTest {
     }
 
     @Test
-    fun `a sticky pick keeps picking on and opens the feedback popover at the pointer, a dirty draft refuses the next pick`() {
+    fun `a sticky pick keeps picking on and opens the feedback popover at the pointer, a dirty draft waits for the decision on the next pick`() {
         val view = openView()
         ready()
         await { view.pageKey != null }
@@ -717,7 +738,7 @@ class WebStateTest {
         assertThat(view.contextMenu!!.canvasOffset).isEqualTo(Offset(111f, 222f))
         view.comment.setTextAndPlaceCursorAtEnd("typed")
         emit(pickJson("other.target"))
-        await { errors.isNotEmpty() }
+        await { view.unsavedAction != null }
         assertThat(view.picked!!.selector).isEqualTo("button.save")
     }
 
@@ -776,7 +797,7 @@ class WebStateTest {
 
     @Test
     fun `a browser that fails to open is reported and never thrown`() {
-        val failing = WebState(service, { throw UnsatisfiedLinkError("no cef") }, { _, _ -> }, { _, _, _, _ -> }, { liveSessions }, scope, { errors += it }, reviews, { _, _ -> }, { })
+        val failing = WebState(service, { throw UnsatisfiedLinkError("no cef") }, { _, _ -> }, { _, _, _, _, _ -> }, { liveSessions }, scope, { errors += it }, reviews, { _, _ -> }, { })
 
         val failed = failing.open(1)
 

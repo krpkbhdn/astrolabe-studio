@@ -61,6 +61,14 @@ class WebView(val projectId: Long, val host: WebPageHost) {
     var layout by mutableStateOf<PageViewport?>(null)
     var contextMenu by mutableStateOf<ContextMenuState?>(null)
     var itemPopover by mutableStateOf<ItemPopoverState?>(null)
+    /** The action waiting for the user's decision on an unsaved draft; non-null shows the unsaved-draft dialog. */
+    var unsavedAction by mutableStateOf<(() -> Unit)?>(null)
+    /** Canvas offset (px) where Edit from a pin opens the feedback popover; consumed by the edit it was set for. */
+    internal var pinEditAnchor: Offset? = null
+    /** Runs once the next Save succeeds (the unsaved-draft dialog's pending action); dropped when that Save fails. */
+    internal var afterSave: (() -> Unit)? = null
+    /** Bumped when the user chooses Keep editing, so the comment box takes focus back. */
+    var keepEditingTick by mutableIntStateOf(0)
     /** False = page locked: the canvas sends no mouse or key input to the page, the inspector is driven by the host instead. */
     var interaction by mutableStateOf(true)
     /** The focused page element edits text (from the inspector); plain hotkeys stay out of the way. Reset on navigation. */
@@ -119,10 +127,17 @@ class WebView(val projectId: Long, val host: WebPageHost) {
     /** The items of the page that belong to the selected device scope; pins and the list show only these. */
     val visibleItems: List<WebItem> get() = pageItems.visibleIn(device.scope)
 
-    fun hotKeyModes() = HotKeyModes(interaction, toggles.pick, contextMenu != null, regionSelecting)
+    /** Pins that are drawn: the visible items minus the earlier review results the user chose to hide. */
+    val pinItems: List<WebItem> get() = visibleItems.forPins(history, cycleOpen)
+
+    /** Set by the state from the user's choice and from whether the pending revision has an open item. */
+    var history by mutableStateOf(HistoryModes())
+    var cycleOpen by mutableStateOf(false)
+
+    fun hotKeyModes() = HotKeyModes(interaction, toggles.pick, contextMenu != null || unsavedAction != null, regionSelecting)
 
     /** Not while another element of the screen has focus, a menu, popover or the region overlay is up, or a Swing text component holds it. */
-    fun canGrabCanvasFocus() = !screenFocused && contextMenu == null && itemPopover == null && !regionSelecting &&
+    fun canGrabCanvasFocus() = !screenFocused && contextMenu == null && unsavedAction == null && itemPopover == null && !regionSelecting &&
         java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().focusOwner !is javax.swing.text.JTextComponent
 
     /** The middle of the page layout in canvas px, where a popover goes when nothing better is known. */
@@ -134,6 +149,28 @@ class WebView(val projectId: Long, val host: WebPageHost) {
 
     /** Typed work that a new pick must not overwrite. */
     val draftDirty: Boolean get() = comment.text.isNotBlank() || edits.isNotEmpty()
+
+    /** The draft differs from what it started as: the item's stored comment and styles when editing, nothing for a new item. */
+    val draftChanged: Boolean get() = DraftGuard.changed(
+        comment.text.toString(), edits.toMap(), editingItem?.comment().orEmpty(), editingItem?.editedValues().orEmpty(),
+    )
+
+    /**
+     * Runs [action] now when no draft would be lost (an untouched draft is cancelled silently); otherwise holds it in [unsavedAction]
+     * until the user saves, discards or keeps editing.
+     */
+    fun guardDraft(action: () -> Unit) {
+        if (picked == null) return action()
+        if (draftChanged) { unsavedAction = action; return }
+        if (contextMenu?.feedback == true) contextMenu = null
+        discardDraft()
+        action()
+    }
+
+    fun discardDraft() {
+        host.runScript(InspectorBridge.clearPreview())
+        clearDraft()
+    }
 
     /** An item can be saved when it says something or changes a style. */
     val canSave: Boolean get() = picked != null && (comment.text.isNotBlank() || styleChanges.isNotEmpty())

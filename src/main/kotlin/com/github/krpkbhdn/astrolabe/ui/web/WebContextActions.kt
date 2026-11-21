@@ -20,7 +20,6 @@ data class ContextMenuState(
 
 internal const val REASON_FEEDBACK = "feedback"
 internal const val REASON_STYLES = "styles"
-internal const val DRAFT_FIRST_NOTICE = "Finish or cancel the current draft first"
 internal const val ELEMENT_GONE_NOTICE = "The element is gone"
 internal const val NOTHING_HERE_NOTICE = "Nothing here"
 internal const val NO_POINTER_NOTICE = "Move the pointer over the page first"
@@ -40,7 +39,6 @@ internal class WebContextActions(
     /** Quick feedback (Q): feedback on the top layer under the last pointer position, through the same stack and pending-inspect flow as the menu, without showing a menu. */
     fun openQuick(view: WebView) {
         val spot = view.lastPointer ?: return notify(NO_POINTER_NOTICE)
-        if (view.draftDirty) return notify(DRAFT_FIRST_NOTICE)
         pending.remove(view)
         clearSimilar(view)
         view.contextMenu = ContextMenuState(spot.page.x.toDouble(), spot.page.y.toDouble(), spot.canvas, emptyList(), quick = true)
@@ -51,7 +49,7 @@ internal class WebContextActions(
     fun openFeedbackAt(view: WebView, target: ElementTarget, canvasOffset: Offset) {
         view.beginDraft(target)
         onDraftStarted(view, target)
-        view.contextMenu = ContextMenuState(0.0, 0.0, canvasOffset, emptyList(), feedback = true)
+        showFeedback(view, canvasOffset)
     }
 
     private fun refuse(view: WebView, notice: String) {
@@ -82,21 +80,22 @@ internal class WebContextActions(
         val request = pending.remove(view) ?: return
         if (message.reason != request.reason || message.target.selector != request.selector) return
         val menu = view.contextMenu
-        if (view.draftDirty) return refuse(view, DRAFT_FIRST_NOTICE)
-        view.beginDraft(message.target)
-        onDraftStarted(view, message.target)
-        if (message.reason == REASON_FEEDBACK && menu != null) view.contextMenu = menu.copy(feedback = true) else dismiss(view)
+        view.guardDraft {
+            view.beginDraft(message.target)
+            onDraftStarted(view, message.target)
+            if (message.reason == REASON_FEEDBACK && menu != null) view.contextMenu = menu.copy(feedback = true) else dismiss(view)
+        }
     }
 
     fun reset(view: WebView) {
+        view.unsavedAction = null
         pending.remove(view)
         clearSimilar(view)
         view.contextMenu = null
     }
 
-    /** Asks the page to describe [selector]; keeps the menu with a notice instead of asking while a draft is open. */
+    /** Asks the page to describe [selector]; an open draft is dealt with when the answer arrives. */
     fun requestInspect(view: WebView, selector: String, reason: String) {
-        if (view.draftDirty) return refuse(view, DRAFT_FIRST_NOTICE)
         val request = PendingInspect(selector, reason)
         pending[view] = request
         view.host.runScript(InspectorBridge.describeSelector(selector, reason))
@@ -109,6 +108,11 @@ internal class WebContextActions(
     companion object {
         // Shared so the static dismiss can drop a late answer; the entry is identity-checked by the timeout.
         private val pending = ConcurrentHashMap<WebView, PendingInspect>()
+
+        /** Shows the feedback popover at [canvasOffset] (px) for the current draft. */
+        fun showFeedback(view: WebView, canvasOffset: Offset) {
+            view.contextMenu = ContextMenuState(0.0, 0.0, canvasOffset, emptyList(), feedback = true)
+        }
 
         fun dismiss(view: WebView) {
             pending.remove(view)

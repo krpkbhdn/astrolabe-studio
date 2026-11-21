@@ -13,6 +13,7 @@ import com.github.krpkbhdn.astrolabe.review.Review
 import com.github.krpkbhdn.astrolabe.review.ReviewImage
 import com.github.krpkbhdn.astrolabe.review.ReviewService
 import com.github.krpkbhdn.astrolabe.review.ReviewStatus
+import com.github.krpkbhdn.astrolabe.team.Team
 import com.github.krpkbhdn.astrolabe.ui.state.LiveSessions
 import com.github.krpkbhdn.astrolabe.ui.state.Refresher
 import com.github.krpkbhdn.astrolabe.ui.state.io
@@ -42,7 +43,7 @@ import org.jetbrains.skia.Surface
 
 data class SessionChoice(val astrolabeSessionId: String, val label: String)
 
-data class SendTarget(val review: Review, val candidates: List<SessionChoice>)
+data class SendTarget(val review: Review, val candidates: List<SessionChoice>, val teams: TeamOptions = TeamOptions.NONE)
 
 private const val SAVE_DEBOUNCE_MILLIS = 400L
 private const val FINAL_FLUSH_TIMEOUT_MILLIS = 2000L
@@ -59,9 +60,10 @@ class ReviewState(
     private val service: ReviewService,
     private val live: () -> LiveSessions,
     private val enqueue: (astrolabeSessionId: String, text: String) -> Unit,
-    private val startSession: (projectId: Long, prompt: String, onNotStarted: () -> Unit, onStarted: (String) -> Unit) -> Unit,
+    private val startSession: (projectId: Long, team: Team?, prompt: String, onNotStarted: () -> Unit, onStarted: (String) -> Unit) -> Unit,
     private val scope: CoroutineScope,
     private val reportError: (String) -> Unit,
+    private val teamOptions: (projectId: Long) -> TeamOptions = { TeamOptions.NONE },
 ) {
     private val tools = ReviewToolState()
 
@@ -320,11 +322,11 @@ class ReviewState(
         }
     }
 
-    fun sendTo(review: Review, astrolabeSessionId: String?) {
+    fun sendTo(review: Review, astrolabeSessionId: String?, team: Team? = null) {
         scope.launch {
             runGuarded(reportError) {
                 sendTarget = null
-                deliver(review, astrolabeSessionId)
+                deliver(review, astrolabeSessionId, team)
             }
         }
     }
@@ -339,11 +341,11 @@ class ReviewState(
         live().of(projectId).map { SessionChoice(it.astrolabeSessionId, it.title?.takeIf(String::isNotBlank) ?: it.astrolabeSessionId) }
 
     private fun offerTargets(review: Review) {
-        sendTarget = SendTarget(review, candidates(review.projectId))
+        sendTarget = SendTarget(review, candidates(review.projectId), teamOptions(review.projectId))
     }
 
     /** Flushes marks, then checks the target is alive before the review is marked sent; a dead target reopens the chooser with fresh candidates. */
-    private suspend fun deliver(review: Review, astrolabeSessionId: String?) {
+    private suspend fun deliver(review: Review, astrolabeSessionId: String?, team: Team? = null) {
         flush()
         if (astrolabeSessionId != null && !isLive(astrolabeSessionId)) {
             offerTargets(review)
@@ -351,7 +353,7 @@ class ReviewState(
         }
         val feedback = io { service.prepareFeedback(review.id) }
         if (astrolabeSessionId != null) enqueue(astrolabeSessionId, feedback.prompt)
-        else startSession(review.projectId, feedback.prompt, { reportError("$START_FAILED. Feedback is in ${feedback.markdown}") }, { })
+        else startSession(review.projectId, team, feedback.prompt, { reportError("$START_FAILED. Feedback is in ${feedback.markdown}") }, { })
     }
 
     fun approve(review: Review) {

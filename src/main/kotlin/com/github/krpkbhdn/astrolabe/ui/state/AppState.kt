@@ -22,6 +22,7 @@ import com.github.krpkbhdn.astrolabe.ui.git.model.GitState
 import com.github.krpkbhdn.astrolabe.ui.git.model.GitSubView
 import com.github.krpkbhdn.astrolabe.ui.history.SessionSearchState
 import com.github.krpkbhdn.astrolabe.ui.review.ReviewState
+import com.github.krpkbhdn.astrolabe.ui.review.TeamOptions
 import com.github.krpkbhdn.astrolabe.ui.web.WebState
 import com.github.krpkbhdn.astrolabe.ui.web.browser.JcefPageHost
 import com.github.krpkbhdn.astrolabe.ui.web.browser.WebPageHost
@@ -169,6 +170,8 @@ class AppState(
     val waitingCount: Int get() = live.sessions.count { it.status == AgentStatus.NEEDS_ACTION }
     val teams = TeamsState(backend.teams, scope, { confirm = it }, notifications::reportError)
     val presets = PresetsState(backend.presets, backend.plugins, backend.skills, scope, { confirm = it }, notifications::reportError)
+    private fun teamOptionsOf(projectId: Long) = TeamOptions(teams.teams, teams.defaultTeamOf(projectId))
+
     private fun recommendedPresetKeys(dir: Path): Set<String> = backend.presetRecommendation.recommendFor(dir, backend.bundledPresets.presets()).toSet()
     val applyPreset: ApplyPresetState = ApplyPresetState(
         backend.presetApply, backend.presetApplications, { presets.presets }, projects::find, scope, notifications::reportError,
@@ -186,16 +189,20 @@ class AppState(
     val sessionSearch = SessionSearchState(backend.sessionSearch, backend.transcripts, scope, { confirm = it }, notifications::reportError)
     val reviews = ReviewState(
         backend.review, { live }, { id, text -> queue.add(id, text) },
-        { projectId, prompt, onNotStarted, onStarted -> sessions.launchTask(projectId, null, prompt, { onNotStarted() }, onStarted) },
-        scope, notifications::reportError,
+        { projectId, team, prompt, onNotStarted, onStarted -> sessions.launchTask(projectId, team, prompt, { onNotStarted() }, onStarted) },
+        scope, notifications::reportError, ::teamOptionsOf,
     )
     val web = WebState(
         backend.web, webHostFactory, { id, text -> queue.add(id, text) },
-        { projectId, prompt, onNotStarted, onStarted -> sessions.launchTask(projectId, null, prompt, { onNotStarted() }, onStarted) },
+        { projectId, team, prompt, onNotStarted, onStarted -> sessions.launchTask(projectId, team, prompt, { onNotStarted() }, onStarted) },
         { live }, scope, notifications::reportError, backend.review, { p, r -> reviews.select(p, r) }, { confirm = it },
         { JcefRuntime.availability() },
         prepareBrowser = { JcefRuntime.start(backend.dataDir) },
-    )
+        teamOptions = ::teamOptionsOf,
+    ).also {
+        it.history = settings.webHistory
+        it.onHistoryChange = prefs::setWebHistory
+    }
     val extensions = ExtensionStates(backend, scope, { confirm = it }, notifications, environment)
     val author = AuthorProfileState(
         backend.author, scope,

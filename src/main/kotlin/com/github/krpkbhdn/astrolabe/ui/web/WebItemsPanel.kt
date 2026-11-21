@@ -39,7 +39,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.github.krpkbhdn.astrolabe.review.ReviewStatus
 import com.github.krpkbhdn.astrolabe.ui.components.AppButton
-import com.github.krpkbhdn.astrolabe.ui.components.ButtonVariant
 import com.github.krpkbhdn.astrolabe.ui.components.Chip
 import com.github.krpkbhdn.astrolabe.ui.components.EmptyState
 import com.github.krpkbhdn.astrolabe.ui.components.Glyph
@@ -102,11 +101,6 @@ private fun RevisionHeader(row: ItemsRow.Header, projectId: Long, state: WebStat
 private fun RevisionActions(row: ItemsRow.Header, projectId: Long, state: WebState) {
     val revision = row.revision
     Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-        when (revision.status()) {
-            ReviewStatus.PENDING -> AppButton("Send to agent", { state.send(revision) }, variant = ButtonVariant.PRIMARY, icon = Icons.Send, enabled = row.openCount > 0 && !state.isSending(revision.id()), loading = state.isSending(revision.id()), compact = true)
-            ReviewStatus.SENT -> AppButton("Approve", { state.approve(revision) }, icon = Icons.Check, compact = true)
-            ReviewStatus.APPROVED -> Unit
-        }
         if (row.startsNext) AppButton("Next revision", { state.startNextRevision(projectId) }, icon = Icons.Plus, compact = true)
         AppButton("Delete revision", { state.confirmDeleteRevision(revision) }, icon = Icons.Trash, compact = true)
     }
