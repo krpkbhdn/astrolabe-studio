@@ -1,15 +1,21 @@
 package com.github.krpkbhdn.astrolabe.ui.web.browser
 
 import org.assertj.core.api.Assertions.assertThat
-import org.awaitility.Awaitility.await
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import java.nio.ByteBuffer
-import java.util.concurrent.Executors
-import java.time.Duration
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.ScheduledThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 
 class FramePublisherTest {
-    private val scheduler = Executors.newSingleThreadScheduledExecutor()
+    private val flushes = mutableListOf<Runnable>()
+    private val scheduler = object : ScheduledThreadPoolExecutor(1) {
+        override fun schedule(command: Runnable, delay: Long, unit: TimeUnit): ScheduledFuture<*> {
+            flushes += command
+            return super.schedule({}, 1, TimeUnit.DAYS)
+        }
+    }
     private val published = mutableListOf<BrowserFrame>()
     private var clock = 0L
     private val publisher = FramePublisher(FrameBuffer(), { synchronized(published) { published += it } }, scheduler, INTERVAL, { clock })
@@ -21,8 +27,8 @@ class FramePublisherTest {
 
     private fun paint(blue: Int) = publisher.onPaint(ByteBuffer.wrap(byteArrayOf(blue.toByte(), 0, 0, -1)), 1, 1)
 
-    private fun awaitPublished(count: Int) {
-        await().atMost(Duration.ofSeconds(5)).until { synchronized(published) { published.size } >= count }
+    private fun runScheduledFlushes() {
+        flushes.toList().also { flushes.clear() }.forEach { it.run() }
     }
 
     @Test
@@ -40,7 +46,7 @@ class FramePublisherTest {
         assertThat(published).hasSize(1)
 
         clock += INTERVAL
-        awaitPublished(2)
+        runScheduledFlushes()
 
         assertThat(published).hasSize(2)
         val pixel = IntArray(1).also { published.last().bitmap.readPixels(it) }[0]

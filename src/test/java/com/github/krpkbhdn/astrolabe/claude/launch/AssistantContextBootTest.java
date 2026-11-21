@@ -8,6 +8,10 @@ import com.github.krpkbhdn.astrolabe.claude.event.HookEvent;
 import com.github.krpkbhdn.astrolabe.claude.event.HookEventType;
 import com.github.krpkbhdn.astrolabe.claude.hook.HookEventMulticaster;
 import com.github.krpkbhdn.astrolabe.claude.hook.SessionFiles;
+import com.github.krpkbhdn.astrolabe.shell.ShellLauncher;
+import com.github.krpkbhdn.astrolabe.toolchain.ExecutableLookup;
+import com.github.krpkbhdn.astrolabe.toolchain.ToolCatalog;
+import com.github.krpkbhdn.astrolabe.toolchain.ToolInstallService;
 import com.github.krpkbhdn.astrolabe.voice.VoiceConfigurationBootTest;
 import java.util.ArrayList;
 import org.springframework.context.ApplicationListener;
@@ -108,6 +112,14 @@ class AssistantContextBootTest {
         var list = arguments.get(arguments.indexOf("--allowedTools") + 1);
         assertThat(List.of(list.split(","))).hasSize(allowed.size()).allMatch(n -> n.startsWith("mcp__astrolabe-app__"));
         assertThat(context.getBean(ClaudeLauncher.class)).isNotNull();
+    }
+
+    @Test
+    void contextWiresToolchainAndShellLaunchers() {
+        assertThat(context.getBean(ToolInstallService.class)).isNotNull();
+        assertThat(context.getBean(ExecutableLookup.class)).isNotNull();
+        assertThat(context.getBean(ToolCatalog.class).all()).isNotEmpty();
+        assertThat(context.getBean(ShellLauncher.class)).isNotNull();
     }
 
     @Test

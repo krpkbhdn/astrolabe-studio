@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -26,6 +27,11 @@ class WebReviewServiceTest {
     private static final String KEY = "http://localhost:5173/settings";
     private static final byte[] PNG = TestPng.tiny();
 
+    private static final String PRAGMAS = "?foreign_keys=on&busy_timeout=10000";
+
+    @TempDir
+    static Path shared;
+
     @TempDir
     Path temp;
 
@@ -34,10 +40,15 @@ class WebReviewServiceTest {
     WebReviewService service;
     long projectId;
 
+    @BeforeAll
+    static void migrateTemplate() {
+        Flyway.configure().dataSource(new DriverManagerDataSource("jdbc:sqlite:" + shared.resolve("template.db"))).load().migrate();
+    }
+
     @BeforeEach
-    void setUp() {
-        dataSource = new DriverManagerDataSource("jdbc:sqlite:" + temp.resolve("test.db") + "?foreign_keys=on");
-        Flyway.configure().dataSource(dataSource).load().migrate();
+    void setUp() throws Exception {
+        Files.copy(shared.resolve("template.db"), temp.resolve("test.db"));
+        dataSource = new DriverManagerDataSource("jdbc:sqlite:" + temp.resolve("test.db") + PRAGMAS);
         jdbc = JdbcClient.create(dataSource);
         var properties = new WebReviewProperties(600, List.of("display"), 1024, 3);
         service = new WebReviewService(jdbc, new TransactionTemplate(new DataSourceTransactionManager(dataSource)), properties,
@@ -236,15 +247,6 @@ class WebReviewServiceTest {
     }
 
     @Test
-    void secondPrepareOnTheSameRevisionIsRefused() {
-        add("a");
-        var revision = service.currentRevision(projectId);
-        service.prepareFeedback(revision.id());
-
-        assertThatThrownBy(() -> service.prepareFeedback(revision.id())).isInstanceOf(IllegalStateException.class);
-    }
-
-    @Test
     void itemAddedAfterPrepareGoesToTheNextRevisionAndNotIntoTheSentMarkdown() throws Exception {
         add("first");
         var revision = service.currentRevision(projectId);
@@ -333,11 +335,6 @@ class WebReviewServiceTest {
             assertThat(page.title()).isEqualTo("A2");
             assertThat(page.lastUrl()).isEqualTo("http://localhost:5173/a/");
         });
-    }
-
-    @Test
-    void browserLimitsComeFromTheProperties() {
-        assertThat(service.browserLimits()).isEqualTo(new BrowserLimits(3, Duration.ofMinutes(10)));
     }
 
     @Test

@@ -68,11 +68,11 @@ class JcefRuntimeTest {
 
     @Test
     fun a_terminated_start_fails_at_once() {
-        val started = System.nanoTime()
+        var polls = 0
 
-        assertThatThrownBy { JcefRuntime.awaitInitialized({ CefApp.CefAppState.TERMINATED }, 30_000) }
+        assertThatThrownBy { JcefRuntime.awaitInitialized({ polls++; CefApp.CefAppState.TERMINATED }, 30_000) }
             .isInstanceOf(IllegalStateException::class.java)
-        assertThat(System.nanoTime() - started).isLessThan(5_000_000_000L)
+        assertThat(polls).isEqualTo(1)
     }
 
     @Test

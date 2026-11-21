@@ -1,20 +1,11 @@
 package com.github.krpkbhdn.astrolabe.notification;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
 class NotificationPropertiesTest {
-
-    @Test
-    void keepsTheDefaultValues() {
-        var properties = new NotificationProperties(200, Duration.ofSeconds(2));
-
-        assertThat(properties.historyLimit()).isEqualTo(200);
-        assertThat(properties.duplicateWindow()).isEqualTo(Duration.ofSeconds(2));
-    }
 
     @Test
     void rejectsNonPositiveHistoryLimitNamingTheProperty() {

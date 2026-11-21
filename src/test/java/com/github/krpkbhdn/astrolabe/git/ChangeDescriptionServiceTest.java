@@ -17,6 +17,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
@@ -25,16 +26,21 @@ import org.springframework.boot.context.properties.source.MapConfigurationProper
 
 class ChangeDescriptionServiceTest {
 
+    @TempDir
+    static Path sharedRoot;
+    private static GitCliSandbox edited;
+
     private final ClaudeCli claude = mock(ClaudeCli.class);
     private final ChangeDescriptionService service = new ChangeDescriptionService(claude,
-            new ChangeDescriptionProperties("haiku", Duration.ofSeconds(1), 20000, 100), new GitRunner());
+            new ChangeDescriptionProperties("haiku", Duration.ofSeconds(1), 20000, 100), edited.runner);
 
     private static CommandRunner.Result answer(String result) {
         return new CommandRunner.Result(0, "{\"result\":" + tools.jackson.databind.json.JsonMapper.builder().build().writeValueAsString(result) + "}", "", false);
     }
 
-    private GitCliSandbox featureBranchWithEdits(Path root) {
-        var sandbox = GitCliSandbox.create(root);
+    @BeforeAll
+    static void buildFeatureBranchWithEdits() {
+        var sandbox = GitCliSandbox.create(sharedRoot);
         sandbox.write("README.md", "hello\n");
         sandbox.commitAll("initial");
         sandbox.git("checkout", "-b", "task/add-login");
@@ -44,12 +50,17 @@ class ChangeDescriptionServiceTest {
         sandbox.write("notes.txt", "untracked notes\n");
         sandbox.write(".env", "TOKEN=hunter2\n");
         sandbox.writeBytes("logo.png", new byte[] {1, 0, 2, 0});
-        return sandbox;
+        edited = sandbox;
+    }
+
+    /** Read-only for every test: describe never writes to the repository. */
+    private static GitCliSandbox featureBranchWithEdits() {
+        return edited;
     }
 
     @Test
-    void usesValidClaudeAnswer(@TempDir Path root) {
-        var sandbox = featureBranchWithEdits(root);
+    void usesValidClaudeAnswer() {
+        var sandbox = featureBranchWithEdits();
         when(claude.execute(any(), any(), any())).thenReturn(answer("{\"title\":\"Add login\",\"body\":\"- one\"}"));
 
         assertThat(service.describe(sandbox.repo, "main", "")).isEqualTo(new ChangeDescription("Add login", "- one"));
@@ -57,8 +68,8 @@ class ChangeDescriptionServiceTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void promptHasUncommittedUntrackedAndCommittedChangesButNoSecretsOrBinaries(@TempDir Path root) {
-        var sandbox = featureBranchWithEdits(root);
+    void promptHasUncommittedUntrackedAndCommittedChangesButNoSecretsOrBinaries() {
+        var sandbox = featureBranchWithEdits();
         when(claude.execute(any(), any(), any())).thenReturn(answer("{\"title\":\"Add login\",\"body\":\"\"}"));
 
         service.describe(sandbox.repo, "main", "implement login");
@@ -108,7 +119,7 @@ class ChangeDescriptionServiceTest {
         sandbox.commitAll("initial");
         sandbox.git("checkout", "-b", "feature");
         sandbox.write("a.txt", "\"q\"\\\n".repeat(50_000));
-        var bigService = new ChangeDescriptionService(claude, new ChangeDescriptionProperties("haiku", Duration.ofSeconds(1), 200_000, 100), new GitRunner());
+        var bigService = new ChangeDescriptionService(claude, new ChangeDescriptionProperties("haiku", Duration.ofSeconds(1), 200_000, 100), sandbox.runner);
         when(claude.execute(any(), any(), any())).thenReturn(answer("{\"title\":\"Edit a\",\"body\":\"\"}"));
 
         bigService.describe(sandbox.repo, "main", "t\"".repeat(5000));
@@ -129,7 +140,7 @@ class ChangeDescriptionServiceTest {
         sandbox.commitAll("initial");
         sandbox.git("checkout", "-b", "feature");
         sandbox.write(".env", "TOKEN=hunter3\n");
-        var failing = spy(new GitRunner());
+        var failing = spy(sandbox.runner);
         doAnswer(call -> Arrays.asList(call.getArguments()).contains("--name-only") ? new GitRunner.Result(128, "", "index.lock", false) : call.callRealMethod())
                 .when(failing).tryRun(any(), any(String[].class));
         var guarded = new ChangeDescriptionService(claude, new ChangeDescriptionProperties("haiku", Duration.ofSeconds(1), 20000, 100), failing);
@@ -141,8 +152,8 @@ class ChangeDescriptionServiceTest {
     }
 
     @Test
-    void interruptedThreadDoesNotCallClaudeAgain(@TempDir Path root) {
-        var sandbox = featureBranchWithEdits(root);
+    void interruptedThreadDoesNotCallClaudeAgain() {
+        var sandbox = featureBranchWithEdits();
         when(claude.execute(any(), any(), any())).thenAnswer(call -> {
             Thread.currentThread().interrupt();
             return new CommandRunner.Result(-1, "", "", true);
@@ -157,8 +168,8 @@ class ChangeDescriptionServiceTest {
     }
 
     @Test
-    void invalidBodyFallsBackToTheDeterministicBodyKeepingTheTitle(@TempDir Path root) {
-        var sandbox = featureBranchWithEdits(root);
+    void invalidBodyFallsBackToTheDeterministicBodyKeepingTheTitle() {
+        var sandbox = featureBranchWithEdits();
         when(claude.execute(any(), any(), any())).thenReturn(answer("{\"title\":\"Add login\",\"body\":\"I'm sorry, I cannot describe this.\"}"));
 
         var description = service.describe(sandbox.repo, "main", "");
@@ -184,8 +195,8 @@ class ChangeDescriptionServiceTest {
     }
 
     @Test
-    void badAnswersRetryOnceThenFallBackToTaskTitle(@TempDir Path root) {
-        var sandbox = featureBranchWithEdits(root);
+    void badAnswersRetryOnceThenFallBackToTaskTitle() {
+        var sandbox = featureBranchWithEdits();
         when(claude.execute(any(), any(), any())).thenReturn(answer("I'm sorry, I cannot write a description because there are no commits."));
 
         var description = service.describe(sandbox.repo, "main", "fix the login redirect.\nmore text");
@@ -213,8 +224,8 @@ class ChangeDescriptionServiceTest {
     }
 
     @Test
-    void timeoutAndExceptionFallBack(@TempDir Path root) {
-        var sandbox = featureBranchWithEdits(root);
+    void timeoutAndExceptionFallBack() {
+        var sandbox = featureBranchWithEdits();
         when(claude.execute(any(), any(), any())).thenReturn(new CommandRunner.Result(-1, "", "", true)).thenThrow(new ExtensionException("boom"));
 
         assertThat(service.describe(sandbox.repo, "main", "").title()).isEqualTo("Add login");

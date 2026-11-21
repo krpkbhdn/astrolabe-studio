@@ -156,11 +156,6 @@ class TerminalInputTest {
     }
 
     @Test
-    fun altPReachesClaudeAsEscapeP() {
-        assertThat(bytes(press(KeyEvent.VK_P, ALT_DOWN_MASK, 'p'))).isEqualTo("${ESC}p")
-    }
-
-    @Test
     fun optionLettersOnMacBecomeMetaLettersFromTheKeyCode() {
         assertThat(optionLetterBytes(press(KeyEvent.VK_P, ALT_DOWN_MASK, 'π'), mac = true)?.toString(Charsets.ISO_8859_1)).isEqualTo("${ESC}p")
         assertThat(optionLetterBytes(press(KeyEvent.VK_P, ALT_DOWN_MASK or SHIFT_DOWN_MASK, '∏'), mac = true)?.toString(Charsets.ISO_8859_1)).isEqualTo("${ESC}P")

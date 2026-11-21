@@ -44,7 +44,8 @@ internal object ReviewPreviewData {
         jdbc = JdbcClient.create(dataSource)
         val properties = ReviewProperties(Duration.ofDays(7), Duration.ofHours(1), 20, BYTES_20_MB, MAX_SIDE, MAX_PIXELS, MAX_REVIEWS)
         return ReviewService(jdbc, ReviewImageStore(properties), ReviewFeedbackWriter(ReviewImageAnnotator()),
-            org.springframework.transaction.support.TransactionTemplate(org.springframework.jdbc.datasource.DataSourceTransactionManager(dataSource)), properties).also { current = it }
+            org.springframework.transaction.support.TransactionTemplate(org.springframework.jdbc.datasource.DataSourceTransactionManager(dataSource)), properties,
+            Files.createTempDirectory("astrolabe-preview-reviews").also { it.toFile().deleteOnExit() }).also { current = it }
     }
 
     /** Submits "Sample: settings screen" with three generated screenshots and one mark of each kind incl. a freeform. */

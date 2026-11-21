@@ -13,19 +13,37 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 
 class StdioMcpClientTest {
 
+    private static McpClient sharedClient;
+
     private McpClient client;
+
+    @AfterAll
+    static void closeShared() {
+        if (sharedClient != null) {
+            sharedClient.close();
+        }
+    }
 
     @AfterEach
     void close() {
         if (client != null) {
             client.close();
         }
+    }
+
+    private McpClient shared() {
+        if (sharedClient == null) {
+            sharedClient = start(Duration.ofSeconds(20));
+            client = null;
+        }
+        return sharedClient;
     }
 
     private McpClient start(Duration timeout) {
@@ -49,7 +67,7 @@ class StdioMcpClientTest {
 
     @Test
     void listsToolsAcrossPagesWithAnnotationDefaults() {
-        var tools = start(Duration.ofSeconds(20)).listTools();
+        var tools = shared().listTools();
 
         assertThat(tools).extracting("name", "readOnlyHint", "destructiveHint").startsWith(
                 org.assertj.core.groups.Tuple.tuple("plain", false, true), org.assertj.core.groups.Tuple.tuple("read", true, false));
@@ -60,7 +78,7 @@ class StdioMcpClientTest {
 
     @Test
     void annotationHintsDecideWhetherAToolRunsUnasked() {
-        var byName = start(Duration.ofSeconds(20)).listTools().stream().collect(java.util.stream.Collectors.toMap(tool -> tool.name(), tool -> tool));
+        var byName = shared().listTools().stream().collect(java.util.stream.Collectors.toMap(tool -> tool.name(), tool -> tool));
 
         assertThat(byName.get("plain").isSafeToRunUnasked()).isFalse();
         assertThat(byName.get("plain").destructiveHint()).isTrue();
@@ -72,7 +90,7 @@ class StdioMcpClientTest {
 
     @Test
     void callsAToolWithArguments() throws Exception {
-        var result = start(Duration.ofSeconds(20)).callTool("echo", new JsonMapper().readTree("{\"a\":1}"));
+        var result = shared().callTool("echo", new JsonMapper().readTree("{\"a\":1}"));
 
         assertThat(result.path("content").get(0).path("text").asString()).isEqualTo("{\"a\":1}");
     }
@@ -103,25 +121,16 @@ class StdioMcpClientTest {
     }
 
     @Test
-    void errorResponseBecomesAnException() {
-        var started = start(Duration.ofSeconds(20));
-
-        assertThatThrownBy(() -> started.callTool("fail", null)).isInstanceOf(McpClientException.class).hasMessageContaining("boom");
+    void errorResponseBecomesAServerErrorException() {
+        assertThatThrownBy(() -> shared().callTool("fail", null)).isInstanceOf(McpServerErrorException.class).hasMessageContaining("boom");
     }
 
     @Test
-    void unansweredRequestTimesOut() {
-        var started = start(Duration.ofSeconds(3));
+    void unansweredRequestTimesOutWithATransportFailure() {
+        var started = start(Duration.ofSeconds(4));
 
-        assertThatThrownBy(() -> started.callTool("never", null)).isInstanceOf(McpClientException.class).hasMessageContaining("in time");
-    }
-
-    @Test
-    void errorResponseIsAServerErrorWhileTransportFailuresAreNot() {
-        var started = start(Duration.ofSeconds(3));
-
-        assertThatThrownBy(() -> started.callTool("fail", null)).isInstanceOf(McpServerErrorException.class);
-        assertThatThrownBy(() -> started.callTool("never", null)).isNotInstanceOf(McpServerErrorException.class);
+        assertThatThrownBy(() -> started.callTool("never", null)).isInstanceOf(McpClientException.class).isNotInstanceOf(McpServerErrorException.class)
+                .hasMessageContaining("in time");
     }
 
     @Test
@@ -181,7 +190,7 @@ class StdioMcpClientTest {
 
     @Test
     void serverInitiatedElicitationIsDeclined() {
-        var result = start(Duration.ofSeconds(20)).callTool("elicit", null);
+        var result = shared().callTool("elicit", null);
 
         assertThat(result.path("content").get(0).path("text").asString()).isEqualTo("declined -32601");
     }

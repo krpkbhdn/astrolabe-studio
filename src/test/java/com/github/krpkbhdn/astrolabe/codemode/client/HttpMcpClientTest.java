@@ -17,9 +17,9 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,12 +30,12 @@ class HttpMcpClientTest {
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
     private HttpServer server;
-    private int status;
-    private boolean oversize;
-    private boolean oversizeAsJson;
-    private String errorBody;
-    private final List<String> deletedSessions = new ArrayList<>();
-    private final List<Map<String, String>> seenHeaders = new ArrayList<>();
+    private volatile int status;
+    private volatile boolean oversize;
+    private volatile boolean oversizeAsJson;
+    private volatile String errorBody;
+    private final List<String> deletedSessions = new CopyOnWriteArrayList<>();
+    private final List<Map<String, String>> seenHeaders = new CopyOnWriteArrayList<>();
     private McpClient client;
 
     @BeforeEach

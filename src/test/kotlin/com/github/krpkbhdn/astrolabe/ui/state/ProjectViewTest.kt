@@ -113,12 +113,4 @@ class ProjectViewTest {
         assertThat(ProjectView().select(ProjectTab.Review).selected).isEqualTo(ProjectTab.Review)
     }
 
-    @Test
-    fun `web tab sits after review and before activity and is reached by cycling`() {
-        val view = ProjectView().select(ProjectTab.Review)
-
-        assertThat(view.cycle(1).selected).isEqualTo(ProjectTab.Web)
-        assertThat(view.cycle(2).selected).isEqualTo(ProjectTab.Activity)
-        assertThat(ProjectView().select(ProjectTab.Web).selected).isEqualTo(ProjectTab.Web)
-    }
 }

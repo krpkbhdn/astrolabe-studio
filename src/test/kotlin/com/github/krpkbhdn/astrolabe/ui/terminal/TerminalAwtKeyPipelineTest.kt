@@ -9,11 +9,15 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import com.github.krpkbhdn.astrolabe.ui.await
 import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assumptions.assumeFalse
 import org.junit.jupiter.api.Assumptions.assumeTrue
+import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.TestInstance
+import java.util.concurrent.locks.LockSupport
 import java.awt.GraphicsEnvironment
 import java.awt.Toolkit
 import java.awt.datatransfer.DataFlavor
@@ -31,18 +35,19 @@ import javax.swing.SwingUtilities
 private const val ESC = "\u001b"
 private const val FOCUS_WAIT_SECONDS = 5L
 private const val MILLIS_PER_SECOND = 1_000L
-private const val RESIZE_POLL_MILLIS = 10L
+private const val RESIZE_POLL_NANOS = 1_000_000L
 
 /**
  * Real AWT events dispatched straight to the component of an in-process Compose panel (no OS-level input), so the
  * conversion done by Compose itself is part of what is tested.
  */
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class TerminalAwtKeyPipelineTest {
     private val connector = ScriptedConnector()
     private val session = TerminalSession(connector)
     private var frame: JFrame? = null
 
-    @BeforeEach
+    @BeforeAll
     fun open() {
         assumeFalse(GraphicsEnvironment.isHeadless())
         val focusManager = KeyboardFocusManager.getCurrentKeyboardFocusManager()
@@ -63,17 +68,24 @@ class TerminalAwtKeyPipelineTest {
             awtFocused.await(FOCUS_WAIT_SECONDS, TimeUnit.SECONDS)
             runBlocking { withTimeoutOrNull(FOCUS_WAIT_SECONDS * MILLIS_PER_SECOND) { snapshotFlow { session.focused }.first { it } } }
             val resized = System.nanoTime() + TimeUnit.SECONDS.toNanos(FOCUS_WAIT_SECONDS)
-            while (connector.resizes.isEmpty() && System.nanoTime() < resized) Thread.sleep(RESIZE_POLL_MILLIS)
+            while (connector.resizes.isEmpty() && System.nanoTime() < resized) LockSupport.parkNanos(RESIZE_POLL_NANOS)
             assumeTrue(session.focused && connector.resizes.isNotEmpty()) { "the environment gave the window no focus or layout" }
         } finally {
             focusManager.removePropertyChangeListener("focusOwner", listener)
         }
     }
 
-    @AfterEach
+    @AfterAll
     fun close() {
         SwingUtilities.invokeAndWait { frame?.dispose() }
         session.close()
+    }
+
+    @BeforeEach
+    fun resetShared() {
+        settle(connector, session)
+        connector.written.clear()
+        session.clearSelection()
     }
 
     private fun dispatch(id: Int, code: Int, char: Char, modifiers: Int = 0) {
@@ -132,7 +144,7 @@ class TerminalAwtKeyPipelineTest {
     }
 
     private fun selectHello() {
-        connector.feed("hello")
+        connector.feed("\u001b[2J\u001b[Hhello")
         settle(connector, session)
         session.select(CellSelection(Cell(0, 0), Cell(4, 0)))
         assertThat(session.selection).describedAs("selection kept after the initial layout").isNotNull()

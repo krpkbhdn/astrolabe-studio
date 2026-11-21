@@ -19,6 +19,6 @@ class UpdateInstallerTest {
     void scriptWaitsForTheProcessThenInstallsAndRestarts() {
         var script = UpdateInstaller.script(4242);
 
-        assertThat(script).contains("PID eq 4242").contains("find \"4242\"").contains("msiexec /i \"%~1\"").contains("start \"\" \"%~2\"").contains("update.log").contains("del \"%~f0\"").contains("& exit");
+        assertThat(script).contains("PID eq 4242").contains("find \"4242\"").contains("msiexec /i \"%~1\" /passive").contains("start \"\" \"%~2\"").contains("update.log").contains("del \"%~f0\"").contains("& exit");
     }
 }

@@ -10,18 +10,31 @@ import com.github.krpkbhdn.astrolabe.workspace.GitDiff.ChangeType;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class GitLogServiceTest {
 
+    @TempDir
+    static Path sharedDirectory;
+
+    private static HistoryTestRepo shared;
+    private static String sharedHead;
+
     private final GitLogService service = new GitLogService(new GitRunner());
     private HistoryTestRepo repo;
 
+    @BeforeAll
+    static void buildSharedHistory() {
+        assumeTrue(HistoryTestRepo.gitAvailable());
+        shared = HistoryTestRepo.init(sharedDirectory);
+        sharedHead = buildBranchyHistory(shared);
+    }
+
     @BeforeEach
     void setUp(@TempDir Path directory) {
-        assumeTrue(HistoryTestRepo.gitAvailable());
         repo = HistoryTestRepo.init(directory);
     }
 
@@ -30,7 +43,7 @@ class GitLogServiceTest {
     }
 
     /** main: c1 - c2 - m3 - merge(feature, other); feature: f1 - f2; other: o1 (all forked at c2). */
-    private String buildBranchyHistory() {
+    private static String buildBranchyHistory(HistoryTestRepo repo) {
         repo.commit("a.txt", "1", "c1");
         repo.git("tag", "v1");
         repo.commit("a.txt", "2", "c2");
@@ -57,9 +70,9 @@ class GitLogServiceTest {
 
     @Test
     void rowsCarryParentsRefsAndAuthorAndEveryLinkReachesItsParent() {
-        var head = buildBranchyHistory();
+        var head = sharedHead;
 
-        var rows = service.log(repo.root(), all(0, 50)).rows();
+        var rows = service.log(shared.root(), all(0, 50)).rows();
 
         assertThat(rows).hasSize(8);
         var top = rows.getFirst().commit();
@@ -78,18 +91,17 @@ class GitLogServiceTest {
 
     @Test
     void pagesWithCarriedStateReplayedPagesAndTheWholeListAgree() {
-        buildBranchyHistory();
-        var whole = service.log(repo.root(), all(0, 50)).rows();
+        var whole = service.log(shared.root(), all(0, 50)).rows();
 
         var paged = new ArrayList<Row>();
         GraphState state = null;
         for (var skip = 0; skip < whole.size(); skip += 3) {
-            var result = service.log(repo.root(), all(skip, 3), state);
+            var result = service.log(shared.root(), all(skip, 3), state);
             paged.addAll(result.page().rows());
             assertThat(result.page().hasMore()).isEqualTo(skip + 3 < whole.size());
             state = result.next();
         }
-        var replayed = service.log(repo.root(), all(3, 3)).rows();
+        var replayed = service.log(shared.root(), all(3, 3)).rows();
 
         assertThat(paged).isEqualTo(whole);
         assertThat(replayed).isEqualTo(whole.subList(3, 6));
@@ -97,7 +109,7 @@ class GitLogServiceTest {
 
     @Test
     void branchFilterAndStashAreRespected() {
-        buildBranchyHistory();
+        buildBranchyHistory(repo);
         repo.write("a.txt", "dirty");
         repo.git("stash", "push", "-q", "-m", "wip");
 
@@ -111,7 +123,7 @@ class GitLogServiceTest {
 
     @Test
     void authorAndTextFiltersAreCaseInsensitiveLiteralsWithoutGraph() {
-        buildBranchyHistory();
+        buildBranchyHistory(repo);
         repo.commit("x.txt", "x", "Fix [bug] (1)");
 
         var byText = service.log(repo.root(), new Query(null, null, "[BUG]", null, 0, 50)).rows();
@@ -201,9 +213,7 @@ class GitLogServiceTest {
 
     @Test
     void detailsOfAMergeCommitDiffAgainstTheFirstParentOnly() {
-        var head = buildBranchyHistory();
-
-        var details = service.details(repo.root(), head);
+        var details = service.details(shared.root(), sharedHead);
 
         assertThat(details.files()).extracting(file -> file.path()).containsExactly("o.txt");
         assertThat(details.commit().parents()).hasSize(2);
@@ -211,10 +221,8 @@ class GitLogServiceTest {
 
     @Test
     void optionLikeRevisionsAreRejected() {
-        buildBranchyHistory();
-
         assertThat(List.of("--output=x", "-p")).allSatisfy(bad -> org.assertj.core.api.Assertions
-                .assertThatThrownBy(() -> service.details(repo.root(), bad)).isInstanceOf(GitException.class));
+                .assertThatThrownBy(() -> service.details(shared.root(), bad)).isInstanceOf(GitException.class));
     }
 
     @Test

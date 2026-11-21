@@ -6,23 +6,60 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.github.krpkbhdn.astrolabe.git.GitException.Kind;
 import com.github.krpkbhdn.astrolabe.git.GitMisc.ResetMode;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.Comparator;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class GitHistoryServiceTest {
 
+    private static Path template;
+    private static String first;
+
     private final GitHistoryService service = new GitHistoryService(new GitRunner());
     private HistoryTestRepo repo;
-    private String first;
+
+    @BeforeAll
+    static void buildTemplate() throws IOException {
+        assumeTrue(HistoryTestRepo.gitAvailable());
+        template = Files.createTempDirectory("history-template");
+        var base = HistoryTestRepo.init(template);
+        first = base.commit("a.txt", "1\n", "first");
+        base.commit("a.txt", "2\n", "second");
+    }
+
+    @AfterAll
+    static void deleteTemplate() throws IOException {
+        if (template == null) {
+            return;
+        }
+        try (var paths = Files.walk(template)) {
+            paths.sorted(Comparator.reverseOrder()).forEach(path -> {
+                path.toFile().setWritable(true);
+                path.toFile().delete();
+            });
+        }
+    }
 
     @BeforeEach
-    void setUp(@TempDir Path directory) {
-        assumeTrue(HistoryTestRepo.gitAvailable());
-        repo = HistoryTestRepo.init(directory);
-        first = repo.commit("a.txt", "1\n", "first");
-        repo.commit("a.txt", "2\n", "second");
+    void setUp(@TempDir Path directory) throws IOException {
+        try (var paths = Files.walk(template)) {
+            for (var source : (Iterable<Path>) paths::iterator) {
+                var target = directory.resolve(template.relativize(source).toString());
+                if (Files.isDirectory(source)) {
+                    Files.createDirectories(target);
+                } else {
+                    Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
+        }
+        repo = HistoryTestRepo.open(directory);
     }
 
     @Test

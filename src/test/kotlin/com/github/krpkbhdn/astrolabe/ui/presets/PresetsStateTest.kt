@@ -1,10 +1,19 @@
 package com.github.krpkbhdn.astrolabe.ui.presets
 
+import com.github.krpkbhdn.astrolabe.preset.BundledPresetLoader
 import com.github.krpkbhdn.astrolabe.preset.PresetComponentKind
+import com.github.krpkbhdn.astrolabe.preset.ProjectPresetService
 import com.github.krpkbhdn.astrolabe.ui.FakePlugins
 import com.github.krpkbhdn.astrolabe.ui.FakeSkills
 import com.github.krpkbhdn.astrolabe.ui.await
-import com.github.krpkbhdn.astrolabe.ui.previewPresetService
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.StandardCopyOption
+import org.flywaydb.core.Flyway
+import org.springframework.jdbc.core.simple.JdbcClient
+import org.springframework.jdbc.datasource.DataSourceTransactionManager
+import org.springframework.jdbc.datasource.DriverManagerDataSource
+import org.springframework.transaction.support.TransactionTemplate
 import com.github.krpkbhdn.astrolabe.ui.state.ConfirmRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -19,7 +28,7 @@ class PresetsStateTest {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val errors = mutableListOf<String>()
     private var confirmation: ConfirmRequest? = null
-    private val service = previewPresetService()
+    private val service = serviceFromTemplate()
     private val state = PresetsState(service, FakePlugins(), FakeSkills(), scope, { confirmation = it }, { errors += it })
 
     @BeforeEach
@@ -32,6 +41,26 @@ class PresetsStateTest {
     fun stop() {
         state.dispose()
         scope.cancel()
+    }
+
+    private companion object {
+        // Flyway and the bundled sync run once; each test copies the finished file.
+        val template: Path by lazy {
+            val file = Files.createTempFile("astrolabe-presets-template", ".db").also { it.toFile().deleteOnExit() }
+            val dataSource = DriverManagerDataSource("jdbc:sqlite:$file")
+            Flyway.configure().dataSource(dataSource).load().migrate()
+            presetService(dataSource).syncBundled()
+            file
+        }
+
+        fun presetService(dataSource: DriverManagerDataSource) =
+            ProjectPresetService(JdbcClient.create(dataSource), TransactionTemplate(DataSourceTransactionManager(dataSource)), BundledPresetLoader())
+
+        fun serviceFromTemplate(): ProjectPresetService {
+            val file = Files.createTempFile("astrolabe-presets", ".db").also { it.toFile().deleteOnExit() }
+            Files.copy(template, file, StandardCopyOption.REPLACE_EXISTING)
+            return presetService(DriverManagerDataSource("jdbc:sqlite:$file?journal_mode=WAL&busy_timeout=5000"))
+        }
     }
 
     private fun storedComponents(id: Long) = service.get(id).orElseThrow().components()

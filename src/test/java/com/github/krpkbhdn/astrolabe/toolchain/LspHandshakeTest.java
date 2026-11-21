@@ -90,7 +90,7 @@ class LspHandshakeTest {
     @Test
     void reportsNoResponseInTimeWhenServerStaysSilent() throws IOException {
         try (var silent = new PipedInputStream(new PipedOutputStream())) {
-            var result = handshake.perform(silent, sent, Duration.ofMillis(200));
+            var result = handshake.perform(silent, sent, Duration.ofMillis(50));
 
             assertThat(result.outcome()).isEqualTo(Outcome.NO_RESPONSE_IN_TIME);
         }

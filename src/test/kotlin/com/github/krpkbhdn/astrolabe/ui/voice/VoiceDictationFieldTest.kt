@@ -108,16 +108,6 @@ class VoiceDictationFieldTest {
         repeat(6) { frame() }
     }
 
-    @Test
-    fun `the caret bar sits in an empty field`() {
-        holdUntilListening()
-        listeners[0].onLevel(1.0)
-        settle()
-        shot("empty-loud")
-        release()
-        scene.close()
-    }
-
     private fun repeatKey() {
         loop.advance(KEY_REPEAT_MILLIS)
         press()

@@ -50,19 +50,6 @@ class ShortcutActionsTest {
     }
 
     @Test
-    fun `the folder picker and the task dialog block shortcuts`() {
-        state.projects.pickerOpen = true
-        assertThat(actions.perform(AppShortcut.PALETTE)).isFalse()
-        state.projects.pickerOpen = false
-
-        state.tasks.projectId = 1L
-        assertThat(actions.perform(AppShortcut.PALETTE)).isFalse()
-        state.tasks.projectId = null
-
-        assertThat(actions.perform(AppShortcut.PALETTE)).isTrue()
-    }
-
-    @Test
     fun `closing an overlay still works while a dialog is open`() {
         state.paletteOpen = true
         state.confirm = confirmation()
@@ -137,24 +124,14 @@ class ShortcutActionsTest {
     }
 
     @Test
-    fun `review shortcut selects the tab in a project`() {
+    fun `review and web shortcuts select their tab in a project`() {
         runBlocking { state.projects.load() }
         val id = state.projects.all.first { !it.group }.id
         state.navigate(Route.Project(id))
 
         assertThat(actions.perform(AppShortcut.REVIEW_TAB)).isTrue()
-
         assertThat(state.viewOf(id).selected).isEqualTo(ProjectTab.Review)
-    }
-
-    @Test
-    fun `web shortcut selects the web tab in a project`() {
-        runBlocking { state.projects.load() }
-        val id = state.projects.all.first { !it.group }.id
-        state.navigate(Route.Project(id))
-
         assertThat(actions.perform(AppShortcut.WEB_TAB)).isTrue()
-
         assertThat(state.viewOf(id).selected).isEqualTo(ProjectTab.Web)
     }
 

@@ -36,6 +36,7 @@ import com.github.krpkbhdn.astrolabe.ui.chrome.isDarkTheme
 import com.github.krpkbhdn.astrolabe.ui.components.ToastPopups
 import com.github.krpkbhdn.astrolabe.ui.state.AppState
 import com.github.krpkbhdn.astrolabe.ui.state.Backend
+import com.github.krpkbhdn.astrolabe.ui.state.NotificationsState
 import com.github.krpkbhdn.astrolabe.ui.state.ScreenArea
 import com.github.krpkbhdn.astrolabe.ui.state.UiSettingsStore
 import com.github.krpkbhdn.astrolabe.ui.state.fitToScreens
@@ -140,7 +141,7 @@ fun ApplicationScope.AppWindow(backend: Backend, onShutdown: () -> Unit, setting
     }
     var windowGeneration by remember { mutableIntStateOf(0) }
     val defaultHandlers = LocalWindowExceptionHandlerFactory.current
-    val keepWindowAlive = remember { reportingExceptionHandlers(state, defaultHandlers, WindowRecovery()) { windowGeneration++ } }
+    val keepWindowAlive = remember { reportingExceptionHandlers(state.notifications, defaultHandlers, WindowRecovery()) { windowGeneration++ } }
     CompositionLocalProvider(LocalWindowExceptionHandlerFactory provides keepWindowAlive, LocalScale provides state.settings.scale) {
         key(windowGeneration) {
             MainWindow(state, windowState, WINDOW_TITLE, icon, if (isTraySupported && state.settings.minimizeToTray) ({ hideToTray() }) else quit, visible) {
@@ -188,7 +189,7 @@ private fun installMacQuitHandler(onQuit: () -> Unit) {
  * when [recovery] refuses, the default handler takes over.
  */
 @OptIn(ExperimentalComposeUiApi::class)
-internal fun reportingExceptionHandlers(state: AppState, fallback: WindowExceptionHandlerFactory, recovery: WindowRecovery, remount: () -> Unit): WindowExceptionHandlerFactory {
+internal fun reportingExceptionHandlers(notifications: NotificationsState, fallback: WindowExceptionHandlerFactory, recovery: WindowRecovery, remount: () -> Unit): WindowExceptionHandlerFactory {
     var lastMessage: String? = null
     return WindowExceptionHandlerFactory { window ->
         WindowExceptionHandler { error ->
@@ -196,7 +197,7 @@ internal fun reportingExceptionHandlers(state: AppState, fallback: WindowExcepti
             if (!recovery.tryRecover()) return@WindowExceptionHandler fallback.exceptionHandler(window).onException(error)
             remount()
             val message = error.message ?: error.javaClass.simpleName
-            if (message != lastMessage) state.notifications.reportError(UI_ERROR_TITLE, message)
+            if (message != lastMessage) notifications.reportError(UI_ERROR_TITLE, message)
             lastMessage = message
         }
     }

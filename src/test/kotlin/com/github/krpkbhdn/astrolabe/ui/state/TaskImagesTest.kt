@@ -6,14 +6,9 @@ import java.nio.file.Path
 import java.nio.file.attribute.FileTime
 import java.time.Duration
 import java.time.Instant
-import java.awt.GraphicsEnvironment
-import java.awt.Toolkit
-import java.awt.datatransfer.DataFlavor
-import java.awt.datatransfer.Transferable
 import java.awt.image.BufferedImage
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
-import org.junit.jupiter.api.Assumptions.assumeFalse
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 
@@ -69,26 +64,13 @@ class TaskImagesTest {
 
     @Test
     fun `a clipboard image larger than the byte limit is rejected and nothing is stored`() {
-        assumeFalse(GraphicsEnvironment.isHeadless())
-        val clipboard = Toolkit.getDefaultToolkit().systemClipboard
-        val saved = runCatching { clipboard.getContents(null) }.getOrNull()
         val image = BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB)
-        clipboard.setContents(object : Transferable {
-            override fun getTransferDataFlavors() = arrayOf(DataFlavor.imageFlavor)
-            override fun isDataFlavorSupported(flavor: DataFlavor) = flavor == DataFlavor.imageFlavor
-            override fun getTransferData(flavor: DataFlavor): Any = image
-        }, null)
-        try {
-            val images = TaskImages(dir.resolve("store"), TaskAttachmentProperties(10, 1, Duration.ofDays(7), 10, 1000))
-            assertThatThrownBy { images.saveFromClipboard() }.isInstanceOf(IllegalStateException::class.java).hasMessageContaining("larger")
-            assertThat(dir.resolve("store")).doesNotExist()
-            val stored = TaskImages(dir.resolve("store"), TaskAttachmentProperties(10, 1_000_000, Duration.ofDays(7), 10, 1000)).saveFromClipboard()
-            assertThat(stored).isNotNull().exists().hasExtension("png")
-        } finally {
-            saved?.let { clipboard.setContents(it, null) }
-        }
+        val images = TaskImages(dir.resolve("store"), TaskAttachmentProperties(10, 1, Duration.ofDays(7), 10, 1000)) { image }
+        assertThatThrownBy { images.saveFromClipboard() }.isInstanceOf(IllegalStateException::class.java).hasMessageContaining("larger")
+        assertThat(dir.resolve("store")).doesNotExist()
+        val stored = TaskImages(dir.resolve("store"), TaskAttachmentProperties(10, 1_000_000, Duration.ofDays(7), 10, 1000)) { image }.saveFromClipboard()
+        assertThat(stored).isNotNull().exists().hasExtension("png")
     }
-
 
     @Test
     fun `a paste is long above ten lines or a thousand characters`() {

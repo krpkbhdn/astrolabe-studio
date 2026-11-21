@@ -152,9 +152,6 @@ class TerminalInteractionTest {
         val dismissed = scene.image()
         dismissed.save(File(shotDirectory(), "context-menu-dismissed.png"))
         assertThat(dismissed.toBitmap().rgbAt(150, 148)).isEqualTo(0x0F1115)
-        pointer(PointerEventType.Scroll, point(30, 5), scroll = Offset(0f, -3f))
-        repeat(40) { scene.frame() }
-        scene.image().save(File(shotDirectory(), "scrollbar-scrolled.png"))
     }
 
     @Test

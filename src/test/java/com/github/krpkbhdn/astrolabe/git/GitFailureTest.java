@@ -28,10 +28,11 @@ class GitFailureTest {
     }
 
     @Test
-    void emptyCommitIsNothingToCommit() {
+    void emptyCommitIsNothingToCommitAndUnknownRevisionIsNotFound() {
         var sandbox = sandboxWithCommit();
 
         assertThat(failureOf(sandbox, "commit", "-m", "again").kind()).isEqualTo(Kind.NOTHING_TO_COMMIT);
+        assertThat(failureOf(sandbox, "checkout", "nope", "--").kind()).isEqualTo(Kind.NOT_FOUND);
     }
 
     @Test
@@ -81,13 +82,6 @@ class GitFailureTest {
         sandbox.git("checkout", "-b", "lonely");
 
         assertThat(failureOf(sandbox, "pull", "--no-rebase").kind()).isEqualTo(Kind.NO_UPSTREAM);
-    }
-
-    @Test
-    void unknownRevisionIsNotFound() {
-        var sandbox = sandboxWithCommit();
-
-        assertThat(failureOf(sandbox, "checkout", "nope", "--").kind()).isEqualTo(Kind.NOT_FOUND);
     }
 
     @Test

@@ -37,7 +37,7 @@ private const val SESSION = "s-agents"
 /** The dialog host against a whole AppState with fake services: what hides, replaces or closes a dialog, and where the focus goes. */
 @OptIn(InternalComposeUiApi::class)
 class ProposalDialogHostTest {
-    private val focused = mutableListOf<String>()
+    private val focused = java.util.concurrent.CopyOnWriteArrayList<String>()
     private val terminal = object : TerminalPort by PreviewTerminal {
         override fun focus(astrolabeSessionId: String) {
             focused += astrolabeSessionId
@@ -81,20 +81,14 @@ class ProposalDialogHostTest {
     private fun secondProposal() = PermissionProposal("p2", SESSION, Instant.now(), "", "Bash", JsonMapper.builder().build().readTree("""{"command":"ls"}"""), emptyList())
 
     @Test
-    fun escapeHidesTheDialogAndKeepsTheProposalPending() {
+    fun escapeHidesTheDialogKeepsTheProposalPendingAndReopeningShowsItAgain() {
         press(Key.Escape)
 
         assertThat(state.answers.dialog).isNull()
         assertThat(state.proposals.of(SESSION).map { it.id() }).contains("q1")
         assertThat(state.proposals.hiddenCount(SESSION)).isEqualTo(1)
         assertThat(world.proposals.service().pending().map { it.id() }).contains("q1")
-    }
-
-    @Test
-    fun reopeningShowsTheHiddenDialogAgain() {
-        press(Key.Escape)
         state.proposals.reopen(SESSION)
-
         assertThat(state.answers.dialog?.id()).isEqualTo("q1")
     }
 
@@ -102,7 +96,6 @@ class ProposalDialogHostTest {
     fun aProposalSettledElsewhereClosesItsDialogAndTheNextPendingOneTakesOver() {
         world.proposals.add(secondProposal())
         await { state.proposals.of(SESSION).size == 2 }
-        focused.clear()
 
         world.proposals.settle("q1")
         await { state.answers.dialog?.id() == "p2" }

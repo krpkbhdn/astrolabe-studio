@@ -93,10 +93,13 @@ class HookServerTest {
             return null;
         }).when(store).save(any(HookEvent.class));
 
-        post(server.hookUrl("sess-1"), "{\"hook_event_name\":\"Stop\"}");
+        try {
+            post(server.hookUrl("sess-1"), "{\"hook_event_name\":\"Stop\"}");
 
-        verify(publisher, timeout(VERIFY_TIMEOUT_MS)).publishEvent(any(HookEvent.class));
-        release.countDown();
+            verify(publisher, timeout(VERIFY_TIMEOUT_MS)).publishEvent(any(HookEvent.class));
+        } finally {
+            release.countDown();
+        }
     }
 
     @Test
@@ -202,11 +205,19 @@ class HookServerTest {
                     "Bearer " + bounded.sessionToken("sess-1"));
         }
 
-        bounded.stop();
-        release.countDown();
+        var defaultWait = OrderedWorker.executorStopWait;
+        OrderedWorker.executorStopWait = Duration.ofMillis(50);
+        try {
+            bounded.stop();
+        } finally {
+            OrderedWorker.executorStopWait = defaultWait;
+            release.countDown();
+        }
 
-        org.awaitility.Awaitility.await().during(Duration.ofMillis(300)).atMost(Duration.ofMillis(VERIFY_TIMEOUT_MS))
-                .untilAsserted(() -> assertThat(names).doesNotContain("Stop"));
+        // the worker thread ends only after its queue is dropped, so a Stop that still ran would be in names by then
+        org.awaitility.Awaitility.await().atMost(Duration.ofMillis(VERIFY_TIMEOUT_MS))
+                .until(() -> Thread.getAllStackTraces().keySet().stream().noneMatch(t -> t.getName().equals("hook-worker") && t.isAlive()));
+        assertThat(names).doesNotContain("Stop");
     }
 
     @Test

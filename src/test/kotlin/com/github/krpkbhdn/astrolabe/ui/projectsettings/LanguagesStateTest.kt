@@ -195,10 +195,10 @@ class LanguagesStateTest {
     @Test
     fun `inheritFromMembers switches the group service and reloads`() {
         val groupLsp = mock(GroupLspService::class.java)
-        var inheriting = false
-        `when`(groupLsp.inherits(7)).thenAnswer { inheriting }
-        doAnswer { inheriting = true; null }.`when`(groupLsp).inherit(7)
-        doAnswer { inheriting = false; null }.`when`(groupLsp).override(7)
+        val inheriting = java.util.concurrent.atomic.AtomicBoolean()
+        `when`(groupLsp.inherits(7)).thenAnswer { inheriting.get() }
+        doAnswer { inheriting.set(true); null }.`when`(groupLsp).inherit(7)
+        doAnswer { inheriting.set(false); null }.`when`(groupLsp).override(7)
         `when`(service.rows(dir)).thenReturn(listOf(row("ts")))
         val languages = LanguagesState(service, dir, scope, groupLsp, 7)
         languages.refresh()

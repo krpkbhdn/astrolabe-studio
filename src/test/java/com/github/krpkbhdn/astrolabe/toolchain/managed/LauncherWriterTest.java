@@ -197,7 +197,6 @@ class LauncherWriterTest {
         var install = jdtlsInstall();
         var jar = install.resolve(".astrolabe").resolve("dev.astrolabe.jdtls.output.jar");
         writer.writeJdtls("jdtls", install, tools.stateDirectory("jdtls"), Platform.LINUX);
-        var firstWrite = Files.getLastModifiedTime(jar);
         Files.setLastModifiedTime(jar, java.nio.file.attribute.FileTime.fromMillis(1000));
 
         writer.writeJdtls("jdtls", install, tools.stateDirectory("jdtls"), Platform.LINUX);
@@ -206,7 +205,6 @@ class LauncherWriterTest {
         bundleBytes = new byte[] {9};
         writer.writeJdtls("jdtls", install, tools.stateDirectory("jdtls"), Platform.LINUX);
         assertThat(Files.readAllBytes(jar)).containsExactly(9);
-        assertThat(firstWrite).isNotNull();
     }
 
     @Test

@@ -475,7 +475,7 @@ class ToolProbeTest {
             if (running.incrementAndGet() > 1) {
                 overlapped.set(true);
             }
-            Thread.sleep(100);
+            Thread.sleep(25);
             running.decrementAndGet();
             return new LspHandshake.Result(LspHandshake.Outcome.RESPONDED, "");
         });

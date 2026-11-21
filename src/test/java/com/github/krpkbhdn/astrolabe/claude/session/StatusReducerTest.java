@@ -258,7 +258,7 @@ class StatusReducerTest {
         apply("PostToolUse", ASYNC.formatted("bg"));
         apply("Stop", "{}");
 
-        var later = state.toSnapshot(Instant.now(), java.time.Duration.ofMinutes(10));
+        var later = state.toSnapshot(Instant.parse("2026-01-01T01:00:00Z"), java.time.Duration.ofMinutes(10));
 
         assertThat(later.subagents().get(0).stale()).isTrue();
         assertThat(later.status()).isEqualTo(AgentStatus.IDLE);
@@ -271,7 +271,7 @@ class StatusReducerTest {
         start("a");
         apply("PermissionRequest", "{\"agent_id\":\"a\",\"tool_name\":\"Bash\"}");
 
-        var later = state.toSnapshot(Instant.now().plus(java.time.Duration.ofHours(1)), java.time.Duration.ofMinutes(10));
+        var later = state.toSnapshot(Instant.parse("2026-01-01T01:00:00Z"), java.time.Duration.ofMinutes(10));
 
         assertThat(later.subagents().get(0).stale()).isTrue();
         assertThat(later.status()).isEqualTo(AgentStatus.NEEDS_ACTION);

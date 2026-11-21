@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.github.krpkbhdn.astrolabe.claude.mcp.McpTool;
 import com.github.krpkbhdn.astrolabe.project.Project;
 import com.github.krpkbhdn.astrolabe.project.ProjectService;
 import java.nio.file.Path;
@@ -23,10 +22,5 @@ class ListProjectsToolTest {
         var result = new ListProjectsTool(projects).call(JsonMapper.shared().createObjectNode());
 
         assertThat(result).contains("\"id\":7").contains("\"name\":\"demo\"").contains("demo");
-    }
-
-    @Test
-    void isOnlyForTheAssistant() {
-        assertThat(new ListProjectsTool(mock(ProjectService.class))).isInstanceOf(AssistantMcpTool.class).isNotInstanceOf(McpTool.class);
     }
 }

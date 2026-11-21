@@ -40,8 +40,8 @@ class RunStateTest {
     }
     private val scope = CoroutineScope(Dispatchers.Unconfined)
     private val state = RunState(configurations, runs, terminal, scope, { directory }, { }, { }, { })
-    private var configurationList = listOf(RunConfiguration(7, 1, "dev", "npm run dev", directory))
-    private var activeRun: ActiveRun? = null
+    @Volatile private var configurationList = listOf(RunConfiguration(7, 1, "dev", "npm run dev", directory))
+    @Volatile private var activeRun: ActiveRun? = null
 
     init {
         `when`(configurations.list(anyLong())).thenAnswer { configurationList }

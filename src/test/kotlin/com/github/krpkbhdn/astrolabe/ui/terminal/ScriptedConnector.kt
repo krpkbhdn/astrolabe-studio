@@ -5,6 +5,8 @@ import com.jediterm.terminal.TtyConnector
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.locks.LockSupport
 
 /** A [TtyConnector] without a process: [feed] plays process output into the emulator, what the terminal writes is collected in [written]. */
 internal class ScriptedConnector : TtyConnector {
@@ -16,18 +18,29 @@ internal class ScriptedConnector : TtyConnector {
     @Volatile
     private var closed = false
 
-    fun feed(text: String) = output.put(text)
+    private val fed = AtomicInteger()
+    private val received = AtomicInteger()
+
+    @Volatile
+    private var processed = 0
+
+    fun feed(text: String) {
+        fed.incrementAndGet()
+        output.put(text)
+    }
 
     fun feedBytes(bytes: ByteArray) = feed(String(bytes, Charsets.UTF_8))
 
-    fun hasUnreadOutput(): Boolean = output.isNotEmpty() || pending.isNotEmpty()
+    /** True until the emulator came back for more after every fed chunk, so a chunk taken but not yet parsed still counts. */
+    fun hasUnreadOutput(): Boolean = processed != fed.get()
 
     fun writtenText(): String = written.joinToString("") { String(it, Charsets.ISO_8859_1) }
 
     override fun read(buf: CharArray, offset: Int, length: Int): Int {
         while (pending.isEmpty()) {
+            processed = received.get()
             if (closed) return -1
-            pending = output.poll(POLL_MILLIS, TimeUnit.MILLISECONDS) ?: ""
+            pending = output.poll(POLL_MILLIS, TimeUnit.MILLISECONDS)?.also { received.incrementAndGet() } ?: ""
         }
         val count = minOf(length, pending.length)
         pending.toCharArray(buf, offset, 0, count)
@@ -62,19 +75,19 @@ internal class ScriptedConnector : TtyConnector {
     }
 }
 
-private const val SETTLE_POLL_MILLIS = 10L
-private const val SETTLE_STABLE_POLLS = 3
-private const val SETTLE_LIMIT_MILLIS = 5_000L
+private const val SETTLE_POLL_NANOS = 1_000_000L
+private const val SETTLE_QUIET_NANOS = 32_000_000L
+private const val SETTLE_LIMIT_NANOS = 5_000_000_000L
 
-/** Waits until the emulator has consumed all fed output and the screen has stopped changing. */
+/** Waits until the emulator has consumed all fed output and no frame has fired for longer than the emulator's frame delay (16 ms). */
 internal fun settle(connector: ScriptedConnector, session: TerminalSession) {
-    val deadline = System.currentTimeMillis() + SETTLE_LIMIT_MILLIS
-    var stable = 0
-    var lastFrame = -1L
-    while (stable < SETTLE_STABLE_POLLS && System.currentTimeMillis() < deadline) {
-        Thread.sleep(SETTLE_POLL_MILLIS)
+    val deadline = System.nanoTime() + SETTLE_LIMIT_NANOS
+    var quietSince = System.nanoTime()
+    var lastFrame = session.frame
+    while (System.nanoTime() - quietSince < SETTLE_QUIET_NANOS && System.nanoTime() < deadline) {
+        LockSupport.parkNanos(SETTLE_POLL_NANOS)
         val frame = session.frame
-        stable = if (frame == lastFrame && !connector.hasUnreadOutput()) stable + 1 else 0
+        if (frame != lastFrame || connector.hasUnreadOutput()) quietSince = System.nanoTime()
         lastFrame = frame
     }
     session.syncView()

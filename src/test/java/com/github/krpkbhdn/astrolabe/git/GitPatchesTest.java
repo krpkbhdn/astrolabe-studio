@@ -35,7 +35,8 @@ class GitPatchesTest {
 
     private void commitFile(String name, String content) {
         sandbox.write(name, content);
-        sandbox.commitAll("add " + name);
+        sandbox.git("add", "-A");
+        sandbox.git("commit", "-q", "-m", "add " + name);
     }
 
     private FileDiff diff(String path, boolean staged) {
@@ -143,10 +144,10 @@ class GitPatchesTest {
     @Test
     void stagesAWholeDeletedFileAndPartOfOne() {
         prepare();
-        commitFile("gone.txt", "1\n2\n3\n");
-        commitFile("partly.txt", "1\n2\n3\n");
-        sandbox.git("rm", "-q", "--cached", "gone.txt", "partly.txt");
-        sandbox.git("reset", "-q");
+        sandbox.write("gone.txt", "1\n2\n3\n");
+        sandbox.write("partly.txt", "1\n2\n3\n");
+        sandbox.git("add", "-A");
+        sandbox.git("commit", "-q", "-m", "add files");
         java.util.stream.Stream.of("gone.txt", "partly.txt").forEach(name -> sandbox.repo.resolve(name).toFile().delete());
 
         index.applyToIndex(sandbox.repo, GitPatches.hunk(diff("gone.txt", false), 0), false);
@@ -254,7 +255,6 @@ class GitPatchesTest {
         assertThatThrownBy(() -> GitPatches.hunk(diff, 3)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> GitPatches.lines(diff, 0, Set.of())).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("No added or removed");
         assertThatThrownBy(() -> GitPatches.hunk(diff("blob.bin", false), 0)).isInstanceOf(IllegalArgumentException.class);
-        assertThat(List.of(diff.lines().getFirst().kind())).containsExactly(LineKind.HUNK);
     }
 
     @Test

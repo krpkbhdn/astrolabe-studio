@@ -16,7 +16,7 @@ class PtyCommandRunnerTimeoutTest {
         var command = WINDOWS ? List.of("cmd", "/c", "echo started& ping -n 60 127.0.0.1 >nul") : List.of("sh", "-c", "echo started; sleep 60");
         var started = System.nanoTime();
 
-        var result = PtyCommandRunner.run(command, null, Duration.ofSeconds(3), Map.of(), line -> { });
+        var result = PtyCommandRunner.run(command, null, Duration.ofMillis(500), Map.of(), line -> { });
 
         assertThat(result.timedOut()).isTrue();
         assertThat(result.exitCode()).isEqualTo(-1);

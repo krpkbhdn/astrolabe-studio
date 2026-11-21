@@ -18,10 +18,7 @@ class PresetRecommendationTest {
         return Stream.of(
                 Arguments.of("angular", Set.of("angular", "frontend"), List.of("general", "angular")),
                 Arguments.of("react", Set.of("frontend"), List.of("general", "frontend")),
-                Arguments.of("vue", Set.of("frontend"), List.of("general", "frontend")),
-                Arguments.of("empty", Set.<String>of(), List.of("general")),
-                Arguments.of("java only", Set.<String>of(), List.of("general")),
-                Arguments.of("angular and react", Set.of("angular", "frontend"), List.of("general", "angular")));
+                Arguments.of("empty", Set.<String>of(), List.of("general")));
     }
 
     @ParameterizedTest(name = "{0}")

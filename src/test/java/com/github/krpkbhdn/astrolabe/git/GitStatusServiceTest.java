@@ -60,17 +60,11 @@ class GitStatusServiceTest {
     }
 
     @Test
-    void aMissingProjectFolderIsNotARepository() {
-        var sandbox = GitCliSandbox.create(root);
+    void aMissingOrNonRepositoryFolderIsReportedAsNotARepositoryWithoutException() {
+        var service = serviceFor(GitCliSandbox.create(root));
 
-        assertThat(serviceFor(sandbox).status(root.resolve("deleted-project")).repository()).isFalse();
-    }
-
-    @Test
-    void nonRepositoryIsReportedWithoutException() {
-        var sandbox = GitCliSandbox.create(root);
-
-        assertThat(serviceFor(sandbox).status(root).repository()).isFalse();
+        assertThat(service.status(root.resolve("deleted-project")).repository()).isFalse();
+        assertThat(service.status(root).repository()).isFalse();
     }
 
     @Test
@@ -215,28 +209,19 @@ class GitStatusServiceTest {
     }
 
     @Test
-    void untrackedFileIsAWholeFileAddition() {
+    void untrackedFileIsAWholeFileAdditionAndBinaryOrOversizedOnesCarryNoLines() {
         var sandbox = GitCliSandbox.create(root);
         sandbox.write("a.txt", "a\n");
         sandbox.commitAll("a");
         sandbox.write("new.txt", "one\ntwo\n");
-
-        var diff = serviceFor(sandbox).diff(sandbox.repo, "new.txt", false);
-
-        assertThat(diff.change()).isEqualTo(ChangeType.UNTRACKED);
-        assertThat(diff.path()).isEqualTo("new.txt");
-        assertThat(diff.additions()).isEqualTo(2);
-    }
-
-    @Test
-    void untrackedBinaryAndOversizedFilesCarryNoLines() {
-        var sandbox = GitCliSandbox.create(root);
-        sandbox.write("a.txt", "a\n");
-        sandbox.commitAll("a");
         sandbox.writeBytes("blob.bin", new byte[] {1, 0, 2, 0, 3});
         sandbox.writeBytes("big.txt", new byte[(int) sandbox.runner.properties().maxUntrackedBytes() + 1]);
         var service = serviceFor(sandbox);
 
+        var diff = service.diff(sandbox.repo, "new.txt", false);
+        assertThat(diff.change()).isEqualTo(ChangeType.UNTRACKED);
+        assertThat(diff.path()).isEqualTo("new.txt");
+        assertThat(diff.additions()).isEqualTo(2);
         assertThat(service.diff(sandbox.repo, "blob.bin", false).binary()).isTrue();
         assertThat(service.diff(sandbox.repo, "big.txt", false).lines()).extracting(l -> l.text()).containsExactly(GitStatusService.TOO_LARGE_MARKER);
     }

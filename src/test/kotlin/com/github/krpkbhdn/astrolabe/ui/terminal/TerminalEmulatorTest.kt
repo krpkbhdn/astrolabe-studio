@@ -3,6 +3,7 @@ package com.github.krpkbhdn.astrolabe.ui.terminal
 import com.jediterm.core.util.TermSize
 import com.jediterm.terminal.TextStyle
 import com.jediterm.terminal.TtyConnector
+import com.github.krpkbhdn.astrolabe.ui.await
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -42,8 +43,7 @@ class TerminalEmulatorTest {
 
         emulator.start()
 
-        val deadline = System.currentTimeMillis() + WAIT_MILLIS
-        while (System.currentTimeMillis() < deadline && !emulator.buffer.getScreenLines().contains("[Session ended")) Thread.sleep(20)
+        await { emulator.buffer.getScreenLines().contains("[Session ended") }
         assertThat(emulator.buffer.getScreenLines()).contains("after").contains("[Session ended (exit code 0)]")
         emulator.close()
     }
@@ -69,13 +69,11 @@ class TerminalEmulatorTest {
     @Test
     fun `repeated parse failures stop the reader instead of spinning`() {
         val connector = AlwaysFailingConnector()
-        val emulator = TerminalEmulator(connector, 40, 5, TextStyle.EMPTY, {})
+        val emulator = TerminalEmulator(connector, 40, 5, TextStyle.EMPTY, {}, exitWaitMillis = 0)
 
         emulator.start()
 
-        val deadline = System.currentTimeMillis() + WAIT_MILLIS
-        while (System.currentTimeMillis() < deadline && !emulator.buffer.getScreenLines().contains("[Output closed]")) Thread.sleep(20)
-        assertThat(emulator.buffer.getScreenLines()).contains("[Output closed]")
+        await { emulator.buffer.getScreenLines().contains("[Output closed]") }
         assertThat(connector.reads.get()).isLessThan(MAX_PENDING_WRITES)
         emulator.close()
     }
@@ -85,7 +83,7 @@ class TerminalEmulatorTest {
         val written = CopyOnWriteArrayList<List<Byte>>()
 
         override fun read(buf: CharArray, offset: Int, length: Int): Int {
-            Thread.sleep(WAIT_MILLIS)
+            release.await(WAIT_MILLIS, TimeUnit.MILLISECONDS)
             return -1
         }
 
@@ -113,10 +111,9 @@ class TerminalEmulatorTest {
         emulator.write(byteArrayOf(0x1B))
         connector.release.countDown()
 
-        val deadline = System.currentTimeMillis() + WAIT_MILLIS
-        while (System.currentTimeMillis() < deadline && listOf(0x1B.toByte()) !in connector.written) Thread.sleep(20)
+        await { connector.written.size >= MAX_PENDING_WRITES + 2 }
         assertThat(connector.written).contains(listOf(0x03.toByte()), listOf(0x1B.toByte()))
-        assertThat(connector.written.size).isLessThanOrEqualTo(MAX_PENDING_WRITES + 2)
+        assertThat(connector.written.size).isEqualTo(MAX_PENDING_WRITES + 2)
         emulator.close()
     }
 
@@ -127,10 +124,8 @@ class TerminalEmulatorTest {
         repeat(MAX_PENDING_CONTROL_WRITES + 500) { emulator.write(byteArrayOf(0x0D)) }
         connector.release.countDown()
 
-        val deadline = System.currentTimeMillis() + WAIT_MILLIS
-        while (System.currentTimeMillis() < deadline && connector.written.size < MAX_PENDING_CONTROL_WRITES) Thread.sleep(20)
-        Thread.sleep(200)
-        assertThat(connector.written.size).isLessThanOrEqualTo(MAX_PENDING_CONTROL_WRITES + 1)
+        await { connector.written.size >= MAX_PENDING_CONTROL_WRITES }
+        assertThat(connector.written.size).isEqualTo(MAX_PENDING_CONTROL_WRITES)
         emulator.close()
     }
 

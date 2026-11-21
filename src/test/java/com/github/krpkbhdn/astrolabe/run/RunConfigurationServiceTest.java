@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -15,17 +16,25 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 class RunConfigurationServiceTest {
 
     @TempDir
-    Path temp;
+    static Path temp;
+
+    static JdbcClient jdbc;
 
     RunConfigurationService service;
-    JdbcClient jdbc;
     long projectId;
 
-    @BeforeEach
-    void setUp() {
+    @BeforeAll
+    static void migrateOnce() {
         var dataSource = new DriverManagerDataSource("jdbc:sqlite:" + temp.resolve("test.db") + "?foreign_keys=on");
         Flyway.configure().dataSource(dataSource).load().migrate();
         jdbc = JdbcClient.create(dataSource);
+    }
+
+    @BeforeEach
+    void setUp() {
+        jdbc.sql("DROP TRIGGER IF EXISTS rival").update();
+        jdbc.sql("DELETE FROM run_configuration").update();
+        jdbc.sql("DELETE FROM project").update();
         service = new RunConfigurationService(jdbc);
         jdbc.sql("INSERT INTO project (name, path, created_at) VALUES ('app', ?, 'now')").param(temp.toString()).update();
         projectId = jdbc.sql("SELECT id FROM project").query(Long.class).single();
@@ -44,7 +53,7 @@ class RunConfigurationServiceTest {
 
     @Test
     void deleteByDirectoryRemovesConfigurationsOfAllProjectsInThatDirectoryOnly() throws Exception {
-        var other = java.nio.file.Files.createDirectory(temp.resolve("other"));
+        var other = java.nio.file.Files.createDirectories(temp.resolve("other"));
         jdbc.sql("INSERT INTO project (name, path, created_at) VALUES ('second', ?, 'now')").param(other.toString()).update();
         var secondId = jdbc.sql("SELECT id FROM project WHERE name = 'second'").query(Long.class).single();
         service.save(projectId, "a", "run", other);

@@ -42,6 +42,10 @@ class AppControlAdapterTest {
         assertThat(state.viewOf(id).selected).isEqualTo(ProjectTab.Git)
         assertThatThrownBy { adapter.openProject(id, "bogus") }.isInstanceOf(IllegalStateException::class.java)
         assertThatThrownBy { adapter.openProject(-5, "git") }.hasMessageContaining("Unknown project")
+        adapter.openProject(id, "review")
+        assertThat(state.viewOf(id).selected).isEqualTo(ProjectTab.Review)
+        adapter.openProject(id, "web")
+        assertThat(state.viewOf(id).selected).isEqualTo(ProjectTab.Web)
         state.dispose()
     }
 
@@ -70,11 +74,11 @@ class AppControlAdapterTest {
 
     @Test
     fun `a call that started before the timeout is awaited and returns normally`() {
-        val slow = AppControlAdapter(state, scope, Duration.ofMillis(100))
+        val slow = AppControlAdapter(state, scope, Duration.ofMillis(200))
         val finished = java.util.concurrent.atomic.AtomicBoolean()
 
         slow.onUi {
-            val pastTimeout = System.nanoTime() + Duration.ofMillis(150).toNanos()
+            val pastTimeout = System.nanoTime() + Duration.ofMillis(300).toNanos()
             com.github.krpkbhdn.astrolabe.ui.await { System.nanoTime() > pastTimeout }
             finished.set(true)
         }
@@ -85,10 +89,13 @@ class AppControlAdapterTest {
     @Test
     fun `a call that started but never finishes fails instead of hanging`() {
         val release = java.util.concurrent.CountDownLatch(1)
-        val hung = AppControlAdapter(state, scope, Duration.ofMillis(50))
+        val hung = AppControlAdapter(state, scope, Duration.ofMillis(100))
 
-        assertThatThrownBy { hung.onUi { release.await() } }.hasMessageContaining("started but did not finish")
-        release.countDown()
+        try {
+            assertThatThrownBy { hung.onUi { release.await() } }.hasMessageContaining("started but did not finish")
+        } finally {
+            release.countDown()
+        }
     }
 
     @Test
@@ -98,13 +105,17 @@ class AppControlAdapterTest {
         val slow = CoroutineScope(SupervisorJob() + executor.asCoroutineDispatcher())
         executor.execute { release.await() }
 
-        assertThatThrownBy { AppControlAdapter(state, slow, Duration.ofMillis(50)).navigate("teams") }.hasMessageContaining("did not respond")
-        release.countDown()
-        executor.submit {}.get()
+        try {
+            assertThatThrownBy { AppControlAdapter(state, slow, Duration.ofMillis(50)).navigate("teams") }.hasMessageContaining("did not respond")
+            release.countDown()
+            executor.submit {}.get()
 
-        assertThat(state.route).isNotEqualTo(Route.Teams)
-        slow.cancel()
-        executor.shutdown()
+            assertThat(state.route).isNotEqualTo(Route.Teams)
+        } finally {
+            release.countDown()
+            slow.cancel()
+            executor.shutdown()
+        }
     }
 
     @Test
@@ -115,28 +126,4 @@ class AppControlAdapterTest {
             .isInstanceOf(IllegalStateException::class.java).hasMessageContaining("did not respond")
     }
 
-    @Test
-    fun `openProject review selects the review tab`() {
-        state.start()
-        com.github.krpkbhdn.astrolabe.ui.await { state.projects.all.isNotEmpty() }
-        val id = state.projects.all.first { !it.group }.id
-
-        adapter.openProject(id, "review")
-
-        assertThat(state.viewOf(id).selected).isEqualTo(ProjectTab.Review)
-        assertThat(state.route).isEqualTo(Route.Project(id))
-        state.dispose()
-    }
-
-    @Test
-    fun `openProject web selects the web tab`() {
-        state.start()
-        com.github.krpkbhdn.astrolabe.ui.await { state.projects.all.isNotEmpty() }
-        val id = state.projects.all.first { !it.group }.id
-
-        adapter.openProject(id, "web")
-
-        assertThat(state.viewOf(id).selected).isEqualTo(ProjectTab.Web)
-        state.dispose()
-    }
 }

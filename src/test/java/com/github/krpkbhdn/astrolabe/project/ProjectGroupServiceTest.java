@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -20,15 +21,24 @@ import org.springframework.transaction.support.TransactionTemplate;
 class ProjectGroupServiceTest {
 
     @TempDir
+    static Path templateDir;
+
+    @TempDir
     Path temp;
 
     ProjectService projects;
     ProjectGroupService groups;
 
-    @BeforeEach
-    void setUp() {
-        var dataSource = new DriverManagerDataSource("jdbc:sqlite:" + temp.resolve("test.db") + "?foreign_keys=on");
+    @BeforeAll
+    static void migrateTemplate() {
+        var dataSource = new DriverManagerDataSource("jdbc:sqlite:" + templateDir.resolve("template.db"));
         Flyway.configure().dataSource(dataSource).load().migrate();
+    }
+
+    @BeforeEach
+    void setUp() throws IOException {
+        Files.copy(templateDir.resolve("template.db"), temp.resolve("test.db"));
+        var dataSource = new DriverManagerDataSource("jdbc:sqlite:" + temp.resolve("test.db") + "?foreign_keys=on");
         var jdbc = JdbcClient.create(dataSource);
         projects = new ProjectService(jdbc, new GroupWorkspace(new AppProperties(temp)));
         groups = new ProjectGroupService(jdbc, new TransactionTemplate(new DataSourceTransactionManager(dataSource)),

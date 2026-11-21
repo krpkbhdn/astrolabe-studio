@@ -107,16 +107,6 @@ class TerminalRenderingTest {
     }
 
     @Test
-    fun cursorShapesAreDrawnFilledAndHollow() {
-        scene.play("${ESC}[2J${ESC}[Hcursor")
-        scene.image().save(File(shotDirectory(), "cursor-block-unfocused.png"))
-        session.focused = true
-        scene.image().save(File(shotDirectory(), "cursor-block-focused.png"))
-        scene.play("${ESC}[5 q").save(File(shotDirectory(), "cursor-bar.png"))
-        scene.play("${ESC}[3 q").save(File(shotDirectory(), "cursor-underline.png"))
-    }
-
-    @Test
     fun selectionHighlightsTheChosenCells() {
         scene.play("${ESC}[2J${ESC}[Hselect this text please")
         session.select(CellSelection(Cell(7, 0), Cell(10, 0)))

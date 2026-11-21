@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -22,6 +23,7 @@ class NativeRuntimeTest {
     @TempDir
     Path otherDirectory;
 
+    @BeforeEach
     @AfterEach
     void forgetClaim() {
         NativeRuntime.forgetFailedLoad();

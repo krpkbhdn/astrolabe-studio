@@ -66,8 +66,8 @@ public class ReviewService {
         this(jdbc, imageStore, feedbackWriter, transaction, properties, DEFAULT_ROOT);
     }
 
-    ReviewService(JdbcClient jdbc, ReviewImageStore imageStore, ReviewFeedbackWriter feedbackWriter, TransactionTemplate transaction,
-                  ReviewProperties properties, Path root) {
+    public ReviewService(JdbcClient jdbc, ReviewImageStore imageStore, ReviewFeedbackWriter feedbackWriter, TransactionTemplate transaction,
+                         ReviewProperties properties, Path root) {
         this.properties = properties;
         this.jdbc = jdbc;
         this.imageStore = imageStore;

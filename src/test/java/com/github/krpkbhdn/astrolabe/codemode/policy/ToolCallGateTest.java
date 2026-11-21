@@ -378,7 +378,7 @@ class ToolCallGateTest {
         when(proposals.holdForApp(any())).thenReturn(new CompletableFuture<>());
         var outcome = new AtomicReference<Decision>();
         var asker = Thread.ofPlatform().start(() -> outcome.set(decide(tool(false, false), args("{}"), SESSION)));
-        verifyEventually(() -> verify(proposals).holdForApp(any()));
+        verify(proposals, org.mockito.Mockito.timeout(5_000)).holdForApp(any());
 
         asker.interrupt();
         asker.join(5_000);
@@ -512,20 +512,6 @@ class ToolCallGateTest {
         ruled.decide(toolOf("playwright", "navigate", false), definition("x", "plugin_playwright_playwright"), args("{}"), SESSION);
 
         assertThat(seen.get()).isEqualTo("plugin_playwright_playwright");
-    }
-
-    private static void verifyEventually(Runnable check) throws InterruptedException {
-        for (int attempt = 0; ; attempt++) {
-            try {
-                check.run();
-                return;
-            } catch (AssertionError e) {
-                if (attempt > 100) {
-                    throw e;
-                }
-                Thread.sleep(50);
-            }
-        }
     }
 
     private Decision decideWithProjectSetting(ToolCallAccess access, PermissionRules.Verdict verdict, RemoteTool tool, JsonNode arguments) {

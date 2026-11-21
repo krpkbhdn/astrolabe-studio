@@ -27,9 +27,13 @@ class ContextBreakdownStateTest {
 
     private fun breakdown() = ContextBreakdown("Opus", 10, 100, emptyList(), emptyList(), emptyList(), emptyList(), emptyList(), false, Instant.EPOCH, emptyList(), "raw")
 
+    @Volatile
+    private var gate: CountDownLatch? = null
+
     private fun state(blocking: Boolean = false, targetOf: (String) -> ContextTarget? = { target }) = ContextBreakdownState({ _, _ ->
         measurements.incrementAndGet()
         if (blocking) release.await()
+        gate?.await()
         result
     }, scope, targetOf)
 
@@ -61,18 +65,14 @@ class ContextBreakdownStateTest {
         val state = state()
         state.load("s", false)
         await { !state.isLoading("s") && state.loadOf("s") is BreakdownLoad.Done }
-        val blocked = state(blocking = true)
-        blocked.load("s", false)
-        await { blocked.loadOf("s") is BreakdownLoad.Loading }
-        release.countDown()
-        await { !blocked.isLoading("s") }
 
+        gate = release
         state.load("s", true)
 
         assertThat(state.isLoading("s")).isTrue()
         assertThat(state.loadOf("s")).isInstanceOf(BreakdownLoad.Done::class.java)
-        await { !state.isLoading("s") }
-        assertThat(measurements.get()).isEqualTo(3)
+        release.countDown()
+        await { !state.isLoading("s") && measurements.get() == 2 }
     }
 
     @Test

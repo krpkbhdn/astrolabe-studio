@@ -12,6 +12,8 @@ import com.github.krpkbhdn.astrolabe.review.ReviewImageAnnotator;
 import com.github.krpkbhdn.astrolabe.review.ReviewImageStore;
 import com.github.krpkbhdn.astrolabe.review.ReviewProperties;
 import com.github.krpkbhdn.astrolabe.review.ReviewService;
+import com.github.krpkbhdn.astrolabe.review.StoredImage;
+import com.github.krpkbhdn.astrolabe.review.SubmittedImage;
 import java.awt.image.BufferedImage;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -41,7 +43,14 @@ class SubmitScreenshotsEndToEndVerifyTest {
         jdbc.sql("INSERT INTO project (name, path, created_at) VALUES ('app', ?, 'now')").param(temp.toString()).update();
         long pid = jdbc.sql("SELECT id FROM project").query(Long.class).single();
         var props = new ReviewProperties(Duration.ofDays(7), Duration.ofHours(1), 20, 20971520L, 8192, 36_000_000L, 50);
-        var service = new ReviewService(jdbc, new ReviewImageStore(props), new ReviewFeedbackWriter(new ReviewImageAnnotator()),
+        // ReviewService's default root is the shared system temp: ids restart at 1 in every fresh DB, so image-1.part collided with other runs.
+        var isolatedStore = new ReviewImageStore(props) {
+            @Override
+            public List<StoredImage> store(Path directory, List<SubmittedImage> images) {
+                return super.store(temp.resolve("reviews").resolve(directory.getFileName()), images);
+            }
+        };
+        var service = new ReviewService(jdbc, isolatedStore, new ReviewFeedbackWriter(new ReviewImageAnnotator()),
                 new TransactionTemplate(new DataSourceTransactionManager(ds)), props);
         var snap = mock(SessionSnapshot.class);
         when(snap.projectId()).thenReturn(pid);
@@ -57,14 +66,10 @@ class SubmitScreenshotsEndToEndVerifyTest {
 
         var resp = mapper.readTree(endpoint.handle("sess-42", body.getBytes(StandardCharsets.UTF_8)).orElseThrow());
 
-        try {
-            assertThat(resp.path("result").path("isError").asBoolean(false)).isFalse();
-            var review = service.list(pid).get(0);
-            assertThat(review.astrolabeSessionId()).isEqualTo("sess-42");
-            assertThat(review.projectId()).isEqualTo(pid);
-            assertThat(service.images(review.id())).hasSize(1);
-        } finally {
-            service.list(pid).forEach(r -> service.delete(r.id()));
-        }
+        assertThat(resp.path("result").path("isError").asBoolean(false)).as(resp.toString()).isFalse();
+        var review = service.list(pid).get(0);
+        assertThat(review.astrolabeSessionId()).isEqualTo("sess-42");
+        assertThat(review.projectId()).isEqualTo(pid);
+        assertThat(service.images(review.id())).hasSize(1);
     }
 }

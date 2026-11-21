@@ -35,6 +35,9 @@ class SandboxParityTest {
             "await new Promise(() => {});",
             "console.log('hung'); await new Promise(() => {});");
 
+    private static final boolean NODE = nodeAvailable();
+    private static final com.github.krpkbhdn.astrolabe.codemode.CodeModeProperties PROPERTIES = TestProperties.of(Duration.ofSeconds(20), 1_000_000, 10_000, 10, Duration.ofMinutes(10), "img", "256m", 1, Duration.ofDays(1), Duration.ofSeconds(25));
+
     private static final HostBridge BRIDGE = new HostBridge() {
         @Override
         public String callTool(String server, String tool, String argsJson) {
@@ -51,8 +54,8 @@ class SandboxParityTest {
 
     @Test
     void bothBackendsAnswerEveryScriptIdentically() throws IOException {
-        assumeTrue(nodeAvailable(), "node is not installed");
-        var properties = TestProperties.of(Duration.ofSeconds(20), 1_000_000, 10_000, 10, Duration.ofMinutes(10), "img", "256m", 1, Duration.ofDays(1), Duration.ofSeconds(25));
+        assumeTrue(NODE, "node is not installed");
+        var properties = PROPERTIES;
         var graal = new GraalJsSandbox(properties);
         var container = new ContainerSandbox(IsolationBackend.DOCKER, properties, JsonMapper.builder().build(), "0123abcd", NodeProcesses::start);
         try {
@@ -86,8 +89,8 @@ class SandboxParityTest {
 
     @Test
     void serverSpellingsAndUnknownServersBehaveTheSameInBothBackends() throws IOException {
-        assumeTrue(nodeAvailable(), "node is not installed");
-        var properties = TestProperties.of(Duration.ofSeconds(20), 1_000_000, 10_000, 10, Duration.ofMinutes(10), "img", "256m", 1, Duration.ofDays(1), Duration.ofSeconds(25));
+        assumeTrue(NODE, "node is not installed");
+        var properties = PROPERTIES;
         var graal = new GraalJsSandbox(properties);
         var container = new ContainerSandbox(IsolationBackend.DOCKER, properties, JsonMapper.builder().build(), "0123abcd", NodeProcesses::start);
         var expected = List.of(
@@ -130,8 +133,8 @@ class SandboxParityTest {
 
     @Test
     void aliasResolutionGivesTheSameAnswerForEverySpellingInBothBackends() throws IOException {
-        assumeTrue(nodeAvailable(), "node is not installed");
-        var properties = TestProperties.of(Duration.ofSeconds(20), 1_000_000, 10_000, 10, Duration.ofMinutes(10), "img", "256m", 1, Duration.ofDays(1), Duration.ofSeconds(25));
+        assumeTrue(NODE, "node is not installed");
+        var properties = PROPERTIES;
         var graal = new GraalJsSandbox(properties);
         var container = new ContainerSandbox(IsolationBackend.DOCKER, properties, JsonMapper.builder().build(), "0123abcd", NodeProcesses::start);
         var spellings = List.of("db", "plugin_p_db", "my__srv", "mcp__db", "mcp__db__", "mcp__db__q__r", "mcp__plugin_p_db__q", "mcp__my__srv__q", "mcp__", "mcp____x",
@@ -154,8 +157,8 @@ class SandboxParityTest {
 
     @Test
     void anUnsettledPromiseFailsAtOnceInTheContainerRunnerToo() throws IOException {
-        assumeTrue(nodeAvailable(), "node is not installed");
-        var properties = TestProperties.of(Duration.ofSeconds(20), 1_000_000, 10_000, 10, Duration.ofMinutes(10), "img", "256m", 1, Duration.ofDays(1), Duration.ofSeconds(25));
+        assumeTrue(NODE, "node is not installed");
+        var properties = PROPERTIES;
         var container = new ContainerSandbox(IsolationBackend.DOCKER, properties, JsonMapper.builder().build(), "0123abcd", NodeProcesses::start);
 
         var result = org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(Duration.ofSeconds(10), () -> container.run("await new Promise(() => {});", BRIDGE, SESSION));

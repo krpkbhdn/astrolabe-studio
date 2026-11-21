@@ -22,7 +22,7 @@ class ProposalStateTest {
     private val proposal = PermissionProposal("p", "s", Instant.now(), "", "Bash", JsonMapper.builder().build().readTree("{}"), emptyList())
     private val service = mock(ProposalService::class.java).also { `when`(it.pending()).thenReturn(listOf(proposal)) }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val errors = mutableListOf<String>()
+    private val errors = java.util.concurrent.CopyOnWriteArrayList<String>()
     private val state = ProposalState(service, scope, { errors += it }).also {
         it.start()
         await { it.of("s").isNotEmpty() }

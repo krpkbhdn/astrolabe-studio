@@ -53,11 +53,4 @@ class ReleaseParserTest {
     void skipsUnparsableTag() {
         assertThat(ReleaseParser.newerThan(mapper.readTree(release("nightly", "a.msi", "a.msi.sha256")), CURRENT)).isEmpty();
     }
-
-    @Test
-    void installerScriptWaitsForProcessThenUpgradesAndRestarts() {
-        var script = UpdateInstaller.script(42);
-
-        assertThat(script).contains("PID eq 42").contains("msiexec /i \"%~1\" /passive").contains("start \"\" \"%~2\"");
-    }
 }

@@ -296,7 +296,9 @@ class ProjectToolsServiceTest {
         enable.start();
         assertThat(firstInside.await(5, TimeUnit.SECONDS)).isTrue();
         disable.start();
-        Thread.sleep(300);
+        while (disable.getState() == Thread.State.RUNNABLE || disable.getState() == Thread.State.NEW) {
+            Thread.onSpinWait();
+        }
         assertThat(secondStarted).isFalse();
         release.countDown();
         enable.join(5000);

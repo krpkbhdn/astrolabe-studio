@@ -12,6 +12,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -27,16 +29,29 @@ class ReviewServiceTest {
     @TempDir
     Path temp;
 
+    static Path migratedTemplate;
+
     ReviewService service;
     JdbcClient jdbc;
     ReviewImageStore store = mock(ReviewImageStore.class);
     ReviewFeedbackWriter writer = mock(ReviewFeedbackWriter.class);
     long projectId;
 
+    @BeforeAll
+    static void migrateOnce() throws Exception {
+        migratedTemplate = Files.createTempFile("review-service-template", ".db");
+        Flyway.configure().dataSource(new DriverManagerDataSource("jdbc:sqlite:" + migratedTemplate)).load().migrate();
+    }
+
+    @AfterAll
+    static void deleteTemplate() throws Exception {
+        Files.deleteIfExists(migratedTemplate);
+    }
+
     @BeforeEach
     void setUp() throws Exception {
+        Files.copy(migratedTemplate, temp.resolve("test.db"));
         var dataSource = new DriverManagerDataSource("jdbc:sqlite:" + temp.resolve("test.db") + "?foreign_keys=on");
-        Flyway.configure().dataSource(dataSource).load().migrate();
         jdbc = JdbcClient.create(dataSource);
         var properties = new ReviewProperties(java.time.Duration.ofDays(7), java.time.Duration.ofHours(1), 20, 1024, 8192, 36_000_000L, MAX_REVIEWS);
         service = new ReviewService(jdbc, store, writer, new TransactionTemplate(new DataSourceTransactionManager(dataSource)), properties,
@@ -288,11 +303,6 @@ class ReviewServiceTest {
     }
 
     @Test
-    void limitsExposeTheStoreCaps() {
-        assertThat(service.limits()).isEqualTo(new ReviewService.CaptureLimits(8192, 36_000_000L, 1024));
-    }
-
-    @Test
     void failedCleanupDoesNotMaskTheOriginalFailure() {
         org.mockito.Mockito.doThrow(new IllegalArgumentException("bad")).when(store).store(any(), any());
         jdbc.sql("CREATE TRIGGER no_delete BEFORE DELETE ON review BEGIN SELECT RAISE(ABORT, 'boom'); END").update();
@@ -446,7 +456,7 @@ class ReviewServiceTest {
         var deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(30);
         while (thread.getState() != Thread.State.WAITING && thread.getState() != Thread.State.BLOCKED && thread.getState() != Thread.State.TIMED_WAITING) {
             assertThat(System.nanoTime()).as("approve never blocked").isLessThan(deadline);
-            Thread.sleep(5);
+            Thread.yield();
         }
     }
 

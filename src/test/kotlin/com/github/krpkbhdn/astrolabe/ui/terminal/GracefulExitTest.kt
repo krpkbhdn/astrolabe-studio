@@ -7,7 +7,7 @@ import java.util.concurrent.TimeUnit
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 
-private const val GRACE_MILLIS = 100L
+private const val GRACE_MILLIS = 10L
 private const val LONG_GRACE_MILLIS = 60_000L
 private const val UNUSED_PID = Int.MAX_VALUE.toLong()
 

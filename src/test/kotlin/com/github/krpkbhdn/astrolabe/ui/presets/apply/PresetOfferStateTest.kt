@@ -25,10 +25,10 @@ class PresetOfferStateTest {
     private val project = Project(7, "demo", Path.of("demo"), Instant.EPOCH)
     private val group = Project(8, "services", Path.of("services"), Instant.EPOCH, com.github.krpkbhdn.astrolabe.project.ModelSelection.DEFAULT, true, null)
     private val presets = listOf(ProjectPreset(1, "Spring", "", "spring", false, false, 1, emptyList()), ProjectPreset(2, "General", "", "general", false, false, 1, emptyList()))
-    private var blocked = false
-    private var recommended: Set<String> = emptySet()
-    private var recommendationFails = false
-    private val reviewed = mutableListOf<Pair<Long, List<Long>>>()
+    @Volatile private var blocked = false
+    @Volatile private var recommended: Set<String> = emptySet()
+    @Volatile private var recommendationFails = false
+    private val reviewed = java.util.concurrent.CopyOnWriteArrayList<Pair<Long, List<Long>>>()
     private val state = PresetOfferState(applications, { presets }, { id -> listOf(project, group).firstOrNull { it.id == id } }, scope, { blocked }, { p, ids -> reviewed += p to ids }, {}, { if (recommendationFails) error("detection failed") else recommended })
 
     private fun awaitIdle() = await { scope.coroutineContext.job.children.none { it.isActive } }

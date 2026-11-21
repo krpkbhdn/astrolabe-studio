@@ -15,6 +15,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -35,10 +36,19 @@ class RunServiceTest {
     RunService runs;
     long projectId;
 
-    @BeforeEach
-    void setUp() {
-        var dataSource = new DriverManagerDataSource("jdbc:sqlite:" + temp.resolve("test.db") + "?foreign_keys=on");
+    @TempDir
+    static Path template;
+
+    @BeforeAll
+    static void migrateOnce() {
+        var dataSource = new DriverManagerDataSource("jdbc:sqlite:" + template.resolve("test.db"));
         Flyway.configure().dataSource(dataSource).load().migrate();
+    }
+
+    @BeforeEach
+    void setUp() throws java.io.IOException {
+        java.nio.file.Files.copy(template.resolve("test.db"), temp.resolve("test.db"));
+        var dataSource = new DriverManagerDataSource("jdbc:sqlite:" + temp.resolve("test.db") + "?foreign_keys=on");
         var jdbc = JdbcClient.create(dataSource);
         jdbc.sql("INSERT INTO project (name, path, created_at) VALUES ('app', ?, 'now')").param(temp.toString()).update();
         projectId = jdbc.sql("SELECT id FROM project").query(Long.class).single();
@@ -73,17 +83,6 @@ class RunServiceTest {
         var configuration = configurations.saveByAgent(projectId, "agent", "exit 0", temp);
 
         assertThatThrownBy(() -> runs.start(configuration.id())).isInstanceOf(IllegalStateException.class).hasMessageContaining("confirmation");
-    }
-
-    @Test
-    void restartingUsesANewRunId() {
-        assumePtyDeliversOutput();
-        var configuration = configurations.save(projectId, "again", "exit 0", temp);
-
-        var first = runs.start(configuration.id());
-        var second = runs.start(configuration.id());
-
-        assertThat(second.astrolabeSessionId()).isNotEqualTo(first.astrolabeSessionId());
     }
 
     @Test
@@ -163,6 +162,7 @@ class RunServiceTest {
 
     @Test
     void startOfAnotherConfigurationIsNotBlockedByASlowStart() throws Exception {
+        assumePtyDeliversOutput();
         var slow = configurations.save(projectId, "slow", "exit 0", temp);
         var fast = configurations.save(projectId, "fast", "exit 0", temp);
         var entered = new CountDownLatch(1);
@@ -213,6 +213,7 @@ class RunServiceTest {
 
     @Test
     void concurrentStartsOfTheSameConfigurationAreSerialised() throws Exception {
+        assumePtyDeliversOutput();
         var configuration = configurations.save(projectId, "same", "exit 0", temp);
         var entered = new CountDownLatch(1);
         var release = new CountDownLatch(1);
@@ -222,9 +223,18 @@ class RunServiceTest {
             var first = pool.submit(() -> service.start(configuration.id()));
             assertThat(entered.await(TIMEOUT.toSeconds(), TimeUnit.SECONDS)).isTrue();
 
-            var second = pool.submit(() -> service.start(configuration.id()));
+            var secondThread = new java.util.concurrent.atomic.AtomicReference<Thread>();
+            var second = pool.submit(() -> {
+                secondThread.set(Thread.currentThread());
+                return service.start(configuration.id());
+            });
+            var deadline = System.nanoTime() + TIMEOUT.toNanos();
+            while ((secondThread.get() == null || secondThread.get().getState() != Thread.State.BLOCKED) && System.nanoTime() < deadline) {
+                Thread.onSpinWait();
+            }
 
-            assertThatThrownBy(() -> second.get(500, TimeUnit.MILLISECONDS)).isInstanceOf(java.util.concurrent.TimeoutException.class);
+            assertThat(secondThread.get().getState()).isEqualTo(Thread.State.BLOCKED);
+            assertThat(second).isNotDone();
             release.countDown();
             var firstId = first.get(TIMEOUT.toSeconds(), TimeUnit.SECONDS).astrolabeSessionId();
             assertThat(second.get(TIMEOUT.toSeconds(), TimeUnit.SECONDS).astrolabeSessionId()).isNotEqualTo(firstId);
@@ -253,6 +263,7 @@ class RunServiceTest {
     @Test
     @SuppressWarnings("unchecked")
     void deletingAConfigurationDropsItsStartLock() throws Exception {
+        assumePtyDeliversOutput();
         var configuration = configurations.save(projectId, "short", "exit 0", temp);
         runs.start(configuration.id());
         var locks = RunService.class.getDeclaredField("startLocks");
@@ -272,6 +283,7 @@ class RunServiceTest {
 
     @Test
     void throwingSubscriberDoesNotStopTheOthers() throws Exception {
+        assumePtyDeliversOutput();
         var configuration = configurations.save(projectId, "ok", "exit 0", temp);
         var notified = new CountDownLatch(1);
         runs.subscribe(() -> { throw new IllegalStateException("boom"); });

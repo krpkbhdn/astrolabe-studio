@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import org.flywaydb.core.Flyway;
@@ -27,7 +28,15 @@ import org.springframework.transaction.support.TransactionTemplate;
 class WebReviewConcurrencyTest {
 
     private static final int THREADS = 4;
-    private static final long RUN_MILLIS = 3_000;
+    private static final int ROUNDS = 30;
+
+    private static void await(CountDownLatch latch) {
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
 
     @TempDir
     Path temp;
@@ -57,13 +66,14 @@ class WebReviewConcurrencyTest {
     void concurrentWritersNeverSeeABusyDatabase() throws Exception {
         var failures = new CopyOnWriteArrayList<Throwable>();
         var pool = Executors.newFixedThreadPool(THREADS);
-        var deadline = System.currentTimeMillis() + RUN_MILLIS;
+        var start = new CountDownLatch(THREADS);
         var anchor = new ElementAnchor("p", "/p", "p", null, null, "", "", "", Map.of());
         for (var t = 0; t < THREADS; t++) {
             var worker = t;
             pool.submit(() -> {
-                var round = 0;
-                while (System.currentTimeMillis() < deadline) {
+                start.countDown();
+                await(start);
+                for (var round = 0; round < ROUNDS; round++) {
                     try {
                         var url = "http://localhost:3000/p" + (round % 5);
                         service.touchPage(projectId, url, "t" + worker);
@@ -77,9 +87,8 @@ class WebReviewConcurrencyTest {
                             service.approve(revision.id());
                             service.startNextRevision(projectId);
                         }
-                        round++;
                     } catch (IllegalStateException | IllegalArgumentException expectedRace) {
-                        round++;
+                        continue;
                     } catch (Throwable e) {
                         failures.add(e);
                         return;

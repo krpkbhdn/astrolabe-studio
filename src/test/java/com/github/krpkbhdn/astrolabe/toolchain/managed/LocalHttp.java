@@ -19,7 +19,12 @@ final class LocalHttp implements AutoCloseable {
     private final HttpServer server;
 
     private final CountDownLatch released = new CountDownLatch(1);
+    private final CountDownLatch stalled = new CountDownLatch(1);
     private final ExecutorService executor = Executors.newCachedThreadPool();
+
+    CountDownLatch stalled() {
+        return stalled;
+    }
 
     LocalHttp() throws IOException {
         server = HttpServer.create(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 0), 0);
@@ -32,6 +37,7 @@ final class LocalHttp implements AutoCloseable {
         route(path, exchange -> {
             exchange.sendResponseHeaders(200, 1_000_000);
             exchange.getResponseBody().flush();
+            stalled.countDown();
             try {
                 released.await();
             } catch (InterruptedException e) {

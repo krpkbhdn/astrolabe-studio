@@ -186,7 +186,7 @@ abstract class EndToEndFixture {
                         asked.add(proposal.toolName() + " | " + proposal.toolInput());
                         proposals.answer(proposal.id(), answer.apply(proposal));
                     });
-                    Thread.sleep(20);
+                    Thread.sleep(1);
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();

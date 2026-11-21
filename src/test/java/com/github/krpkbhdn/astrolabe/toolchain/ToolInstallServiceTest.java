@@ -538,13 +538,18 @@ class ToolInstallServiceTest {
     @Test
     void stopWaitsUntilTheBlockedInstallObservedTheInterruptAndReleasedTheLock() throws Exception {
         var entered = new CountDownLatch(1);
+        var proceed = new CountDownLatch(1);
         var interrupted = new java.util.concurrent.atomic.AtomicBoolean();
         runner = (command, directory, timeout, environment, onOutput) -> {
             entered.countDown();
             try {
                 new CountDownLatch(1).await();
             } catch (InterruptedException e) {
-                java.util.concurrent.locks.LockSupport.parkNanos(200_000_000L);
+                try {
+                    proceed.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
                 interrupted.set(true);
             }
             return result;
@@ -553,8 +558,16 @@ class ToolInstallServiceTest {
         var install = new Thread(() -> service.install("ts", line -> {}));
         install.start();
         assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+        var stopper = new Thread(service::stop);
 
-        service.stop();
+        stopper.start();
+        var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (stopper.getState() != Thread.State.TIMED_WAITING && System.nanoTime() < deadline) {
+            Thread.onSpinWait();
+        }
+        assertThat(interrupted).isFalse();
+        proceed.countDown();
+        stopper.join(5000);
 
         assertThat(interrupted).isTrue();
         assertThat(service.isInstalling()).isFalse();

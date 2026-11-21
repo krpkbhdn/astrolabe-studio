@@ -117,8 +117,14 @@ class ContextBreakdownServiceTest {
         try (var pool = Executors.newFixedThreadPool(2)) {
             var first = pool.submit(() -> service.measure(DIRECTORY, ID, true));
             started.await();
-            var second = pool.submit(() -> service.measure(DIRECTORY, ID, true));
-            Thread.sleep(200);
+            var secondThread = new java.util.concurrent.atomic.AtomicReference<Thread>();
+            var second = pool.submit(() -> {
+                secondThread.set(Thread.currentThread());
+                return service.measure(DIRECTORY, ID, true);
+            });
+            while (secondThread.get() == null || secondThread.get().getState() == Thread.State.RUNNABLE) {
+                Thread.onSpinWait();
+            }
             release.countDown();
 
             assertThat(first.get().succeeded()).isTrue();

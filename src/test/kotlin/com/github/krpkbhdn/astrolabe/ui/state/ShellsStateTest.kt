@@ -8,7 +8,7 @@ import com.github.krpkbhdn.astrolabe.shell.LaunchedShell
 import com.pty4j.PtyProcess
 import java.nio.file.Path
 import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CompletableFuture
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -28,7 +28,7 @@ class ShellsStateTest {
     private val openFails = object : TerminalPort by PreviewTerminal {
         override fun openShell(shell: LaunchedShell) = throw IllegalStateException("no terminal")
     }
-    private val backend = PreviewWorld().backend(openFails)
+    private val backend = world.backend(openFails)
     private val shells = ShellsState(
         backend, scope,
         openShellsOf = { emptyList() }, lastChosen = { null }, onChosen = { chosen += it },
@@ -65,12 +65,12 @@ class ShellsStateTest {
 
     @Test
     fun `shells opened in a folder are found and closed by that folder only`() {
-        val processExit = CountDownLatch(1)
+        val processExit = CompletableFuture<Process>()
         val closed = CopyOnWriteArrayList<Pair<Long, String>>()
         val profile = ShellProfile("Git Bash", Path.of("bash.exe"), emptyList())
         val here = Path.of("repo-task-x")
         val there = Path.of("repo-task-y")
-        val working = PreviewWorld().backend(PreviewTerminal)
+        val working = world.backend(PreviewTerminal)
         doReturn(listOf(profile)).`when`(working.shellDetector).detect()
         doReturn(launchedShell("shell-here", profile, processExit)).`when`(working.shellLauncher).launch(1L, profile, here)
         doReturn(launchedShell("shell-there", profile, processExit)).`when`(working.shellLauncher).launch(1L, profile, there)
@@ -90,14 +90,16 @@ class ShellsStateTest {
         assertThat(state.hasShellIn(here)).isFalse()
         assertThat(state.hasShellIn(there)).isTrue()
         assertThat(closed).containsExactly(1L to "shell-here")
-        processExit.countDown()
     }
 
-    private fun launchedShell(id: String, profile: ShellProfile, exit: CountDownLatch): LaunchedShell {
+    private fun launchedShell(id: String, profile: ShellProfile, exit: CompletableFuture<Process>): LaunchedShell {
         val process = mock(PtyProcess::class.java)
-        `when`(process.waitFor()).thenAnswer { exit.await(); 0 }
         // production awaits onExit(), which a mock would otherwise answer with null
-        doReturn(java.util.concurrent.CompletableFuture.supplyAsync<Process> { exit.await(); process }).`when`(process).onExit()
+        doReturn(exit).`when`(process).onExit()
         return LaunchedShell(id, 1, profile, process)
+    }
+
+    private companion object {
+        val world = PreviewWorld()
     }
 }

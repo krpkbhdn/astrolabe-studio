@@ -64,8 +64,7 @@ class GitStateTest {
 
         git.refresh()
 
-        await { data.statusRepos.lastOrNull() == Path.of("moved") }
-        assertThat(git.repo).isEqualTo(Path.of("moved"))
+        await { data.statusRepos.lastOrNull() == Path.of("moved") && git.repo == Path.of("moved") }
     }
 
     @Test
@@ -85,6 +84,7 @@ class GitStateTest {
     fun `the watcher subscribes to the project folder`() {
         val (_, data) = open(SampleRepos.busy().also { it.topLevel = Path.of("top") })
 
+        await { data.watchedPaths.isNotEmpty() }
         assertThat(data.watchedPaths).containsExactly(Path.of("repo"))
     }
 
@@ -107,8 +107,8 @@ class GitStateTest {
         git.commit(git.draft.request()) { git.draft.clear() }
 
         await { toasts.any { it.second.startsWith("Committed c0ffee1") } }
-        assertThat(git.draft.message.text.toString()).isEmpty()
-        assertThat(paths(git, staged = true)).isEmpty()
+        await { git.draft.message.text.toString().isEmpty() }
+        await { paths(git, staged = true).isEmpty() }
     }
 
     @Test
@@ -236,7 +236,7 @@ class GitStateTest {
         git.stashPush("parked", includeUntracked = false)
 
         await { git.stashes.first().message() == "parked" }
-        assertThat(git.status!!.changes()).isEmpty()
+        await { git.status!!.changes().isEmpty() }
     }
 
     @Test
@@ -298,7 +298,7 @@ class GitStateTest {
 
         git.log.select(git.log.rows.first().commit().hash())
 
-        await { git.log.details != null }
+        await { git.log.details != null && git.log.selectedFile != null }
         assertThat(git.log.selectedFile).isEqualTo(data.detailFiles.first().path)
     }
 

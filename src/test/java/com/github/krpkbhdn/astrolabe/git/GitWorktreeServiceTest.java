@@ -47,26 +47,17 @@ class GitWorktreeServiceTest {
     }
 
     @Test
-    void ignoredEntriesListsIgnoredFilesAndFoldersButNotTrackedOrUntrackedOnes() throws Exception {
-        Files.writeString(sandbox.repo.resolve(".gitignore"), ".env\nbuild/\n");
+    void ignoredEntriesListsIgnoredFilesAndFoldersUnquotedButNotTrackedOrUntrackedOnes() throws Exception {
+        Files.writeString(sandbox.repo.resolve(".gitignore"), ".env\nbuild/\n*.key\n");
         sandbox.commitAll("ignore");
         service.add(sandbox.repo, "feature", "main", target);
         Files.writeString(target.resolve(".env"), "SECRET=1");
+        Files.writeString(target.resolve("my secret.key"), "SECRET=1");
         Files.createDirectories(target.resolve("build"));
         Files.writeString(target.resolve("build/out.txt"), "x");
         Files.writeString(target.resolve("new.txt"), "x");
 
-        assertThat(service.ignoredEntries(target)).containsExactlyInAnyOrder(".env", "build/");
-    }
-
-    @Test
-    void ignoredEntriesKeepsNamesWithSpacesUnquoted() throws Exception {
-        Files.writeString(sandbox.repo.resolve(".gitignore"), "*.env\n");
-        sandbox.commitAll("ignore");
-        service.add(sandbox.repo, "feature", "main", target);
-        Files.writeString(target.resolve("my secret.env"), "SECRET=1");
-
-        assertThat(service.ignoredEntries(target)).containsExactly("my secret.env");
+        assertThat(service.ignoredEntries(target)).containsExactlyInAnyOrder(".env", "build/", "my secret.key");
     }
 
     @Test

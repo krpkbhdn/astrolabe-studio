@@ -35,7 +35,7 @@ import tools.jackson.databind.json.JsonMapper;
 class AssistantMcpEndpointTest {
 
     private static final int WAIT_SECONDS = 5;
-    private static final Duration SHORT_HOLD = Duration.ofMillis(150);
+    private static final Duration SHORT_HOLD = Duration.ofMillis(30);
     private static final String CALL_PUSH = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"git_push\",\"arguments\":{\"project\":1}}}";
 
     // The common pool has one worker on a small runner, so blocked requests would starve each other.

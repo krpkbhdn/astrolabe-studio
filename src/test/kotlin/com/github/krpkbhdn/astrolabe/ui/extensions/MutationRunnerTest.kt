@@ -1,6 +1,7 @@
 package com.github.krpkbhdn.astrolabe.ui.extensions
 
 import com.github.krpkbhdn.astrolabe.ui.await
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
@@ -26,7 +27,7 @@ class MutationRunnerTest {
         val done = CountDownLatch(1)
 
         runner.run("Adding", "add", { 1 }) { done.countDown() }
-        done.await(WAIT_SECONDS, TimeUnit.SECONDS)
+        assertThat(done.await(WAIT_SECONDS, TimeUnit.SECONDS)).isTrue()
 
         assertThat(runner.epoch).isGreaterThan(seen)
     }
@@ -35,12 +36,13 @@ class MutationRunnerTest {
     fun `a second mutation is ignored while one runs`() {
         val release = CountDownLatch(1)
         val finished = CountDownLatch(1)
-        val ran = mutableListOf<String>()
+        val ran = CopyOnWriteArrayList<String>()
 
         runner.run("First", "a", { release.await(WAIT_SECONDS, TimeUnit.SECONDS) }) { ran += "first"; finished.countDown() }
         runner.run("Second", "b", { 2 }) { ran += "second" }
         release.countDown()
-        finished.await(WAIT_SECONDS, TimeUnit.SECONDS)
+        assertThat(finished.await(WAIT_SECONDS, TimeUnit.SECONDS)).isTrue()
+        await { runner.job == null }
 
         assertThat(ran).containsExactly("first")
     }
