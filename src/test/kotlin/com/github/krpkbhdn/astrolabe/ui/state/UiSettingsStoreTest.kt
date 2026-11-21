@@ -2,6 +2,8 @@ package com.github.krpkbhdn.astrolabe.ui.state
 
 import com.github.krpkbhdn.astrolabe.ui.assistant.AssistantStartup
 import com.github.krpkbhdn.astrolabe.ui.theme.Scale
+import com.github.krpkbhdn.astrolabe.ui.web.HistoryModes
+import com.github.krpkbhdn.astrolabe.ui.web.HistoryVisibility
 import java.nio.file.Files
 import java.nio.file.Path
 import org.assertj.core.api.Assertions.assertThat
@@ -166,5 +168,16 @@ class UiSettingsStoreTest {
         val store = UiSettingsStore(null)
         store.save(UiSettings(themeMode = ThemeMode.DARK))
         assertThat(store.load()).isEqualTo(UiSettings())
+    }
+
+    @Test
+    fun `web history modes default to sent until new feedback and approved hidden, round trip and garbage falls back`(@TempDir dir: Path) {
+        val store = UiSettingsStore(dir.resolve("ui.properties"))
+        assertThat(store.load().webHistory).isEqualTo(HistoryModes(HistoryVisibility.UNTIL_NEW_REVIEW, HistoryVisibility.HIDE))
+        val modes = HistoryModes(HistoryVisibility.SHOW, HistoryVisibility.UNTIL_NEW_REVIEW)
+        store.save(UiSettings(webHistory = modes))
+        assertThat(store.load().webHistory).isEqualTo(modes)
+        Files.writeString(dir.resolve("ui.properties"), "web.history.sent=bogus\nweb.history.done=SHOW\n")
+        assertThat(store.load().webHistory).isEqualTo(HistoryModes(HistoryVisibility.UNTIL_NEW_REVIEW, HistoryVisibility.SHOW))
     }
 }

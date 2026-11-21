@@ -98,7 +98,7 @@ class WebReviewEndToEndRealTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default).also { scopes += it }
         val state = WebState(
             service, { JcefPageHost.open(dir).also { it.resize(1000, 700, 1f); it.focus(true) } },
-            { id, text -> enqueued += id to text }, { _, prompt, _, onStarted -> started += prompt; onStarted("new-session") },
+            { id, text -> enqueued += id to text }, { _, _, prompt, _, onStarted -> started += prompt; onStarted("new-session") },
             { live }, scope, { errors += it }, reviews, onCaptured, confirm,
         )
         states += state

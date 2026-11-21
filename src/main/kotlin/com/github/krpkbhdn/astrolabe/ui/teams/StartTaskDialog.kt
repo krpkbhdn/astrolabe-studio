@@ -95,7 +95,7 @@ fun StartTaskDialog(project: Project, teams: TeamsState, tasks: TaskDialogState,
 }
 
 @Composable
-private fun TeamSelect(selected: Team?, teams: List<Team>, onSelect: (Team?) -> Unit) {
+internal fun TeamSelect(selected: Team?, teams: List<Team>, onSelect: (Team?) -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         AppButton(selected?.name ?: NO_TEAM, { open = !open }, variant = ButtonVariant.SECONDARY, icon = Icons.Users, tooltip = "Team for this task")

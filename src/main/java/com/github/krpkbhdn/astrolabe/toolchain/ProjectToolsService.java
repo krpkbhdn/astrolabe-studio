@@ -66,7 +66,7 @@ public class ProjectToolsService {
         this.navigationText = readNavigationText();
     }
 
-    private static String readNavigationText() {
+    static String readNavigationText() {
         try (var in = ProjectToolsService.class.getResourceAsStream(NAVIGATION_RESOURCE)) {
             if (in == null) {
                 throw new IllegalStateException("Bundled resource is missing on the classpath: " + NAVIGATION_RESOURCE);
@@ -240,7 +240,7 @@ public class ProjectToolsService {
             if (isEnabledForProject(installed, pluginId, projectDir)) {
                 overlaySettings.setPlugin(projectDir, pluginId, false);
             }
-            if (!anotherLspPluginEnabled(installed, pluginId, projectDir)) {
+            if (!isEffectivelyEnabled(installed, pluginId, projectDir) && !anotherLspPluginEnabled(installed, pluginId, projectDir)) {
                 note.remove(projectDir, NAVIGATION_TITLE);
             }
         } finally {

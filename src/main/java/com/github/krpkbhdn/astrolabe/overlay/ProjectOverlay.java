@@ -25,7 +25,8 @@ public record ProjectOverlay(Path root) {
     private static final String INSTRUCTIONS_FILE = "instructions.md";
     private static final String AGENTS_DIRECTORY = "agents";
     private static final String CONTEXT_DIRECTORY = "context";
-    private static final String SKILLS_DIRECTORY = ".claude/skills";
+    /** Below a context folder. */
+    public static final String SKILLS_DIRECTORY = ".claude/skills";
     private static final String SERVERS = "mcpServers";
 
     public ProjectOverlay {

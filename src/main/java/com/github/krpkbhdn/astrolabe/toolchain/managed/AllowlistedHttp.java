@@ -63,6 +63,9 @@ public final class AllowlistedHttp {
             try {
                 bytes = body.readNBytes(maxBytes + 1);
             } catch (IOException e) {
+                if (Thread.currentThread().isInterrupted()) {
+                    throw new InterruptedException("Read cancelled");
+                }
                 deadline.rethrowIfExpired(e);
                 throw e;
             }

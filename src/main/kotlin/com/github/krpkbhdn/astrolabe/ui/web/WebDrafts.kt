@@ -27,13 +27,18 @@ internal class WebDrafts(
     }
 
     fun cancel(view: WebView) {
-        view.host.runScript(InspectorBridge.clearPreview())
-        view.clearDraft()
+        view.discardDraft()
     }
 
     fun editItem(view: WebView, item: WebItem) {
-        view.beginEdit(item)
-        view.selectedItemId = item.id()
+        val anchor = view.pinEditAnchor
+        view.pinEditAnchor = null
+        view.guardDraft {
+            view.itemPopover = null
+            view.beginEdit(view.pageItems.firstOrNull { it.id() == item.id() } ?: item)
+            view.selectedItemId = item.id()
+            if (anchor != null) WebContextActions.showFeedback(view, anchor)
+        }
     }
 
     /**
@@ -42,6 +47,8 @@ internal class WebDrafts(
      */
     fun save(view: WebView) {
         if (view.draftSaving) return
+        val after = view.afterSave
+        view.afterSave = null
         val draft = view.snapshotDraft() ?: return
         view.draftSaving = true
         val changes = StyleDiff.changes(draft.target.computed, draft.edits).toStored()
@@ -51,17 +58,25 @@ internal class WebDrafts(
                 runGuarded({ message -> putBack(view, draft); reportError(message) }) {
                     if (draft.editing != null) {
                         io { service.updateItem(draft.editing.id(), draft.comment, changes) }
+                        reloadItems(view)
                     } else {
                         val viewport = draft.viewport ?: view.currentViewport()
                         val item = io { service.addItem(view.projectId, draft.pageUrl, draft.pageTitle, draft.target.toAnchor(), draft.comment, changes, viewport) }
                         view.selectedItemId = item.id()
                         attachScreenshot(item, draft.shot)
                     }
+                    after?.invoke()
                 }
             } finally {
                 view.draftSaving = false
             }
         }
+    }
+
+    private suspend fun reloadItems(view: WebView) {
+        val key = view.pageKey ?: return
+        val items = io { service.items(view.projectId, key) }
+        if (pageKeyOf(view.host.page.value.url) == key) view.pageItems = items
     }
 
     private fun putBack(view: WebView, draft: DraftSnapshot) {

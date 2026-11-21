@@ -4,7 +4,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.github.krpkbhdn.astrolabe.team.Team
 import com.github.krpkbhdn.astrolabe.ui.review.SessionChoice
+import com.github.krpkbhdn.astrolabe.ui.review.TeamOptions
 import com.github.krpkbhdn.astrolabe.ui.state.LiveSessions
 import com.github.krpkbhdn.astrolabe.ui.state.io
 import com.github.krpkbhdn.astrolabe.ui.state.runGuarded
@@ -13,11 +15,11 @@ import com.github.krpkbhdn.astrolabe.web.WebRevision
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
-data class WebSendTarget(val revision: WebRevision, val candidates: List<SessionChoice>)
+data class WebSendTarget(val revision: WebRevision, val candidates: List<SessionChoice>, val teams: TeamOptions = TeamOptions.NONE)
 
 typealias SessionEnqueue = (astrolabeSessionId: String, text: String) -> Unit
 
-typealias SessionStarter = (projectId: Long, prompt: String, onNotStarted: () -> Unit, onStarted: (String) -> Unit) -> Unit
+typealias SessionStarter = (projectId: Long, team: Team?, prompt: String, onNotStarted: () -> Unit, onStarted: (String) -> Unit) -> Unit
 
 private const val START_FAILED = "Could not start a session"
 
@@ -29,6 +31,7 @@ internal class WebDelivery(
     private val live: () -> LiveSessions,
     private val scope: CoroutineScope,
     private val reportError: (String) -> Unit,
+    private val teamOptions: (projectId: Long) -> TeamOptions = { TeamOptions.NONE },
 ) {
     private val targets = mutableStateMapOf<Long, WebSendTarget>()
     private var sending by mutableStateOf(emptySet<Long>())
@@ -42,9 +45,9 @@ internal class WebDelivery(
         if (bound == null) offerTargets(revision) else deliver(revision, bound)
     }
 
-    fun sendTo(revision: WebRevision, astrolabeSessionId: String?) = launchOnce(revision) {
+    fun sendTo(revision: WebRevision, astrolabeSessionId: String?, team: Team? = null) = launchOnce(revision) {
         targets.remove(revision.projectId())
-        deliver(revision, astrolabeSessionId)
+        deliver(revision, astrolabeSessionId, team)
     }
 
     fun dismissSendTarget(projectId: Long) {
@@ -77,11 +80,11 @@ internal class WebDelivery(
 
     private fun offerTargets(revision: WebRevision) {
         val candidates = live().of(revision.projectId()).map { SessionChoice(it.astrolabeSessionId, it.title?.takeIf(String::isNotBlank) ?: it.astrolabeSessionId) }
-        targets[revision.projectId()] = WebSendTarget(revision, candidates)
+        targets[revision.projectId()] = WebSendTarget(revision, candidates, teamOptions(revision.projectId()))
     }
 
     /** A dead target reopens the chooser before anything is marked sent; the chosen or started session is bound to the revision. */
-    private suspend fun deliver(revision: WebRevision, astrolabeSessionId: String?) {
+    private suspend fun deliver(revision: WebRevision, astrolabeSessionId: String?, team: Team? = null) {
         if (astrolabeSessionId != null && live().find(astrolabeSessionId) == null) {
             offerTargets(revision)
             return
@@ -91,7 +94,7 @@ internal class WebDelivery(
             io { service.bindSession(revision.id(), astrolabeSessionId) }
             enqueue(astrolabeSessionId, feedback.prompt())
         } else {
-            startSession(revision.projectId(), feedback.prompt(), { reportError("$START_FAILED. Feedback is in ${feedback.markdown()}") }, { started ->
+            startSession(revision.projectId(), team, feedback.prompt(), { reportError("$START_FAILED. Feedback is in ${feedback.markdown()}") }, { started ->
                 scope.launch { runGuarded(reportError) { io { service.bindSession(revision.id(), started) } } }
             })
         }

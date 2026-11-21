@@ -91,7 +91,32 @@ class GroupLspServiceTest {
     }
 
     @Test
-    void anOverridingGroupWorksIndependentlyOfItsMembers() throws Exception {
+    void overrideWritesTheNavigationNoteOnlyWhenThereAreInheritedLspPlugins() throws Exception {
+        service.override(1);
+
+        assertThat(overlays.forGroup(1, List.of(member)).instructions()).contains("astrolabe:begin lsp-navigation");
+        assertThat(Files.readString(overlays.overlayOf(1).instructionsFile())).contains("astrolabe:begin lsp-navigation");
+    }
+
+    @Test
+    void overrideWithoutInheritedLspPluginsWritesNoNote() throws Exception {
+        write(2, "{\"enabledPlugins\":{\"" + OTHER_PLUGIN + "\":true}}");
+
+        service.override(1);
+
+        assertThat(overlays.overlayOf(1).instructionsFile()).doesNotExist();
+    }
+
+    @Test
+    void inheritRemovesTheNoteWrittenByOverride() {
+        service.override(1);
+        service.inherit(1);
+
+        assertThat(overlays.overlayOf(1).instructionsFile()).doesNotExist();
+    }
+
+    @Test
+    void anOverridingGroupWorksIndependentlyOfItsMembers()throws Exception {
         service.override(1);
         write(1, "{\"enabledPlugins\":{\"" + GO_PLUGIN + "\":true}}");
 

@@ -48,16 +48,24 @@ public class LspHandshake {
 
     /** @param environment set on top of the inherited environment of the server process */
     public Result perform(List<String> command, Duration timeout, Map<String, String> environment) {
-        return perform(command, timeout, environment, null);
+        return perform(command, timeout, environment, null, null);
     }
 
     /** @param workspace the folder sent as the workspace root, or null for none (a workspace router refuses an initialize without one) */
     public Result perform(List<String> command, Duration timeout, Map<String, String> environment, Path workspace) {
+        return perform(command, timeout, environment, workspace, null);
+    }
+
+    /** @param directory the working directory of the server process, or null to inherit the app's (a launcher may derive its workspace data folder from it) */
+    public Result perform(List<String> command, Duration timeout, Map<String, String> environment, Path workspace, Path directory) {
         Process process;
         try {
             WindowsArgument.requireSafeForBatchFile(command);
             var builder = new ProcessBuilder(command);
             builder.environment().putAll(environment);
+            if (directory != null) {
+                builder.directory(directory.toFile());
+            }
             process = builder.start();
         } catch (IllegalStateException e) {
             return failed("unsafe path for a .cmd launcher");

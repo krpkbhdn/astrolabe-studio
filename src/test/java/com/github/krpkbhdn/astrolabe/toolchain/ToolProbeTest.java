@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -65,7 +66,7 @@ class ToolProbeTest {
         Files.createDirectories(version);
         tools.markComplete(version);
         host = host.withFile(tools.binDirectory().resolve("kotlin-lsp"));
-        when(handshake.perform(anyList(), any(), anyMap())).thenReturn(new LspHandshake.Result(LspHandshake.Outcome.RESPONDED, ""));
+        when(handshake.perform(anyList(), any(), anyMap(), isNull(), any(Path.class))).thenReturn(new LspHandshake.Result(LspHandshake.Outcome.RESPONDED, ""));
         var probe = new ToolProbe(new ToolCatalog(), new ExecutableLookup(host, tools), host, handshake, PROPERTIES, tools,
                 (c, t, env) -> { throw new AssertionError("version command must not run"); }, clock);
 
@@ -83,11 +84,26 @@ class ToolProbeTest {
         var workspace = org.mockito.ArgumentCaptor.forClass(Path.class);
         @SuppressWarnings("unchecked")
         var command = org.mockito.ArgumentCaptor.forClass(List.class);
-        verify(handshake).perform(command.capture(), any(), anyMap(), workspace.capture());
+        verify(handshake).perform(command.capture(), any(), anyMap(), workspace.capture(), any(Path.class));
         assertThat(((List<?>) command.getValue()).stream().map(Object::toString).toList()).containsExactly(install.resolve("bin/lsp-router.exe").toString(), "--server-launcher",
                 install.resolve("bin/intellij-server.exe").toString(), "--system-path",
                 tools.stateDirectory("kotlin-lsp").resolve("probe-system").toString());
         assertThat(workspace.getValue()).isEqualTo(tools.stateDirectory("kotlin-lsp").resolve("probe-workspace")).isEmptyDirectory();
+    }
+
+    @Test
+    void plainServerIsStartedInTheProbeWorkspace(@TempDir Path dataDir) {
+        var tools = new ManagedToolsDirectory(new AppProperties(dataDir));
+        host = host.withFile(BIN.resolve("gopls"));
+        when(handshake.perform(anyList(), any(), anyMap(), isNull(), any(Path.class))).thenReturn(new LspHandshake.Result(LspHandshake.Outcome.RESPONDED, ""));
+        var probe = new ToolProbe(new ToolCatalog(), new ExecutableLookup(host, tools), host, handshake, PROPERTIES, tools,
+                (c, t, env) -> new CommandRunner.Result(0, "gopls v1", "", false, false), clock);
+
+        probe.probe("gopls");
+
+        var directory = org.mockito.ArgumentCaptor.forClass(Path.class);
+        verify(handshake).perform(anyList(), any(), anyMap(), isNull(), directory.capture());
+        assertThat(directory.getValue()).isEqualTo(tools.stateDirectory("gopls").resolve("probe-workspace")).isEmptyDirectory();
     }
 
     private ToolProbe routedProbe(ManagedToolsDirectory tools) throws IOException {
@@ -101,7 +117,7 @@ class ToolProbeTest {
         var otherCopy = Path.of("other-bin");
         var windows = new FakeHostEnvironment(WINDOWS, Path.of("home")).withPath(otherCopy).withPath(tools.binDirectory())
                 .withFile(otherCopy.resolve("kotlin-lsp.cmd")).withFile(tools.binDirectory().resolve("kotlin-lsp.cmd"));
-        when(handshake.perform(anyList(), any(), anyMap(), any(Path.class)))
+        when(handshake.perform(anyList(), any(), anyMap(), any(Path.class), any(Path.class)))
                 .thenReturn(new LspHandshake.Result(LspHandshake.Outcome.RESPONDED, ""));
         return new ToolProbe(new ToolCatalog(), new ExecutableLookup(windows, tools), windows, handshake, PROPERTIES, tools,
                 (c, t, env) -> { throw new AssertionError("version command must not run"); }, clock);
@@ -112,12 +128,12 @@ class ToolProbeTest {
         var tools = new ManagedToolsDirectory(new AppProperties(dataDir));
         var probe = routedProbe(tools);
         Files.writeString(tools.binDirectory().resolve("kotlin-lsp.cmd"), "stale launcher");
-        when(handshake.perform(anyList(), any(), anyMap())).thenReturn(new LspHandshake.Result(LspHandshake.Outcome.FAILED, "locked"));
+        when(handshake.perform(anyList(), any(), anyMap(), isNull(), any(Path.class))).thenReturn(new LspHandshake.Result(LspHandshake.Outcome.FAILED, "locked"));
 
         var status = probe.probe("kotlin-lsp");
 
         assertThat(status.state()).isEqualTo(ToolState.FAILED);
-        verify(handshake, never()).perform(anyList(), any(), anyMap(), any(Path.class));
+        verify(handshake, never()).perform(anyList(), any(), anyMap(), any(Path.class), any(Path.class));
     }
 
     @Test
@@ -158,19 +174,19 @@ class ToolProbeTest {
     @Test
     void languageServerWithoutVersionArgsHasNoVersionCommandButIsStillHandshaked() {
         host = host.withFile(BIN.resolve("pyright-langserver"));
-        when(handshake.perform(anyList(), any(), anyMap())).thenReturn(new LspHandshake.Result(LspHandshake.Outcome.RESPONDED, ""));
+        when(handshake.perform(anyList(), any(), anyMap(), isNull(), any(Path.class))).thenReturn(new LspHandshake.Result(LspHandshake.Outcome.RESPONDED, ""));
         var probe = probe((c, t, env) -> { throw new AssertionError("version command must not run"); });
 
         var server = probe.probe("pyright");
 
         assertThat(server.state()).isEqualTo(ToolState.RESPONDING);
         assertThat(server.version()).isEmpty();
-        verify(handshake, times(1)).perform(anyList(), any(), anyMap());
+        verify(handshake, times(1)).perform(anyList(), any(), anyMap(), isNull(), any(Path.class));
     }
 
     private ToolStatus failedJdtls(com.github.krpkbhdn.astrolabe.toolchain.managed.ToolChannel channel) {
         host = host.withFile(BIN.resolve("jdtls"));
-        when(handshake.perform(anyList(), any(), anyMap())).thenReturn(new LspHandshake.Result(LspHandshake.Outcome.FAILED, "exit 13"));
+        when(handshake.perform(anyList(), any(), anyMap(), isNull(), any(Path.class))).thenReturn(new LspHandshake.Result(LspHandshake.Outcome.FAILED, "exit 13"));
         var probe = new ToolProbe(new ToolCatalog(), lookup(host), host, handshake, PROPERTIES, managedTools(),
                 (c, t, env) -> { throw new AssertionError("version command must not run"); }, clock, id -> channel);
         return probe.probe("jdtls");
@@ -368,7 +384,7 @@ class ToolProbeTest {
     @Test
     void installedWithoutVersionWhenNoVersionArgsAndCommandFails() {
         host = host.withFile(BIN.resolve("pyright-langserver"));
-        when(handshake.perform(anyList(), any(), anyMap())).thenReturn(new LspHandshake.Result(LspHandshake.Outcome.NO_RESPONSE_IN_TIME, ""));
+        when(handshake.perform(anyList(), any(), anyMap(), isNull(), any(Path.class))).thenReturn(new LspHandshake.Result(LspHandshake.Outcome.NO_RESPONSE_IN_TIME, ""));
 
         var status = probe((c, t, env) -> { throw new IOException("boom"); }).probe("pyright");
 
@@ -379,19 +395,19 @@ class ToolProbeTest {
     @Test
     void handshakeRespondedMapsToResponding() {
         host = host.withFile(BIN.resolve("typescript-language-server"));
-        when(handshake.perform(anyList(), any(), anyMap())).thenReturn(new LspHandshake.Result(LspHandshake.Outcome.RESPONDED, ""));
+        when(handshake.perform(anyList(), any(), anyMap(), isNull(), any(Path.class))).thenReturn(new LspHandshake.Result(LspHandshake.Outcome.RESPONDED, ""));
 
         var status = probe((c, t, env) -> output(0, "4.3.0")).probe("typescript");
 
         assertThat(status.state()).isEqualTo(ToolState.RESPONDING);
         assertThat(status.version()).isEqualTo("4.3.0");
-        verify(handshake).perform(eq(List.of(BIN.resolve("typescript-language-server").toString(), "--stdio")), eq(Duration.ofSeconds(10)), anyMap());
+        verify(handshake).perform(eq(List.of(BIN.resolve("typescript-language-server").toString(), "--stdio")), eq(Duration.ofSeconds(10)), anyMap(), isNull(), any(Path.class));
     }
 
     @Test
     void handshakeTimeoutStaysInstalledAndFailureIsFailed() {
         host = host.withFile(BIN.resolve("typescript-language-server"));
-        when(handshake.perform(anyList(), any(), anyMap()))
+        when(handshake.perform(anyList(), any(), anyMap(), isNull(), any(Path.class)))
                 .thenReturn(new LspHandshake.Result(LspHandshake.Outcome.NO_RESPONSE_IN_TIME, ""))
                 .thenReturn(new LspHandshake.Result(LspHandshake.Outcome.FAILED, "crashed"));
         var probe = probe((c, t, env) -> output(0, "4.3.0"));
@@ -409,7 +425,7 @@ class ToolProbeTest {
 
         probe.probe("node");
 
-        verify(handshake, never()).perform(anyList(), any(), anyMap());
+        verify(handshake, never()).perform(anyList(), any(), anyMap(), isNull(), any(Path.class));
     }
 
     @Test
@@ -421,24 +437,24 @@ class ToolProbeTest {
     @Test
     void handshakeArgsPerServer() {
         host = host.withFile(BIN.resolve("pyright-langserver")).withFile(BIN.resolve("gopls"));
-        when(handshake.perform(anyList(), any(), anyMap())).thenReturn(new LspHandshake.Result(LspHandshake.Outcome.RESPONDED, ""));
+        when(handshake.perform(anyList(), any(), anyMap(), isNull(), any(Path.class))).thenReturn(new LspHandshake.Result(LspHandshake.Outcome.RESPONDED, ""));
         var probe = probe((c, t, env) -> output(0, "1"));
 
         probe.probe("pyright");
         probe.probe("gopls");
 
-        verify(handshake).perform(eq(List.of(BIN.resolve("pyright-langserver").toString(), "--stdio")), eq(Duration.ofSeconds(10)), anyMap());
-        verify(handshake).perform(eq(List.of(BIN.resolve("gopls").toString())), eq(Duration.ofSeconds(10)), anyMap());
+        verify(handshake).perform(eq(List.of(BIN.resolve("pyright-langserver").toString(), "--stdio")), eq(Duration.ofSeconds(10)), anyMap(), isNull(), any(Path.class));
+        verify(handshake).perform(eq(List.of(BIN.resolve("gopls").toString())), eq(Duration.ofSeconds(10)), anyMap(), isNull(), any(Path.class));
     }
 
     @Test
     void cssServerGetsTheStdioHandshake() {
         host = host.withFile(BIN.resolve("vscode-css-language-server"));
-        when(handshake.perform(anyList(), any(), anyMap())).thenReturn(new LspHandshake.Result(LspHandshake.Outcome.RESPONDED, ""));
+        when(handshake.perform(anyList(), any(), anyMap(), isNull(), any(Path.class))).thenReturn(new LspHandshake.Result(LspHandshake.Outcome.RESPONDED, ""));
 
         probe((c, t, env) -> output(0, "")).probe("css");
 
-        verify(handshake).perform(eq(List.of(BIN.resolve("vscode-css-language-server").toString(), "--stdio")), eq(Duration.ofSeconds(10)), anyMap());
+        verify(handshake).perform(eq(List.of(BIN.resolve("vscode-css-language-server").toString(), "--stdio")), eq(Duration.ofSeconds(10)), anyMap(), isNull(), any(Path.class));
     }
 
     @Test
@@ -455,7 +471,7 @@ class ToolProbeTest {
         host = host.withFile(BIN.resolve("pyright-langserver"));
         var running = new AtomicInteger();
         var overlapped = new java.util.concurrent.atomic.AtomicBoolean();
-        when(handshake.perform(anyList(), any(), anyMap())).thenAnswer(call -> {
+        when(handshake.perform(anyList(), any(), anyMap(), isNull(), any(Path.class))).thenAnswer(call -> {
             if (running.incrementAndGet() > 1) {
                 overlapped.set(true);
             }
@@ -471,6 +487,6 @@ class ToolProbeTest {
         assertThat(first.get().state()).isEqualTo(ToolState.RESPONDING);
         assertThat(second.get().state()).isEqualTo(ToolState.RESPONDING);
         assertThat(overlapped).isFalse();
-        verify(handshake, times(2)).perform(anyList(), any(), anyMap());
+        verify(handshake, times(2)).perform(anyList(), any(), anyMap(), isNull(), any(Path.class));
     }
 }

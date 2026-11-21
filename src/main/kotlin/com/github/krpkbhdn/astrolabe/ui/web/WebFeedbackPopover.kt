@@ -47,7 +47,7 @@ fun WebFeedbackPopover(view: WebView, state: WebState) {
     val cancel = { state.cancelDraft(view); WebContextActions.dismiss(view) }
     val save = { if (view.canSave) { state.saveDraft(view); WebContextActions.dismiss(view) } }
     val focus = remember { FocusRequester() }
-    LaunchedEffect(view.draftGeneration) { focus.requestFocus() }
+    LaunchedEffect(view.draftGeneration, view.keepEditingTick) { focus.requestFocus() }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val x = with(density) { menu.canvasOffset.x.toDp() }.coerceIn(0.dp, (maxWidth - popoverWidth).coerceAtLeast(0.dp))
         val y = with(density) { menu.canvasOffset.y.toDp() }.coerceIn(0.dp, (maxHeight - popoverHeight).coerceAtLeast(0.dp))
@@ -60,7 +60,7 @@ fun WebFeedbackPopover(view: WebView, state: WebState) {
             VoiceTextArea(view.comment, Modifier.fillMaxWidth(), placeholder = "What should change here?", focusRequester = focus, minLines = 2, maxLines = 5, onSubmit = save)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Spacing.sm, Alignment.End)) {
                 AppButton("Cancel", cancel, variant = ButtonVariant.GHOST, compact = true)
-                AppButton("Add to review", save, variant = ButtonVariant.PRIMARY, enabled = view.canSave && !view.draftSaving, compact = true)
+                AppButton(if (view.editingItem != null) "Save" else "Add to review", save, variant = ButtonVariant.PRIMARY, enabled = view.canSave && !view.draftSaving, compact = true)
             }
         }
     }

@@ -216,10 +216,8 @@ public class ClaudeLauncher {
                     : group ? writeGroupFiles(astrolabeSessionId, projectMcpServers.approved(memberPaths), codeModeAccess(astrolabeSessionId, projectId, directory, false), overlay, team)
                     : writeProjectFiles(astrolabeSessionId, codeModeAccess(astrolabeSessionId, projectId, directory, true), trust, directory, overlay, team);
             List<String> command = new ArrayList<>(commandFactory.build(files, executable, modelSelection));
-            List<Path> addedDirectories = new ArrayList<>(memberPaths);
-            addedDirectories.addAll(overlay.contextDirectories());
-            if (!addedDirectories.isEmpty()) {
-                ClaudeCommand.addDirectories(command, addedDirectories);
+            if (!memberPaths.isEmpty()) {
+                ClaudeCommand.addDirectories(command, memberPaths);
             }
             String sessionToken = hookSettings.sessionToken(astrolabeSessionId);
             Map<String, String> parent = ClaudeCommand.withSearchPath(System.getenv(), executableLookup.searchPath());

@@ -9,7 +9,7 @@ import tools.jackson.databind.node.ObjectNode;
 
 /**
  * What the overlays of one session add to a launch. [roots] are the existing overlay folders (the session denies edits and reads of their config there),
- * [contextDirectories] are added with --add-dir for their skills. No roots means nothing is added.
+ * [contextDirectories] hold the skills that travel as a per-session plugin directory (never --add-dir: claude asks to trust such a folder in every session). No roots means nothing is added.
  */
 public record SessionOverlay(Map<String, JsonNode> mcpServers, ObjectNode settings, String instructions, Map<String, OverlayAgent> agents,
         List<Path> contextDirectories, List<Path> roots) {

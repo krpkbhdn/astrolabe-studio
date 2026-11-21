@@ -275,6 +275,7 @@ public class ToolInstallService implements ToolProbe.InstalledChannels {
                     : "Installed " + tool.name() + " " + installed.version();
             return new InstallResult(Outcome.INSTALLED, 0, status, message);
         } catch (InterruptedException e) {
+            Thread.interrupted();
             var status = probe.probeFresh(toolId);
             Thread.currentThread().interrupt();
             return new InstallResult(Outcome.FAILED, -1, status, "Install cancelled");
@@ -290,6 +291,11 @@ public class ToolInstallService implements ToolProbe.InstalledChannels {
             result = runner.run(launchCommand(plan.command()), NEUTRAL_DIRECTORY, properties.installTimeout(),
                     unattendedEnvironment(), onOutput);
         } catch (IOException e) {
+            if (Thread.interrupted()) {
+                var status = probe.probeFresh(toolId);
+                Thread.currentThread().interrupt();
+                return new InstallResult(Outcome.FAILED, -1, status, "Install cancelled");
+            }
             return new InstallResult(Outcome.FAILED, -1, probe.probeFresh(toolId), "Could not run the install command: " + e.getMessage());
         }
         var status = probe.probeFresh(toolId);

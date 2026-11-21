@@ -47,7 +47,7 @@ internal class ReviewImageScene(width: Int = 1000, height: Int = 700) : AutoClos
     init {
         val service = ReviewPreviewData.service()
         ReviewPreviewData.seed(SEEDED)
-        state = ReviewState(service, { LiveSessions() }, { _, _ -> }, { _, _, _, _ -> }, scope, { })
+        state = ReviewState(service, { LiveSessions() }, { _, _ -> }, { _, _, _, _, _ -> }, scope, { })
         state.start()
         await { state.reviews(SEEDED).isNotEmpty() }
         val review = state.selectedReview(SEEDED)!!

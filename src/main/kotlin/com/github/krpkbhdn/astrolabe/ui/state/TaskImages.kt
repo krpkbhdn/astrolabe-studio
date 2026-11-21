@@ -2,6 +2,7 @@ package com.github.krpkbhdn.astrolabe.ui.state
 
 import com.github.krpkbhdn.astrolabe.taskattachment.TaskAttachmentProperties
 import java.awt.Image
+import com.github.krpkbhdn.astrolabe.ui.components.readClipboardText
 import java.awt.Toolkit
 import java.awt.datatransfer.DataFlavor
 import java.awt.image.BufferedImage
@@ -39,7 +40,7 @@ class TaskImages(private val dir: Path, private val limits: TaskAttachmentProper
     }
 
     /** Blocking; the clipboard's plain text, or null when it holds none. */
-    fun clipboardText(): String? = runCatching { Toolkit.getDefaultToolkit().systemClipboard.getData(DataFlavor.stringFlavor) as? String }.getOrNull()
+    fun clipboardText(): String? = readClipboardText()
 
     fun isLongPaste(text: String) = text.length > limits.longPasteChars() || lineCount(text) > limits.longPasteLines()
 

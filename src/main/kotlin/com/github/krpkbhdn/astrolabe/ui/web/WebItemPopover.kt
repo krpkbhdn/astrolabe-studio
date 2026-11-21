@@ -23,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.github.krpkbhdn.astrolabe.ui.components.IconButton
 import com.github.krpkbhdn.astrolabe.ui.components.Label
@@ -49,6 +50,7 @@ val LocalWebState = staticCompositionLocalOf<WebState?> { null }
 @Composable
 fun WebItemPopover(view: WebView, viewport: PageViewport) {
     val state = LocalWebState.current
+    val density = LocalDensity.current
     LaunchedEffect(view.selectedItemId) { actions.emphasiseSelection(view) }
     val source = remember { MutableInteractionSource() }
     val overCard by source.collectIsHoveredAsState()
@@ -60,6 +62,9 @@ fun WebItemPopover(view: WebView, viewport: PageViewport) {
             !overCard -> { delay(CLOSE_DELAY_MILLIS); shown = null }
         }
     }
+    val feedbackOpen = view.contextMenu?.feedback == true
+    LaunchedEffect(feedbackOpen) { if (feedbackOpen) shown = null }
+    if (feedbackOpen) return
     val current = shown ?: return
     val item = view.visibleItems.firstOrNull { it.id().toString() == current.itemId } ?: return
     val at = viewport.toCanvas(Offset((current.rect?.x ?: 0.0).toFloat(), (current.rect?.y ?: 0.0).toFloat()))
@@ -75,7 +80,7 @@ fun WebItemPopover(view: WebView, viewport: PageViewport) {
             Label("#${item.n()} ${item.status().name.lowercase().replaceFirstChar(Char::titlecase)}", style = Type.bodyMedium)
             Label(item.comment().ifBlank { "No comment" }, color = if (item.comment().isBlank()) colors.textTertiary else colors.textPrimary, maxLines = 6)
             if (state != null) Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                IconButton(Icons.Edit, { state.editItem(view, item) }, tooltip = "Edit")
+                IconButton(Icons.Edit, { view.pinEditAnchor = with(density) { Offset(at.x.dp.toPx(), at.y.dp.toPx()) }; state.editItem(view, item) }, tooltip = "Edit")
                 IconButton(Icons.Search, { state.selectItem(view, item) }, tooltip = "Go to")
                 IconButton(Icons.Trash, { actions.delete(view, item, state::delete) }, tooltip = "Delete", tint = colors.danger)
             }

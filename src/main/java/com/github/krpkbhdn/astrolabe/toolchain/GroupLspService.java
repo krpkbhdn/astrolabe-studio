@@ -27,6 +27,7 @@ public class GroupLspService {
     private final ProjectService projects;
     private final LocalClaudeMdNote note;
     private final ProjectOverlaySettings overlaySettings;
+    private final String navigationText = ProjectToolsService.readNavigationText();
 
     public GroupLspService(GroupLspOverrides overrides, ToolCatalog catalog, ProjectOverlayService overlays, ProjectGroupService groups,
             ProjectService projects, LocalClaudeMdNote note, ProjectOverlaySettings overlaySettings) {
@@ -59,7 +60,11 @@ public class GroupLspService {
         if (!inherits(groupId)) {
             return;
         }
-        effectivePluginIds(groupId).forEach(id -> overlaySettings.setPlugin(group.path(), id, true));
+        var inherited = effectivePluginIds(groupId);
+        inherited.forEach(id -> overlaySettings.setPlugin(group.path(), id, true));
+        if (!inherited.isEmpty()) {
+            note.write(group.path(), ProjectToolsService.NAVIGATION_TITLE, navigationText);
+        }
         overrides.set(groupId, true);
     }
 

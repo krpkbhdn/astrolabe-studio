@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.github.krpkbhdn.astrolabe.notification.NotificationSoundService
 import com.github.krpkbhdn.astrolabe.ui.assistant.AssistantStartup
+import com.github.krpkbhdn.astrolabe.ui.web.HistoryModes
 import com.github.krpkbhdn.astrolabe.usage.history.UsageAlertService
 import com.github.krpkbhdn.astrolabe.usage.history.UsageThresholds
 import kotlinx.coroutines.CoroutineScope
@@ -87,6 +88,8 @@ class UiPreferences(
     fun setUsageSevenDayPercent(percent: Int) = update { it.copy(usageSevenDayPercent = percent) }
 
     fun setUsageDailyBudgetUsd(budget: Double) = update { it.copy(usageDailyBudgetUsd = budget) }
+
+    fun setWebHistory(modes: HistoryModes) = update { it.copy(webHistory = modes) }
 
     fun setAssistantStartup(mode: AssistantStartup) = update { it.copy(assistantStartup = mode) }
 

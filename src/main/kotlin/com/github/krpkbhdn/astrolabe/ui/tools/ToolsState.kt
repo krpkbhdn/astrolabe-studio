@@ -225,7 +225,7 @@ class ToolsState(
                 val result = io { tooling.installer.uninstall(id) }
                 install = InstallFlow.Removed(confirm.plan, result)
                 writeOrder.withLock {
-                    record(id, result.status())
+                    if (result.outcome() != ToolInstallService.Outcome.BLOCKED) record(id, result.status())
                     refreshPlans(tooling, tools)
                 }
             } catch (e: CancellationException) {

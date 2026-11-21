@@ -18,6 +18,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import com.github.krpkbhdn.astrolabe.team.Team
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
@@ -39,7 +40,7 @@ class ReviewStateTest {
     private val enqueued = CopyOnWriteArrayList<Pair<String, String>>()
     private val started = CopyOnWriteArrayList<String>()
     private var liveSessions = LiveSessions()
-    private val state = ReviewState(service, { liveSessions }, { id, text -> enqueued += id to text }, { _, prompt, _, _ -> started += prompt }, scope, { errors += it })
+    private val state = ReviewState(service, { liveSessions }, { id, text -> enqueued += id to text }, { _, _, prompt, _, _ -> started += prompt }, scope, { errors += it })
     private val mark = MarkDraft(MarkKind.RECTANGLE, 0.1, 0.2, 0.3, 0.4, "")
 
     @AfterEach
@@ -257,9 +258,26 @@ class ReviewStateTest {
     }
 
     @Test
+    fun `the chooser offers the project teams and a new session starts with the chosen one`() {
+        feedback()
+        val team = Team(1, "Dev team", emptyList())
+        val teams = mutableListOf<Team?>()
+        val withTeams = ReviewState(service, { liveSessions }, { _, _ -> }, { _, chosen, _, _, _ -> teams += chosen }, scope, { errors += it }, { TeamOptions(listOf(team), team) })
+        val review = review(5, ReviewStatus.PENDING)
+
+        withTeams.send(review)
+        await { withTeams.sendTarget != null }
+        assertThat(withTeams.sendTarget!!.teams).isEqualTo(TeamOptions(listOf(team), team))
+        withTeams.sendTo(review, null, team)
+
+        await { teams.isNotEmpty() }
+        assertThat(teams).containsExactly(team)
+    }
+
+    @Test
     fun `a new session that does not start reports where the feedback file is`() {
         feedback()
-        val failing = ReviewState(service, { liveSessions }, { _, _ -> }, { _, _, onNotStarted, _ -> onNotStarted() }, scope, { errors += it })
+        val failing = ReviewState(service, { liveSessions }, { _, _ -> }, { _, _, _, onNotStarted, _ -> onNotStarted() }, scope, { errors += it })
 
         failing.sendTo(review(5, ReviewStatus.PENDING), null)
 

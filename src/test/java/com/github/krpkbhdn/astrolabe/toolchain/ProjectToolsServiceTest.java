@@ -518,6 +518,14 @@ class ProjectToolsServiceTest {
     }
 
     @Test
+    void noteStaysWhileTheDisabledPluginItselfIsOnAtUserLevel() throws Exception {
+        service.enableLsp(DIR, "typescript");
+        when(plugins.installed(DIR)).thenReturn(List.of(userInstalled(TS_PLUGIN, true)));
+        service.disableLsp(DIR, "typescript");
+        assertThat(instructions()).contains("astrolabe:begin lsp-navigation");
+    }
+
+    @Test
     void removingTheNoteKeepsHandWrittenText() throws Exception {
         Files.writeString(OVERLAY.resolve("instructions.md"), "# Notes\nkeep me\n");
         service.enableLsp(DIR, "typescript");

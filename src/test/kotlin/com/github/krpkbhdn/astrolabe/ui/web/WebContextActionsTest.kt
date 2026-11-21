@@ -78,14 +78,26 @@ class WebContextActionsTest {
     }
 
     @Test
-    fun anOpenDraftKeepsTheMenuWithANoticeAndAsksNothing() {
+    fun anInspectOverAChangedDraftWaitsForTheUsersDecision() {
         actions.open(view, 10.0, 20.0, Offset.Zero)
-        view.beginDraft(inspect("x").target)
+        view.beginDraft(inspect("x").target.copy(selector = "old"))
         view.comment.setTextAndPlaceCursorAtEnd("typed")
-        host.scripts.clear()
         actions.requestInspect(view, "div.card", "feedback")
-        assertThat(view.contextMenu!!.notice).isEqualTo(DRAFT_FIRST_NOTICE)
-        assertThat(host.scripts).isEmpty()
+        actions.onInspect(view, inspect("feedback"))
+        assertThat(view.unsavedAction != null).isTrue()
+        assertThat(view.picked!!.selector).isEqualTo("old")
+        view.unsavedAction!!.invoke()
+        assertThat(view.picked!!.selector).isEqualTo("div.card")
+    }
+
+    @Test
+    fun anInspectOverAnUntouchedDraftReplacesItWithoutAsking() {
+        actions.open(view, 10.0, 20.0, Offset.Zero)
+        view.beginDraft(inspect("x").target.copy(selector = "old"))
+        actions.requestInspect(view, "div.card", "feedback")
+        actions.onInspect(view, inspect("feedback"))
+        assertThat(view.unsavedAction == null).isTrue()
+        assertThat(view.picked!!.selector).isEqualTo("div.card")
     }
 
     @Test

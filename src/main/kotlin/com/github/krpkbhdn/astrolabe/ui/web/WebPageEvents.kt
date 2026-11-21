@@ -14,9 +14,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.slf4j.LoggerFactory
 
 private val LOG = LoggerFactory.getLogger(WebPageEvents::class.java)
+private const val HIDDEN_ITEM_NOTICE = "That item is hidden by the history filter"
 private const val BLANK_PAGE = "about:blank"
 private const val RESTORE_RETRY_MILLIS = 3_000L
-private const val DRAFT_OPEN_MESSAGE = "Finish or cancel the current item before picking another element"
 
 /** What the page tells us: console lines, inspector messages and page changes, and the pins and options pushed back into it. */
 internal class WebPageEvents(
@@ -59,19 +59,16 @@ internal class WebPageEvents(
         pushPins(view)
         view.pendingFocus?.let { id ->
             view.pendingFocus = null
-            if (view.visibleItems.any { it.id() == id }) view.host.runScript(InspectorBridge.focusAnnotation(id.toString()))
+            if (view.pinItems.any { it.id() == id }) view.host.runScript(InspectorBridge.focusAnnotation(id.toString()))
+            else reportError(HIDDEN_ITEM_NOTICE)
         }
     }
 
     /** Sends the pins of the items visible for the current device scope; each keeps its own number. */
-    fun pushPins(view: WebView) = view.host.runScript(InspectorBridge.setAnnotations(view.visibleItems.map(WebItem::toPin)))
+    fun pushPins(view: WebView) = view.host.runScript(InspectorBridge.setAnnotations(view.pinItems.map(WebItem::toPin)))
 
-    /** Pick mode is the page's permission to send elements; it is refused while typed work is open, so nothing the user wrote is replaced. */
+    /** Pick mode is the page's permission to send elements; a pick over typed work asks the user first. */
     fun setToggles(view: WebView, toggles: InspectorToggles) {
-        if (toggles.pick && view.draftDirty) {
-            reportError(DRAFT_OPEN_MESSAGE)
-            return
-        }
         if (!toggles.pick) view.stickyPick = false
         view.toggles = toggles
         view.host.runScript(InspectorBridge.setOptions(toggles.effective()))
@@ -99,11 +96,9 @@ internal class WebPageEvents(
     }
 
     /** A pick ends pick mode, except sticky pick: it stays on and opens the feedback popover at the pointer. */
-    private fun onPick(view: WebView, target: ElementTarget) {
-        if (view.draftDirty) {
-            if (view.stickyPick) reportError(DRAFT_OPEN_MESSAGE)
-            return
-        }
+    private fun onPick(view: WebView, target: ElementTarget) = view.guardDraft { startPick(view, target) }
+
+    private fun startPick(view: WebView, target: ElementTarget) {
         WebContextActions.clearSimilar(view)
         if (view.stickyPick) {
             context.openFeedbackAt(view, target, view.lastPointer?.canvas ?: view.layoutCentre())

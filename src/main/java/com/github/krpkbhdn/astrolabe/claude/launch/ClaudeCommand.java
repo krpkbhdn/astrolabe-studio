@@ -25,6 +25,11 @@ public final class ClaudeCommand {
     private static final List<String> LOOPBACK_NO_PROXY_VARIABLES = List.of("NO_PROXY", "no_proxy");
     private static final String LOOPBACK_HOSTS = "127.0.0.1,localhost";
     static final String ENV_COLORTERM = "COLORTERM";
+    private static final String ENV_LANG = "LANG";
+    private static final String ENV_LC_ALL = "LC_ALL";
+    private static final String ENV_LC_CTYPE = "LC_CTYPE";
+    private static final String MAC_OS_PREFIX = "Mac";
+    private static final String MAC_DEFAULT_LANG = "en_US.UTF-8";
     static final String ENV_SESSION = "ASTROLABE_SESSION";
     static final String ENV_ADDITIONAL_DIRECTORIES_CLAUDE_MD = "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD";
     private static final String SETTINGS_FLAG = "--settings";
@@ -175,10 +180,19 @@ public final class ClaudeCommand {
 
     /** The parent environment without Claude-specific variables and with a color terminal. */
     public static Map<String, String> terminalEnvironment(Map<String, String> parent) {
+        return terminalEnvironment(parent, System.getProperty("os.name", ""));
+    }
+
+    static Map<String, String> terminalEnvironment(Map<String, String> parent, String osName) {
         Map<String, String> env = new HashMap<>(parent);
         INHERITED_ENV_TO_DROP.forEach(env::remove);
         env.put(ENV_TERM, TERM_VALUE);
         env.put(ENV_COLORTERM, COLORTERM_VALUE);
+        // Launched from Finder there is no locale, so pbcopy and friends would decode UTF-8 as MacRoman.
+        if (osName.startsWith(MAC_OS_PREFIX) && !env.containsKey(ENV_LANG)
+                && !env.containsKey(ENV_LC_ALL) && !env.containsKey(ENV_LC_CTYPE)) {
+            env.put(ENV_LANG, MAC_DEFAULT_LANG);
+        }
         return env;
     }
 
@@ -230,6 +244,9 @@ public final class ClaudeCommand {
         command.addAll(List.of("--mcp-config", files.mcpConfig().toAbsolutePath().toString(), "--plugin-dir", pluginDir.toAbsolutePath().toString()));
         if (files.agentsPlugin() != null) {
             command.addAll(List.of("--plugin-dir", files.agentsPlugin().toAbsolutePath().toString()));
+        }
+        if (files.skillsPlugin() != null) {
+            command.addAll(List.of("--plugin-dir", files.skillsPlugin().toAbsolutePath().toString()));
         }
         if (files.promptFile() != null) {
             command.addAll(List.of("--append-system-prompt-file", files.promptFile().toAbsolutePath().toString()));

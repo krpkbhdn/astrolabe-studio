@@ -197,6 +197,20 @@ class ToolsStateTest {
     }
 
     @Test
+    fun `a blocked uninstall result is shown but leaves the status alone`() {
+        `when`(installer.isManaged("a")).thenReturn(true)
+        `when`(installer.uninstall("a")).thenReturn(InstallResult(Outcome.BLOCKED, -1, status(ToolState.MISSING), "Another install is running"))
+        val tools = state().loaded()
+        await { tools.isManaged("a") }
+
+        tools.requestUninstall("a")
+        tools.confirmUninstall()
+
+        await { tools.install is InstallFlow.Removed }
+        assertThat(tools.statuses).doesNotContainKey("a")
+    }
+
+    @Test
     fun `an unmanaged tool cannot be uninstalled`() {
         val tools = state().loaded()
 
