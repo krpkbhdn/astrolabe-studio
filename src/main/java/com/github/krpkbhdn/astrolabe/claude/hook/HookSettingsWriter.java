@@ -22,11 +22,14 @@ import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -53,6 +56,7 @@ public class HookSettingsWriter {
     private static final String TOKEN_SUFFIX = ".token";
     private static final String PROMPT_SUFFIX = ".prompt.md";
     private static final String AGENTS_PLUGIN_SUFFIX = ".agents";
+    private static final String SKILLS_PLUGIN_SUFFIX = ".skills";
     private static final String BEARER_PREFIX = "Bearer ";
     private static final Pattern SAFE_ID = Pattern.compile("[A-Za-z0-9-]+");
     private static final int HOOK_TIMEOUT_SECONDS = 5;
@@ -185,6 +189,7 @@ public class HookSettingsWriter {
         var mcpFile = mcpFileOf(astrolabeSessionId);
         Path promptFile;
         Path agentsPlugin;
+        Path skillsPlugin;
         try {
             OwnerOnlyFiles.createDirectory(hooksDir);
             OwnerOnlyFiles.write(tokenFileOf(astrolabeSessionId), server.sessionToken(astrolabeSessionId));
@@ -192,10 +197,11 @@ public class HookSettingsWriter {
             OwnerOnlyFiles.write(mcpFile, mapper.writeValueAsString(mcpConfig));
             promptFile = writePrompt(astrolabeSessionId, overlay, team);
             agentsPlugin = writeAgentsPlugin(astrolabeSessionId, overlay, team);
+            skillsPlugin = writeSkillsPlugin(astrolabeSessionId, overlay);
         } catch (IOException e) {
             throw new UncheckedIOException("Cannot write hook settings " + file, e);
         }
-        return new SessionFiles(file, mcpFile, promptFile, agentsPlugin, overlay);
+        return new SessionFiles(file, mcpFile, promptFile, agentsPlugin, skillsPlugin, overlay);
     }
 
     /** One file for --append-system-prompt-file: the lead addendum of the team, then the overlay instructions; claude never gets both flags. */
@@ -208,7 +214,7 @@ public class HookSettingsWriter {
         return file;
     }
 
-    /** Agents too long for the command line travel as a plugin directory; claude then names them {@code astrolabe-overlay-agents:<name>} instead of {@code <name>}. */
+    /** Agents too long for the command line travel as a plugin directory; claude then names them {@code astrolabe-agent:<name>} instead of {@code <name>}. */
     private Path writeAgentsPlugin(String astrolabeSessionId, SessionOverlay overlay, Team team) throws IOException {
         if (overlay.agents().isEmpty() || commandLineLength(TeamAgentsJson.agents(team, overlay.agents().values())) <= maxAgentsJsonChars) {
             return null;
@@ -219,13 +225,54 @@ public class HookSettingsWriter {
         OwnerOnlyFiles.createDirectory(directory.resolve(".claude-plugin"));
         OwnerOnlyFiles.createDirectory(directory.resolve("agents"));
         OwnerOnlyFiles.write(directory.resolve(".claude-plugin").resolve("plugin.json"),
-                mapper.writeValueAsString(mapper.createObjectNode().put("name", "astrolabe-overlay-agents").put("description", "Agents of the project overlay")));
+                mapper.writeValueAsString(mapper.createObjectNode().put("name", "astrolabe-agent").put("description", "Agents of the project overlay")));
         for (var agent : overlay.agents().values()) {
             if (!teamNames.contains(agent.name())) {
                 OwnerOnlyFiles.write(directory.resolve("agents").resolve(agent.name() + ".md"), agent.markdown());
             }
         }
         return directory;
+    }
+
+    /**
+     * The skills of the overlay context folders travel as a plugin directory instead of --add-dir, which makes claude ask to trust the folder in every session;
+     * claude names them {@code astrolabe-skill:<skill>}. A skill name found in an earlier folder wins. Files are copied (no symlinks on Windows).
+     */
+    private Path writeSkillsPlugin(String astrolabeSessionId, SessionOverlay overlay) throws IOException {
+        var sources = new LinkedHashMap<String, Path>();
+        for (var context : overlay.contextDirectories()) {
+            var skills = context.resolve(ProjectOverlay.SKILLS_DIRECTORY);
+            if (!Files.isDirectory(skills)) {
+                continue;
+            }
+            try (var entries = Files.list(skills)) {
+                entries.filter(Files::isDirectory).sorted().forEach(skill -> sources.putIfAbsent(skill.getFileName().toString(), skill));
+            }
+        }
+        if (sources.isEmpty()) {
+            return null;
+        }
+        var directory = hooksDir.resolve(astrolabeSessionId + SKILLS_PLUGIN_SUFFIX).toAbsolutePath();
+        OwnerOnlyFiles.createDirectory(directory.resolve(".claude-plugin"));
+        OwnerOnlyFiles.write(directory.resolve(".claude-plugin").resolve("plugin.json"),
+                mapper.writeValueAsString(mapper.createObjectNode().put("name", "astrolabe-skill").put("description", "Skills of the project overlay")));
+        for (var source : sources.entrySet()) {
+            copyTree(source.getValue(), directory.resolve("skills").resolve(source.getKey()));
+        }
+        return directory;
+    }
+
+    private static void copyTree(Path source, Path target) throws IOException {
+        try (var tree = Files.walk(source)) {
+            for (var path : tree.toList()) {
+                var destination = target.resolve(source.relativize(path).toString());
+                if (Files.isDirectory(path)) {
+                    OwnerOnlyFiles.createDirectory(destination);
+                } else if (Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
+                    Files.copy(path, destination, StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
+        }
     }
 
     /** Windows quoting puts a backslash before every quote and may double backslashes, so each of them counts twice. */
@@ -239,9 +286,11 @@ public class HookSettingsWriter {
             Files.deleteIfExists(mcpFileOf(astrolabeSessionId));
             Files.deleteIfExists(tokenFileOf(astrolabeSessionId));
             Files.deleteIfExists(hooksDir.resolve(astrolabeSessionId + PROMPT_SUFFIX));
-            var agentsPlugin = hooksDir.resolve(astrolabeSessionId + AGENTS_PLUGIN_SUFFIX);
-            if (Files.exists(agentsPlugin)) {
-                TreeDeleter.delete(agentsPlugin);
+            for (var suffix : List.of(AGENTS_PLUGIN_SUFFIX, SKILLS_PLUGIN_SUFFIX)) {
+                var plugin = hooksDir.resolve(astrolabeSessionId + suffix);
+                if (Files.exists(plugin)) {
+                    TreeDeleter.delete(plugin);
+                }
             }
         } catch (IOException e) {
             throw new UncheckedIOException("Cannot delete hook settings of " + astrolabeSessionId, e);

@@ -245,6 +245,9 @@ public final class ClaudeCommand {
         if (files.agentsPlugin() != null) {
             command.addAll(List.of("--plugin-dir", files.agentsPlugin().toAbsolutePath().toString()));
         }
+        if (files.skillsPlugin() != null) {
+            command.addAll(List.of("--plugin-dir", files.skillsPlugin().toAbsolutePath().toString()));
+        }
         if (files.promptFile() != null) {
             command.addAll(List.of("--append-system-prompt-file", files.promptFile().toAbsolutePath().toString()));
         }

@@ -370,6 +370,15 @@ class ClaudeCommandTest {
     }
 
     @Test
+    void overlaySkillsTravelAsAPluginDirectory() {
+        var skills = Path.of("skills-plugin").toAbsolutePath();
+        var files = new SessionFiles(SETTINGS, MCP, null, null, skills, SessionOverlay.EMPTY);
+
+        assertThat(ClaudeCommand.launchArguments(EXE, files, PLUGIN, LaunchMode.NEW, ModelSelection.DEFAULT))
+                .containsSequence("--plugin-dir", PLUGIN.toString(), "--plugin-dir", skills.toString()).doesNotContain("--add-dir");
+    }
+
+    @Test
     void withoutAnOverlayNoOverlayFlagAppears() {
         assertThat(ClaudeCommand.launchArguments(EXE, FILES, PLUGIN, LaunchMode.NEW, ModelSelection.DEFAULT))
                 .doesNotContain("--agents", "--append-system-prompt-file", "--append-system-prompt");

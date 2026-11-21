@@ -586,6 +586,39 @@ class HookSettingsWriterTest {
     }
 
     @Test
+    void overlaySkillsAreCopiedIntoAPluginDirectoryFirstNameWinsAndDeletedWithTheSession() throws Exception {
+        var first = dataDir.resolve("ctx1");
+        var second = dataDir.resolve("ctx2");
+        Files.createDirectories(first.resolve(".claude/skills/a/refs"));
+        Files.createDirectories(second.resolve(".claude/skills/a"));
+        Files.createDirectories(second.resolve(".claude/skills/b"));
+        Files.writeString(first.resolve(".claude/skills/a/SKILL.md"), "first a");
+        Files.writeString(first.resolve(".claude/skills/a/refs/x.md"), "ref");
+        Files.writeString(second.resolve(".claude/skills/a/SKILL.md"), "second a");
+        Files.writeString(second.resolve(".claude/skills/b/SKILL.md"), "b");
+        var base = overlay("{}", "", "{}", java.util.List.of());
+        var withSkills = new SessionOverlay(base.mcpServers(), base.settings(), "", base.agents(), java.util.List.of(first, second), base.roots());
+
+        var files = writeWith(withSkills, CodeModeAccess.OFF, null);
+
+        var plugin = files.skillsPlugin();
+        assertThat(plugin.getFileName().toString()).isEqualTo("abc-1.skills");
+        assertThat(Files.readString(plugin.resolve(".claude-plugin/plugin.json"))).contains("astrolabe-skill");
+        assertThat(plugin.resolve("skills/a/SKILL.md")).hasContent("first a");
+        assertThat(plugin.resolve("skills/a/refs/x.md")).hasContent("ref");
+        assertThat(plugin.resolve("skills/b/SKILL.md")).hasContent("b");
+
+        writer.delete("abc-1");
+
+        assertThat(plugin).doesNotExist();
+    }
+
+    @Test
+    void noSkillsPluginWithoutOverlaySkills() throws Exception {
+        assertThat(writeWith(overlay("{}", "", "{}", java.util.List.of()), CodeModeAccess.OFF, null).skillsPlugin()).isNull();
+    }
+
+    @Test
     void smallOverlayAgentsStayInlineWithoutAPluginDirectory() throws Exception {
         var files = writeWith(overlay("{}", "", "{}", java.util.List.of(OverlayAgent.parse("small.md", agentMarkdown("ok")).orElseThrow())), CodeModeAccess.OFF, null);
 
