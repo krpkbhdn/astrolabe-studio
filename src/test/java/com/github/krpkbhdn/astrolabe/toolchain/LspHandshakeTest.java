@@ -1,5 +1,6 @@
 package com.github.krpkbhdn.astrolabe.toolchain;
 
+import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.krpkbhdn.astrolabe.toolchain.LspHandshake.Outcome;
@@ -193,5 +194,19 @@ class LspHandshakeTest {
         assertThat(result.outcome()).isEqualTo(LspHandshake.Outcome.FAILED);
         assertThat(killed).isTrue();
         assertThat(closed.get()).isGreaterThanOrEqualTo(2);
+    }
+
+    @Test
+    void startsTheServerInTheGivenWorkingDirectory(@org.junit.jupiter.api.io.TempDir java.nio.file.Path temp) throws Exception {
+        var source = temp.resolve("Cwd.java");
+        var out = temp.resolve("cwd.txt");
+        var work = java.nio.file.Files.createDirectories(temp.resolve("work"));
+        java.nio.file.Files.writeString(source, "public class Cwd { public static void main(String[] a) throws Exception {"
+                + " java.nio.file.Files.writeString(java.nio.file.Path.of(a[0]), System.getProperty(\"user.dir\")); } }");
+        var javaBin = java.nio.file.Path.of(System.getProperty("java.home"), "bin", "java").toString();
+
+        handshake.perform(java.util.List.of(javaBin, source.toString(), out.toString()), Duration.ofSeconds(30), Map.of(), null, work);
+
+        assertThat(java.nio.file.Path.of(java.nio.file.Files.readString(out)).toRealPath()).isEqualTo(work.toRealPath());
     }
 }

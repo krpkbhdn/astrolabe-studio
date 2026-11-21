@@ -30,7 +30,6 @@ public class LspSetupService {
 
     /** Steps in run order for what is detected and not set up yet; nothing already installed or enabled appears. */
     public List<LspSetupStep> plan(Path projectDir) {
-        cancelled = false;
         var detected = projectTools.rows(projectDir).stream().filter(ProjectToolRow::detected).toList();
         var missing = detected.stream().filter(row -> row.status().state() == ToolState.MISSING).toList();
         var prerequisites = new LinkedHashSet<String>();
@@ -54,8 +53,9 @@ public class LspSetupService {
         return List.copyOf(steps);
     }
 
-    /** Runs the pending steps in order; a failing step is reported and the rest still run, unless cancelled (cleared by {@link #plan}, so a cancel right after the plan is kept). */
+    /** Runs the pending steps in order; a failing step is reported and the rest still run, unless cancelled (the flag is cleared when a run starts, so {@link #plan} calls during a run never lose a cancel). */
     public List<LspSetupStep> run(Path projectDir, List<LspSetupStep> plan, Consumer<String> log) {
+        cancelled = false;
         var result = new ArrayList<LspSetupStep>();
         for (var step : plan) {
             if (step.outcome() != Outcome.PENDING) {

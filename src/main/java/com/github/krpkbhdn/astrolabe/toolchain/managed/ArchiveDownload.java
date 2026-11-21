@@ -80,6 +80,7 @@ public final class ArchiveDownload {
                     progress.update(percent, read, total);
                 }
             }
+            throwIfInterrupted();
             deadline.rethrowIfExpired(new IOException("Stream closed at the deadline"));
         }
         if (total >= 0 && read != total) {
@@ -88,12 +89,19 @@ public final class ArchiveDownload {
         return HexFormat.of().formatHex(digest.digest());
     }
 
-    private static int readChunk(InputStream in, byte[] buffer, ReadDeadline deadline) throws IOException {
+    private static int readChunk(InputStream in, byte[] buffer, ReadDeadline deadline) throws IOException, InterruptedException {
         try {
             return in.read(buffer);
         } catch (IOException e) {
+            throwIfInterrupted();
             deadline.rethrowIfExpired(e);
             throw e;
+        }
+    }
+
+    private static void throwIfInterrupted() throws InterruptedException {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new InterruptedException("Download cancelled");
         }
     }
 

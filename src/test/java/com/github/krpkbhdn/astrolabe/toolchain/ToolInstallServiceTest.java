@@ -246,6 +246,37 @@ class ToolInstallServiceTest {
         }
     }
 
+    @Test
+    void cancelOfACommandInstallReportsCancelledAndProbesWithoutTheInterruptFlag() throws Exception {
+        var entered = new CountDownLatch(1);
+        runner = (command, directory, timeout, environment, onOutput) -> {
+            entered.countDown();
+            try {
+                new CountDownLatch(1).await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException("Interrupted while running " + command.getFirst(), e);
+            }
+            return result;
+        };
+        var probedInterrupted = new java.util.concurrent.atomic.AtomicBoolean(true);
+        when(probe.probeFresh("ts")).thenAnswer(invocation -> {
+            probedInterrupted.set(Thread.currentThread().isInterrupted());
+            return new ToolStatus("ts", ToolState.MISSING, "", "");
+        });
+        var service = service();
+        try (var pool = Executors.newSingleThreadExecutor()) {
+            var running = pool.submit(() -> service.install("ts", line -> {}));
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+
+            service.cancel();
+
+            var installed = running.get(5, TimeUnit.SECONDS);
+            assertThat(installed.message()).isEqualTo("Install cancelled");
+            assertThat(probedInterrupted).isFalse();
+        }
+    }
+
     private ToolInstallService service() {
         return new ToolInstallService(catalog, probe, lookup(host), host, properties, runner, directory, installer, new ToolChannelStore(directory));
     }
@@ -315,6 +346,26 @@ class ToolInstallServiceTest {
 
         assertThat(installed.outcome()).isEqualTo(Outcome.FAILED);
         assertThat(installed.message()).isEqualTo("SHA-256 mismatch");
+    }
+
+    @Test
+    void cancelOfADownloadProbesWithoutTheInterruptFlagAndRestoresIt() throws Exception {
+        registerDownloadTool();
+        when(installer.install(any(), any(), any(), any())).thenAnswer(invocation -> {
+            Thread.currentThread().interrupt();
+            throw new InterruptedException();
+        });
+        var probedInterrupted = new java.util.concurrent.atomic.AtomicBoolean(true);
+        when(probe.probeFresh("dl")).thenAnswer(invocation -> {
+            probedInterrupted.set(Thread.currentThread().isInterrupted());
+            return new ToolStatus("dl", ToolState.MISSING, "", "");
+        });
+
+        var installed = service().install("dl", line -> {});
+
+        assertThat(installed.message()).isEqualTo("Install cancelled");
+        assertThat(probedInterrupted).isFalse();
+        assertThat(Thread.interrupted()).isTrue();
     }
 
     @Test

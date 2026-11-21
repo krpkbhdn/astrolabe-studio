@@ -21,6 +21,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
@@ -57,6 +58,7 @@ class LspHealthMonitorTest {
     private final List<List<DetectedTechnology>> delivered = new ArrayList<>();
     private Instant now = Instant.parse("2026-01-01T00:00:00Z");
     private Monitor monitor;
+    private boolean rejectNextRecheck;
     private ManagedToolsDirectory managedTools;
 
     @TempDir
@@ -72,6 +74,10 @@ class LspHealthMonitorTest {
         };
         managedTools = new ManagedToolsDirectory(new AppProperties(dataDir));
         monitor = new Monitor(projectTools, probe, installer, properties, managedTools, clock, pauses::add, (task, delay) -> {
+            if (rejectNextRecheck) {
+                rejectNextRecheck = false;
+                throw new java.util.concurrent.RejectedExecutionException("rejected");
+            }
             rechecks.add(task);
             recheckDelays.add(delay);
         });
@@ -94,7 +100,7 @@ class LspHealthMonitorTest {
     private List<DetectedTechnology> checkJdtls(Path project) {
         var java = tool("jdtls");
         when(projectTools.detected(project)).thenReturn(List.of(new DetectedTechnology(java, ToolState.INSTALLED)));
-        when(probe.probeFresh("jdtls")).thenReturn(new ToolStatus("jdtls", ToolState.RESPONDING, "", ""));
+        when(probe.probe("jdtls")).thenReturn(new ToolStatus("jdtls", ToolState.RESPONDING, "", ""));
         monitor.watch(project, delivered::add);
         monitor.checkNow(project);
         return delivered.getLast();
@@ -118,6 +124,47 @@ class LspHealthMonitorTest {
         assertThat(monitor.failureDetail(project, "jdtls")).isEmpty();
         assertThat(rechecks).hasSize(1);
         assertThat(recheckDelays).containsExactly(RECHECK);
+    }
+
+    @Test
+    void repeatedChecksOfAWaitingProjectScheduleOnlyOneRecheck() throws IOException {
+        var project = dataDir.resolve("proj");
+        jdtlsProject(project, true);
+        checkJdtls(project);
+
+        monitor.checkNow(project);
+        monitor.sweep();
+
+        assertThat(rechecks).hasSize(1);
+        rechecks.removeFirst().run();
+        assertThat(rechecks).hasSize(1);
+    }
+
+    @Test
+    void rejectedRecheckSchedulingDoesNotBlockSchedulingTheNextOne() throws IOException {
+        var project = dataDir.resolve("proj");
+        jdtlsProject(project, true);
+        rejectNextRecheck = true;
+        checkJdtls(project);
+        assertThat(rechecks).isEmpty();
+
+        monitor.checkNow(project);
+
+        assertThat(rechecks).hasSize(1);
+    }
+
+    @Test
+    void watchingAgainKeepsTheWaitStartSoTheLimitIsReached() throws IOException {
+        var project = dataDir.resolve("proj");
+        jdtlsProject(project, true);
+        checkJdtls(project);
+        now = now.plus(WAIT.minusSeconds(1));
+
+        monitor.watch(project, delivered::add);
+        now = now.plusSeconds(1);
+        monitor.checkNow(project);
+
+        assertThat(delivered.getLast()).extracting(DetectedTechnology::serverState).containsExactly(ToolState.FAILED);
     }
 
     @Test
@@ -250,7 +297,9 @@ class LspHealthMonitorTest {
         for (int i = 1; i < states.length; i++) {
             rest[i - 1] = new ToolStatus(tool.id(), states[i], "", "");
         }
-        when(probe.probeFresh(tool.id())).thenReturn(first, rest);
+        when(probe.probe(tool.id())).thenReturn(first, rest);
+        var retries = rest.length == 0 ? new ToolStatus[] {first} : rest;
+        when(probe.probeFresh(tool.id())).thenReturn(retries[0], Arrays.copyOfRange(retries, 1, retries.length));
     }
 
     private ToolInstallService.InstallResult installed() {
@@ -273,6 +322,18 @@ class LspHealthMonitorTest {
     }
 
     @Test
+    void aHealthySweepStartsOneProbePerToolAndNeverAFreshSecondOne() {
+        detect(new DetectedTechnology(go, ToolState.INSTALLED));
+        probes(go, ToolState.RESPONDING);
+        monitor.watch(DIR, delivered::add);
+
+        monitor.sweep();
+
+        verify(probe, times(1)).probe("go");
+        verify(probe, never()).probeFresh(anyString());
+    }
+
+    @Test
     void checkNowDeliversTheFirstStateWithoutRecovery() {
         detect(new DetectedTechnology(go, ToolState.INSTALLED));
         probes(go, ToolState.FAILED);
@@ -291,7 +352,7 @@ class LspHealthMonitorTest {
 
         monitor.checkNow(DIR);
 
-        verify(probe, never()).probeFresh(anyString());
+        verify(probe, never()).probe(anyString());
         assertThat(delivered).containsExactly(List.of(new DetectedTechnology(go, ToolState.MISSING)));
     }
 
@@ -405,7 +466,7 @@ class LspHealthMonitorTest {
         assertThat(delivered).hasSize(1);
         assertThat(delivered.get(0)).containsExactly(new DetectedTechnology(go, ToolState.FAILED),
                 new DetectedTechnology(rust, ToolState.MISSING));
-        verify(probe, never()).probeFresh("rust");
+        verify(probe, never()).probe("rust");
     }
 
     @Test
@@ -453,7 +514,7 @@ class LspHealthMonitorTest {
     void aWatcherRemovedDuringTheCheckGetsNothing() {
         detect(new DetectedTechnology(go, ToolState.INSTALLED));
         var unsubscribe = new Runnable[1];
-        when(probe.probeFresh("go")).thenAnswer(call -> {
+        when(probe.probe("go")).thenAnswer(call -> {
             unsubscribe[0].run();
             return new ToolStatus("go", ToolState.RESPONDING, "", "");
         });
@@ -480,7 +541,7 @@ class LspHealthMonitorTest {
     @Test
     void aThrowingProbeDoesNotStopOtherTools() {
         detect(new DetectedTechnology(go, ToolState.INSTALLED), new DetectedTechnology(rust, ToolState.INSTALLED));
-        when(probe.probeFresh("go")).thenThrow(new IllegalStateException("boom"));
+        when(probe.probe("go")).thenThrow(new IllegalStateException("boom"));
         probes(rust, ToolState.RESPONDING);
         monitor.watch(DIR, delivered::add);
 

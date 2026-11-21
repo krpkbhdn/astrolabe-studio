@@ -83,6 +83,7 @@ public class LspHealthMonitor extends ScheduledSweep {
     private final Set<String> notRepairedByReinstall = ConcurrentHashMap.newKeySet();
     private final Map<String, String> details = new ConcurrentHashMap<>();
     private final Set<Path> awaitingImport = ConcurrentHashMap.newKeySet();
+    private final Set<Path> recheckScheduled = ConcurrentHashMap.newKeySet();
     private final Map<Path, Instant> pendingSince = new ConcurrentHashMap<>();
     private final ManagedToolsDirectory managedTools;
     private final Later later;
@@ -111,7 +112,6 @@ public class LspHealthMonitor extends ScheduledSweep {
 
     /** @return unsubscribe handle; the first state arrives with the next check, or call {@link #checkNow}. */
     public Runnable watch(Path projectDir, Consumer<List<DetectedTechnology>> onChange) {
-        pendingSince.remove(projectDir);
         var watcher = new Watcher(projectDir, onChange);
         watchers.add(watcher);
         return () -> {
@@ -142,8 +142,16 @@ public class LspHealthMonitor extends ScheduledSweep {
             awaitingImport.remove(directory);
             var current = inParallel(projectTools.detected(directory), found -> fresh(directory, found, recover));
             watchers.stream().filter(watcher -> watcher.directory.equals(directory)).forEach(watcher -> watcher.deliver(current));
-            if (awaitingImport.contains(directory)) {
-                later.run(() -> recheck(directory), properties.markerRecheck());
+            if (awaitingImport.contains(directory) && recheckScheduled.add(directory)) {
+                try {
+                    later.run(() -> {
+                        recheckScheduled.remove(directory);
+                        recheck(directory);
+                    }, properties.markerRecheck());
+                } catch (RuntimeException e) {
+                    recheckScheduled.remove(directory);
+                    throw e;
+                }
             }
         } catch (RuntimeException e) {
             log.warn("Language server health check of a project failed: {}", e.getClass().getSimpleName());
@@ -177,7 +185,7 @@ public class LspHealthMonitor extends ScheduledSweep {
             return found;
         }
         try {
-            var status = probe.probeFresh(id);
+            var status = probe.probe(id);
             var state = status.state();
             if (healthy(state)) {
                 notRepairedByReinstall.remove(id);

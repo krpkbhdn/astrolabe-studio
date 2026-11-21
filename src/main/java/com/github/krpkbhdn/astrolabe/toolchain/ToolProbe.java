@@ -212,9 +212,8 @@ public class ToolProbe {
             return new ToolStatus(tool.id(), ToolState.FAILED, installed.version(), e.getMessage());
         }
         router.ifPresent(ignored -> clearProbeLogs(tool));
-        var result = router.isPresent()
-                ? handshake.perform(command, properties.handshakeTimeout(), lookup.environment(), probeWorkspace(tool))
-                : handshake.perform(command, properties.handshakeTimeout(), lookup.environment());
+        var workspace = probeWorkspace(tool);
+        var result = handshake.perform(command, properties.handshakeTimeout(), lookup.environment(), router.isPresent() ? workspace : null, workspace);
         return switch (result.outcome()) {
             case RESPONDED -> new ToolStatus(tool.id(), ToolState.RESPONDING, installed.version(), "");
             case NO_RESPONSE_IN_TIME -> installed;

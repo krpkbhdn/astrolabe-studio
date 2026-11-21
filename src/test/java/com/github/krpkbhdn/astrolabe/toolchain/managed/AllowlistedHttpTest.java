@@ -104,6 +104,27 @@ class AllowlistedHttpTest {
     }
 
     @Test
+    void interruptDuringAStalledReadTextCancelsAtOnce() throws Exception {
+        try (var server = new LocalHttp(); var pool = java.util.concurrent.Executors.newSingleThreadExecutor()) {
+            server.stall("/stuck");
+            var started = new java.util.concurrent.CountDownLatch(1);
+            var thread = new java.util.concurrent.atomic.AtomicReference<Thread>();
+            var running = pool.submit(() -> {
+                thread.set(Thread.currentThread());
+                started.countDown();
+                return server.http().readText(server.uri("/stuck"), 100, Duration.ofMinutes(5));
+            });
+            assertThat(started.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            Thread.sleep(500);
+
+            thread.get().interrupt();
+
+            assertThatThrownBy(() -> running.get(5, java.util.concurrent.TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(InterruptedException.class);
+        }
+    }
+
+    @Test
     void plainHttpToLoopbackNeedsTheTestSwitch() {
         var strict = new AllowlistedHttp(Set.of("127.0.0.1"), Duration.ofSeconds(1));
 

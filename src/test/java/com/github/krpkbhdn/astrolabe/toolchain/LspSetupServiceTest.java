@@ -223,15 +223,19 @@ class LspSetupServiceTest {
     }
 
     @Test
-    void cancelAfterThePlanBeforeTheRunSkipsTheSteps() {
+    void cancelDuringARunSurvivesAPlanCalledMeanwhile() {
         rows();
-        service.plan(DIR);
-        service.cancel();
+        installable(go, typescript);
+        when(installer.install(eq("go"), any())).thenAnswer(call -> {
+            service.cancel();
+            service.plan(DIR);
+            return installed("go");
+        });
 
-        var result = service.run(DIR, List.of(pending(Kind.SERVER, "go")), log -> {});
+        var result = service.run(DIR, List.of(pending(Kind.SERVER, "go"), pending(Kind.SERVER, "typescript")), log -> {});
 
-        assertThat(result.getFirst().outcome()).isEqualTo(Outcome.SKIPPED);
-        verify(installer, never()).install(any(), any());
+        assertThat(result).extracting(LspSetupStep::outcome).containsExactly(Outcome.DONE, Outcome.SKIPPED);
+        verify(installer, never()).install(eq("typescript"), any());
     }
 
     @Test
