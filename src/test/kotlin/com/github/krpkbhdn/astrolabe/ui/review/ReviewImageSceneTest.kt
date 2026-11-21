@@ -6,14 +6,10 @@ import com.github.krpkbhdn.astrolabe.review.MarkKind
 import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerKeyboardModifiers
-import java.nio.file.Files
-import java.nio.file.Path
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 
 class ReviewImageSceneTest {
-    private val shots = Path.of(System.getProperty("astrolabe.shots", "C:/Users/Bohdan/Work/Code/Personal/astrolabe-shots/review"))
-
     @Test
     fun `a right click on the image opens the drawing menu`() {
         ReviewImageScene().use { scene ->
@@ -21,8 +17,6 @@ class ReviewImageSceneTest {
             scene.click(scene.screen(0.5, 0.2), PointerButton.Secondary)
             scene.frames(10)
             val after = scene.png()
-            Files.createDirectories(shots)
-            Files.write(shots.resolve("review-context-menu-test.png"), after)
 
             assertThat(after.contentEquals(before)).isFalse()
         }
@@ -89,17 +83,6 @@ class ReviewImageSceneTest {
             assertThat(scene.state.marks(scene.imageId)[3].points).hasSize(6)
         }
         movedBy(3, 0.5, 0.77)
-    }
-
-    @Test
-    fun `right button press with a ready mark shows the Select entry`() {
-        ReviewImageScene().use { scene ->
-            scene.pointer(androidx.compose.ui.input.pointer.PointerEventType.Move, scene.screen(0.3, 0.38))
-            scene.pointer(androidx.compose.ui.input.pointer.PointerEventType.Press, scene.screen(0.3, 0.38), PointerButton.Secondary)
-            scene.frames(10)
-            Files.createDirectories(shots)
-            Files.write(shots.resolve("review-context-menu-mark-test.png"), scene.png())
-        }
     }
 
     private val ctrl = PointerKeyboardModifiers(isCtrlPressed = true)

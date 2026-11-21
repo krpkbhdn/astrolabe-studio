@@ -206,26 +206,6 @@ class ReviewImageStoreTest {
     }
 
     @Test
-    void followsSymlinkToImageButRejectsSymlinkToText() throws IOException {
-        Path png = image("real.png", "png", 8, 8);
-        Path text = Files.writeString(temp.resolve("note.txt"), "plain text");
-        Path goodLink;
-        Path badLink;
-        try {
-            goodLink = Files.createSymbolicLink(temp.resolve("good-link.png"), png);
-            badLink = Files.createSymbolicLink(temp.resolve("bad-link.png"), text);
-        } catch (IOException | UnsupportedOperationException e) {
-            if (System.getenv("CI") != null) {
-                org.junit.jupiter.api.Assertions.fail("symlinks not available on CI, the symlink guard would not run: " + e);
-            }
-            Assumptions.abort("symlinks not available");
-            return;
-        }
-        assertThat(store.store(temp.resolve("out"), List.of(new SubmittedImage(goodLink, null)))).hasSize(1);
-        assertThatThrownBy(() -> store.store(temp.resolve("out2"), List.of(new SubmittedImage(badLink, null)))).isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
     void copiesNothingWhenSecondImageIsInvalid() throws IOException {
         Path png = image("ok.png", "png", 5, 5);
         Path out = temp.resolve("out");

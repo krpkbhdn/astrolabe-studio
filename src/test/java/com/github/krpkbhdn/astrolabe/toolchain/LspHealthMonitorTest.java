@@ -37,8 +37,6 @@ class LspHealthMonitorTest {
             super(tools, probe, installer, properties, managedTools, clock, pause, later);
         }
 
-        void begin() { start(); }
-
         void end() throws InterruptedException { stop(); }
     }
 
@@ -549,12 +547,5 @@ class LspHealthMonitorTest {
 
         assertThat(delivered).containsExactly(List.of(new DetectedTechnology(go, ToolState.INSTALLED),
                 new DetectedTechnology(rust, ToolState.RESPONDING)));
-    }
-
-    @Test
-    void stopShutsTheSchedulerDown() throws InterruptedException {
-        monitor.begin();
-        monitor.end();
-        monitor.end();
     }
 }

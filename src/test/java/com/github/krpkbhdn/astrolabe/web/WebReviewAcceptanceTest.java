@@ -10,6 +10,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -25,6 +26,8 @@ class WebReviewAcceptanceTest {
     private static final String URL = "http://localhost:5173/a";
     private static final byte[] PNG = {(byte) 0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n', 1};
 
+    private static Path template;
+
     @TempDir
     Path temp;
     JdbcClient jdbc;
@@ -32,11 +35,16 @@ class WebReviewAcceptanceTest {
     WebReviewService service;
     long projectId;
 
+    @BeforeAll
+    static void migrateTemplate(@TempDir Path shared) {
+        template = shared.resolve("template.db");
+        Flyway.configure().dataSource(new DriverManagerDataSource("jdbc:sqlite:" + template)).load().migrate();
+    }
+
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
+        Files.copy(template, temp.resolve("t.db"));
         dataSource = new DriverManagerDataSource("jdbc:sqlite:" + temp.resolve("t.db") + "?foreign_keys=on");
-        Flyway.configure().dataSource(dataSource).load().migrate();
-        Flyway.configure().dataSource(dataSource).load().migrate();
         jdbc = JdbcClient.create(dataSource);
         var p = new WebReviewProperties(600, List.of("display"), 1024, 50);
         service = new WebReviewService(jdbc, new TransactionTemplate(new DataSourceTransactionManager(dataSource)), p,

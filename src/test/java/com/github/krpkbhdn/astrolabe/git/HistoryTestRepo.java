@@ -52,6 +52,11 @@ final class HistoryTestRepo {
         return repo;
     }
 
+    /** Wraps an existing repository folder, e.g. a copy of a prepared template. */
+    static HistoryTestRepo open(Path root) {
+        return new HistoryTestRepo(root);
+    }
+
     Path root() {
         return root;
     }

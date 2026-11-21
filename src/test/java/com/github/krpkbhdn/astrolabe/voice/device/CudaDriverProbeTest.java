@@ -51,12 +51,4 @@ class CudaDriverProbeTest {
     void missingDriverGivesNoDevices() {
         assertThat(new CudaDriverProbe(Optional.empty()).probe()).isEmpty();
     }
-
-    @Test
-    void realDriverProbeDoesNotThrow() {
-        var devices = new CudaDriverProbe().probe();
-
-        System.out.println("CUDA devices: " + devices);
-        assertThat(devices).isNotNull();
-    }
 }

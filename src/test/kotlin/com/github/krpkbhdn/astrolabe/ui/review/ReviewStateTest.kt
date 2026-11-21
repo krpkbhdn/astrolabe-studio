@@ -39,7 +39,7 @@ class ReviewStateTest {
     private val errors = CopyOnWriteArrayList<String>()
     private val enqueued = CopyOnWriteArrayList<Pair<String, String>>()
     private val started = CopyOnWriteArrayList<String>()
-    private var liveSessions = LiveSessions()
+    @Volatile private var liveSessions = LiveSessions()
     private val state = ReviewState(service, { liveSessions }, { id, text -> enqueued += id to text }, { _, _, prompt, _, _ -> started += prompt }, scope, { errors += it })
     private val mark = MarkDraft(MarkKind.RECTANGLE, 0.1, 0.2, 0.3, 0.4, "")
 
@@ -76,16 +76,39 @@ class ReviewStateTest {
 
     @Test
     fun `a project that is gone loses its cached reviews and images`() {
-        `when`(service.list(1)).thenReturn(listOf(review(1, ReviewStatus.PENDING)))
-        `when`(service.images(1)).thenReturn(listOf(ReviewImage(10, 1, 0, "a", "a.png", 1, 1)))
+        val gate = java.util.concurrent.CountDownLatch(1)
+        val hold = AtomicBoolean()
+        // Reading through the state re-watches the project and reloads it; once held, only retain's effect is seen.
+        // Loads that started before the hold carry the old epoch and are discarded, later ones park on the gate.
+        `when`(service.list(1)).thenAnswer { if (hold.get()) gate.await(); listOf(review(1, ReviewStatus.PENDING)) }
+        `when`(service.images(1)).thenAnswer { if (hold.get()) gate.await(); listOf(ReviewImage(10, 1, 0, "a", "a.png", 1, 1)) }
         state.start()
         await { state.reviews(1).isNotEmpty() }
         await { state.images(1).isNotEmpty() }
+        hold.set(true)
+        try {
+            state.retain(listOf(2L))
 
-        state.retain(listOf(2L))
+            assertThat(state.images(1)).isEmpty()
+            assertThat(state.selectedReview(1)).isNull()
+        } finally {
+            gate.countDown()
+        }
+    }
 
-        assertThat(state.images(1)).isEmpty()
-        assertThat(state.selectedReview(1)).isNull()
+    @Test
+    fun `retain for a project that stays does not discard its load in flight`() {
+        val gate = java.util.concurrent.CountDownLatch(1)
+        `when`(service.list(1)).thenAnswer { gate.await(); listOf(review(1, ReviewStatus.PENDING)) }
+        `when`(service.images(1)).thenAnswer { gate.await(); listOf(ReviewImage(10, 1, 0, "a", "a.png", 1, 1)) }
+        state.start()
+        state.reviews(1)
+        state.images(1)
+        state.retain(listOf(1L))
+        gate.countDown()
+
+        await { state.reviews(1).isNotEmpty() }
+        await { state.images(1).isNotEmpty() }
     }
 
     @Test
@@ -238,7 +261,8 @@ class ReviewStateTest {
 
         state.dispose()
         verify(service, timeout(2000).atLeastOnce()).marks(7)
-        Thread.sleep(200)
+        state.dispose()
+        state.awaitFinalFlush()
         verify(service, never()).saveMarks(anyLong(), anyList())
 
         readable.set(true)

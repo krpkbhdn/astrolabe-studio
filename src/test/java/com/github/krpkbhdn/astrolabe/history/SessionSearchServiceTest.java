@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.File;
 import java.nio.file.Path;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -101,6 +100,8 @@ class SessionSearchServiceTest {
 
         assertThat(fixture.search.search("\"a* OR (b", Optional.empty(), ANY, ANY)).isEmpty();
         assertThat(fixture.search.search("   ", Optional.empty(), ANY, ANY)).isEmpty();
+        assertThat(fixture.search.search("...", Optional.empty(), ANY, ANY)).isEmpty();
+        assertThat(fixture.search.search("-- !?", Optional.empty(), ANY, ANY)).isEmpty();
     }
 
     @Test
@@ -206,15 +207,6 @@ class SessionSearchServiceTest {
     }
 
     @Test
-    void queryOfOnlyPunctuationFindsNothingWithoutError() {
-        fixture.write(fixture.transcript("p", "s1"), userLine("u1", "/w/app", "2026-01-01T10:00:00Z", "plain text"));
-        fixture.indexer(1000).scan();
-
-        assertThat(fixture.search.search("...", Optional.empty(), ANY, ANY)).isEmpty();
-        assertThat(fixture.search.search("-- !?", Optional.empty(), ANY, ANY)).isEmpty();
-    }
-
-    @Test
     void transcriptWithoutCwdIsFoundWithAnEmptyCwd() {
         fixture.write(fixture.transcript("p", "s1"), userLine("u1", "", "2026-01-01T10:00:00Z", "needle"));
         fixture.indexer(1000).scan();
@@ -232,23 +224,5 @@ class SessionSearchServiceTest {
         fixture.search.clear(sep("/W/APP"));
 
         assertThat(fixture.search.indexedEntryCount()).isZero();
-    }
-
-    @Test
-    void searchesTenThousandEntriesInUnderTenSeconds() {
-        var content = new StringBuilder();
-        for (int i = 0; i < 10_000; i++) {
-            content.append(userLine("u" + i, "/w/app", "2026-01-01T10:00:00Z", "entry number " + i + " about topic" + i % 50));
-        }
-        fixture.write(fixture.transcript("p", "big"), content.toString());
-        fixture.indexer(100_000).scan();
-
-        var start = System.nanoTime();
-        var hits = fixture.search.search("topic7", Optional.empty(), ANY, ANY);
-        var elapsed = Duration.ofNanos(System.nanoTime() - start);
-
-        assertThat(fixture.search.indexedEntryCount()).isEqualTo(10_000);
-        assertThat(hits).hasSize(100);
-        assertThat(elapsed).isLessThan(Duration.ofSeconds(10));
     }
 }

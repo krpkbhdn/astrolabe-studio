@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -16,16 +17,25 @@ class TaskWorktreeServiceTest {
     @TempDir
     Path root;
 
+    private static Path migratedTemplate;
+
     private GitCliSandbox sandbox;
     private TaskWorktreeService service;
     private JdbcClient jdbc;
     private long projectId;
 
+    @BeforeAll
+    static void migrateOnce(@TempDir Path shared) {
+        var template = shared.resolve("template.db");
+        Flyway.configure().dataSource(new DriverManagerDataSource("jdbc:sqlite:" + template)).load().migrate();
+        migratedTemplate = template;
+    }
+
     @BeforeEach
-    void prepare() {
+    void prepare() throws Exception {
         sandbox = GitCliSandbox.create(root);
+        Files.copy(migratedTemplate, root.resolve("test.db"));
         var dataSource = new DriverManagerDataSource("jdbc:sqlite:" + root.resolve("test.db") + "?foreign_keys=on");
-        Flyway.configure().dataSource(dataSource).load().migrate();
         jdbc = JdbcClient.create(dataSource);
         jdbc.sql("INSERT INTO project (name, path, created_at) VALUES ('app', ?, 'now')").param(sandbox.repo.toString()).update();
         projectId = jdbc.sql("SELECT id FROM project").query(Long.class).single();

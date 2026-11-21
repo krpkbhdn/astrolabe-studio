@@ -160,9 +160,7 @@ class TerminalSessionTest {
         }.isSuccess
         Assumptions.assumeTrue(clipboardAvailable) { "the system clipboard is not accessible" }
         session.paste()
-        val deadline = System.nanoTime() + 5_000_000_000L
-        while (!session.draftMayExist && System.nanoTime() < deadline) Thread.sleep(10)
-        assertThat(session.draftMayExist).isTrue()
+        com.github.krpkbhdn.astrolabe.ui.await { session.draftMayExist }
         session.onKey(com.jediterm.core.input.KeyInputEvent(com.jediterm.core.input.KeyInputEvent.Type.PRESSED, java.awt.event.KeyEvent.VK_ENTER, '\r', 0))
         assertThat(session.draftMayExist).isFalse()
     }

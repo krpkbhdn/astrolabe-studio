@@ -31,7 +31,8 @@ class GitIndexServiceTest {
     private void prepareWithCommit() {
         prepare();
         sandbox.write("a.txt", "a\n");
-        sandbox.commitAll("base");
+        sandbox.git("add", "-A");
+        sandbox.git("commit", "-m", "base");
     }
 
     private String staged() {
@@ -130,7 +131,7 @@ class GitIndexServiceTest {
 
     @Test
     void discardRefusesGitDirectoryAliasesWithTrailingDotOrSpace() {
-        prepareWithCommit();
+        prepare();
 
         assertThatThrownBy(() -> service.discard(sandbox.repo, List.of(".git."))).isInstanceOf(GitException.class);
         assertThatThrownBy(() -> service.discard(sandbox.repo, List.of("x/.GIT "))).isInstanceOf(GitException.class);
@@ -138,7 +139,7 @@ class GitIndexServiceTest {
 
     @Test
     void discardRefusesPathsOutsideTheRepositoryAndGitDirectory() throws IOException {
-        prepareWithCommit();
+        prepare();
         var outside = Files.writeString(root.resolve("outside.txt"), "precious");
 
         for (var evil : List.of("../outside.txt", outside.toString(), ".git/config", "sub/../../outside.txt", "")) {
@@ -151,7 +152,7 @@ class GitIndexServiceTest {
 
     @Test
     void discardRefusesGitDirectoryInANestedSegment() {
-        prepareWithCommit();
+        prepare();
         sandbox.write("nested/.git/HEAD", "ref: refs/heads/main\n");
 
         assertThatThrownBy(() -> service.discard(sandbox.repo, List.of("nested/.git"))).isInstanceOf(GitException.class);
@@ -161,7 +162,7 @@ class GitIndexServiceTest {
 
     @Test
     void discardTouchesNothingWhenOnePathIsInvalid() {
-        prepareWithCommit();
+        prepare();
         sandbox.write("a.txt", "changed\n");
         sandbox.write("fresh.txt", "x\n");
 
@@ -214,7 +215,7 @@ class GitIndexServiceTest {
 
     @Test
     void applyToIndexRefusesAPatchDecodedFromInvalidUtf8() {
-        prepareWithCommit();
+        prepare();
 
         assertThatThrownBy(() -> service.applyToIndex(sandbox.repo, "+bad � line\n", false))
                 .isInstanceOf(GitException.class)

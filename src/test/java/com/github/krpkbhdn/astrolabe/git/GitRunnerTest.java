@@ -60,10 +60,10 @@ class GitRunnerTest {
     void writeCommandIsNotKilledAtTheTimeout() throws Exception {
         var sandbox = GitCliSandbox.create(root);
         var hooks = java.nio.file.Files.createDirectory(root.resolve("hooks"));
-        java.nio.file.Files.writeString(hooks.resolve("pre-commit"), "#!/bin/sh\nsleep 2\n");
+        java.nio.file.Files.writeString(hooks.resolve("pre-commit"), "#!/bin/sh\nsleep 0.6\n");
         hooks.resolve("pre-commit").toFile().setExecutable(true);
 
-        var result = sandbox.runner.run(sandbox.repo, Duration.ofMillis(300), null, null,
+        var result = sandbox.runner.run(sandbox.repo, Duration.ofMillis(150), null, null,
                 List.of("-c", "core.hooksPath=" + hooks.toString().replace('\\', '/'), "commit", "--allow-empty", "-m", "slow"));
 
         assertThat(result.ok()).isTrue();
@@ -184,7 +184,7 @@ class GitRunnerTest {
         sandbox.git("add", "-A");
         var hook = sandbox.repo.resolve(".git/hooks/pre-commit");
         java.nio.file.Files.createDirectories(hook.getParent());
-        java.nio.file.Files.writeString(hook, "#!/bin/sh\nsleep 0.3\ntouch ran.marker\n");
+        java.nio.file.Files.writeString(hook, "#!/bin/sh\nsleep 0.2\ntouch ran.marker\n");
         hook.toFile().setExecutable(true);
         Thread.currentThread().interrupt();
 

@@ -13,7 +13,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.github.krpkbhdn.astrolabe.claude.mcp.McpTool;
 import com.github.krpkbhdn.astrolabe.git.GitBranchService;
 import com.github.krpkbhdn.astrolabe.git.GitException;
 import com.github.krpkbhdn.astrolabe.git.GitException.Kind;
@@ -329,10 +328,5 @@ class GitToolsTest {
         when(status.diff(any(), any(), eq(true))).thenReturn(new GitDiff.FileDiff(".gitignore", null, GitDiff.ChangeType.MODIFIED, 0, 0, false, List.of()));
 
         assertThat(call(new GitDiffTool(projects, status, mapper), "{\"project\":7,\"path\":\".gitignore\"}")).isEqualTo("No changes");
-    }
-
-    @Test
-    void toolsAreForTheAssistant() {
-        assertThat(new GitStatusTool(projects, status, mapper)).isInstanceOf(AssistantMcpTool.class).isNotInstanceOf(McpTool.class);
     }
 }

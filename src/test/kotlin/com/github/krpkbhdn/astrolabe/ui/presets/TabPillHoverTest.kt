@@ -53,7 +53,6 @@ class TabPillHoverTest {
     private fun assertFadesInAndStays(frames: List<Int>) {
         val start = frames.first().green()
         val end = frames.last().green()
-        println("hover pixels: " + frames.joinToString { "%06X".format(it) })
         assertThat(frames.map { it.green() }).allMatch { it in minOf(start, end)..maxOf(start, end) }
         assertThat(frames.takeLast(FRAMES / 2).distinct()).hasSize(1)
     }

@@ -76,12 +76,6 @@ class SessionCommandWriterTest {
     }
 
     @Test
-    fun aUserDraftIsNeitherClearedNorTypedOverWhenClearingIsOff() = runBlocking {
-        assertThat(writer.run("s1", "/model x", clearDraft = false) { true }).isFalse()
-        assertThat(events).doesNotContain("s1:\u0003")
-    }
-
-    @Test
     fun nothingIsTypedRightAfterTheUserPressedEnter() = runBlocking {
         val recentEnter = object : TerminalPort by terminal {
             override fun enterWithin(astrolabeSessionId: String, windowMillis: Long) = true

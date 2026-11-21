@@ -6,21 +6,57 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.github.krpkbhdn.astrolabe.git.GitException.Kind;
 import com.github.krpkbhdn.astrolabe.workspace.GitDiff.ChangeType;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.Comparator;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class GitStashServiceTest {
 
+    private static Path template;
+
     private final GitStashService service = new GitStashService(new GitRunner());
     private HistoryTestRepo repo;
 
-    @BeforeEach
-    void setUp(@TempDir Path directory) {
+    @BeforeAll
+    static void buildTemplate() throws IOException {
         assumeTrue(HistoryTestRepo.gitAvailable());
-        repo = HistoryTestRepo.init(directory);
-        repo.commit("a.txt", "base\n", "base");
+        template = Files.createTempDirectory("stash-template");
+        HistoryTestRepo.init(template).commit("a.txt", "base\n", "base");
+    }
+
+    @AfterAll
+    static void deleteTemplate() throws IOException {
+        if (template == null) {
+            return;
+        }
+        try (var paths = Files.walk(template)) {
+            paths.sorted(Comparator.reverseOrder()).forEach(path -> {
+                path.toFile().setWritable(true);
+                path.toFile().delete();
+            });
+        }
+    }
+
+    @BeforeEach
+    void setUp(@TempDir Path directory) throws IOException {
+        try (var paths = Files.walk(template)) {
+            for (var source : (Iterable<Path>) paths::iterator) {
+                var target = directory.resolve(template.relativize(source).toString());
+                if (Files.isDirectory(source)) {
+                    Files.createDirectories(target);
+                } else {
+                    Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
+        }
+        repo = HistoryTestRepo.open(directory);
     }
 
     @Test

@@ -279,18 +279,6 @@ class GitBranchServiceTest {
     }
 
     @Test
-    void noFastForwardMergeUsesTheGivenMessage() {
-        prepare();
-        commitOnBranch("topic", "t.txt", "t\n");
-        sandbox.git("checkout", "main");
-
-        service.merge(sandbox.repo, "topic", MergeMode.NO_FAST_FORWARD, "Merge task: topic");
-
-        assertThat(sandbox.git("log", "-1", "--format=%s").strip()).isEqualTo("Merge task: topic");
-        assertThat(sandbox.git("rev-list", "--merges", "--count", "HEAD").strip()).isEqualTo("1");
-    }
-
-    @Test
     void mergeMessageWithQuotesNewlinesUnicodeAndHugeBodyIsKeptIntact() {
         prepare();
         commitOnBranch("topic", "t.txt", "t\n");

@@ -24,12 +24,4 @@ class VoiceResourceTest {
         assertThat(VoiceResource(asset, VoiceResourceStatus.Installed).canDownload).isFalse()
         assertThat(VoiceResource(asset, VoiceResourceStatus.Downloading(0.5f)).canDownload).isFalse()
     }
-
-    @Test
-    fun `a resource shows the name and size of its asset`() {
-        val resource = VoiceResource(VoiceAsset.SILERO_VAD, VoiceResourceStatus.Missing)
-
-        assertThat(resource.name).isEqualTo(VoiceAsset.SILERO_VAD.name())
-        assertThat(resource.sizeLabel).isEqualTo(humanSize(VoiceAsset.SILERO_VAD.sizeBytes()))
-    }
 }

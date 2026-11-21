@@ -22,6 +22,23 @@ import tools.jackson.databind.json.JsonMapper;
 /** A temporary migrated database, a temporary projects directory and helpers to write transcript lines. */
 final class HistoryFixture {
 
+    /** The Flyway migrations run once per JVM; every fixture copies the migrated file. */
+    private static final class MigratedTemplate {
+        static final Path FILE = create();
+
+        private static Path create() {
+            try {
+                var file = Files.createTempFile("astrolabe-history-template", ".db");
+                file.toFile().deleteOnExit();
+                Files.delete(file);
+                Flyway.configure().dataSource(new DriverManagerDataSource("jdbc:sqlite:" + file)).load().migrate();
+                return file;
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
+    }
+
     final Path projects;
     final JdbcClient jdbc;
     final TranscriptIndexRepository repository;
@@ -33,8 +50,14 @@ final class HistoryFixture {
 
     HistoryFixture(Path temp, boolean windowsHost) {
         projects = temp.resolve("projects");
-        var dataSource = new DriverManagerDataSource("jdbc:sqlite:" + temp.resolve("test.db"));
-        Flyway.configure().dataSource(dataSource).load().migrate();
+        var db = temp.resolve("test.db");
+        try {
+            Files.createDirectories(temp);
+            Files.copy(MigratedTemplate.FILE, db);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        var dataSource = new DriverManagerDataSource("jdbc:sqlite:" + db);
         jdbc = JdbcClient.create(dataSource);
         repository = spy(new TranscriptIndexRepository(jdbc, new TransactionTemplate(new DataSourceTransactionManager(dataSource))));
         var host = mock(HostEnvironment.class);

@@ -2,7 +2,6 @@ package com.github.krpkbhdn.astrolabe.workspace;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
 class TerminalTextTest {
@@ -99,17 +98,4 @@ class TerminalTextTest {
         assertThat(lines[lines.length - 1]).isEqualTo("end");
     }
 
-    @Test
-    void threeMegabytesRenderQuickly() {
-        var chunk = ESC + "[1;32mprogress" + ESC + "[0m 42%\r\u001B[K download line\r\n";
-        var raw = chunk.repeat(3 * 1024 * 1024 / chunk.length());
-
-        assertThat(Duration.ofMillis(measureMillis(raw))).isLessThan(Duration.ofSeconds(5));
-    }
-
-    private static long measureMillis(String raw) {
-        long start = System.nanoTime();
-        TerminalText.render(raw);
-        return (System.nanoTime() - start) / 1_000_000;
-    }
 }

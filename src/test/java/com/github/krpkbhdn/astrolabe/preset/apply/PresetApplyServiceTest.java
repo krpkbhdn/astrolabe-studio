@@ -223,8 +223,17 @@ class PresetApplyServiceTest {
         try {
             var first = pool.submit(() -> service.apply(7, 1, project, ids));
             entered.await();
-            var second = pool.submit(() -> service.apply(7, 1, project, ids));
-            Thread.sleep(200);
+            var secondThread = new java.util.concurrent.atomic.AtomicReference<Thread>();
+            var second = pool.submit(() -> {
+                secondThread.set(Thread.currentThread());
+                return service.apply(7, 1, project, ids);
+            });
+            var deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+            while ((secondThread.get() == null || secondThread.get().getState() == Thread.State.RUNNABLE)
+                    && System.nanoTime() < deadline) {
+                Thread.onSpinWait();
+            }
+            assertThat(secondThread.get().getState()).isNotEqualTo(Thread.State.RUNNABLE);
             assertThat(calls).hasValue(1);
             release.countDown();
             first.get();

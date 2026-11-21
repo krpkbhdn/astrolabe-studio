@@ -11,6 +11,7 @@ import com.github.krpkbhdn.astrolabe.codemode.isolation.IsolationBackend;
 import com.github.krpkbhdn.astrolabe.codemode.sandbox.ContainerRuntimeDetector.Availability;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -105,13 +106,20 @@ class CodeModeEndToEndTest extends EndToEndFixture {
     }
 
     @Test
-    void infiniteLoopAndHugeOutputAreBounded() {
+    void infiniteLoopIsStoppedByTheScriptTimeout() throws Exception {
+        wire(Duration.ofSeconds(1), Duration.ofSeconds(2));
+
         var loop = execute("while (true) {}");
+
+        assertThat(loop.path("isError").asBoolean()).isTrue();
+    }
+
+    @Test
+    void hugeOutputIsBounded() {
         var big = execute("return 'x'.repeat(5000000);");
         var logs = execute("for (let i = 0; i < 100000; i++) console.log('line ' + i + ' xxxxxxxxxxxxxxxxxxxx'); return 1;");
         var bigFromServer = execute("const r = await servers.fake.big({}); return r;");
 
-        assertThat(loop.path("isError").asBoolean()).isTrue();
         assertThat(text(big).length()).isLessThan(25_000);
         assertThat(text(logs).length()).isLessThan(25_000);
         assertThat(text(bigFromServer).length()).isLessThan(25_000);

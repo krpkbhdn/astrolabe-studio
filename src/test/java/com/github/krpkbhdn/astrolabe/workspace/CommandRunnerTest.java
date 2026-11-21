@@ -36,7 +36,7 @@ class CommandRunnerTest {
 
     @Test
     void aCommandOverTheTimeoutIsKilledAndReported() throws IOException {
-        var result = CommandRunner.run(shell("ping -n 30 127.0.0.1 > nul || sleep 30"), null, Duration.ofMillis(500));
+        var result = CommandRunner.run(shell("ping -n 30 127.0.0.1 > nul || sleep 30"), null, Duration.ofMillis(200));
 
         assertThat(result.timedOut()).isTrue();
         assertThat(result.succeeded()).isFalse();

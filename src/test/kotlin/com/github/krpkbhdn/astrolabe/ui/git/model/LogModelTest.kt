@@ -19,7 +19,7 @@ import org.junit.jupiter.api.Test
 class LogModelTest {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val data = SampleRepos.busy()
-    private val errors = mutableListOf<GitException>()
+    private val errors = java.util.concurrent.CopyOnWriteArrayList<GitException>()
     @Volatile private var failing = false
     @Volatile private var failingDetails = false
     @Volatile private var moreAfterFirstPage = false

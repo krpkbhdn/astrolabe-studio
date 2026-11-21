@@ -24,14 +24,20 @@ class GitSyncServiceTest {
 
     private void prepare() {
         sandbox = GitCliSandbox.createWithOrigin(root);
-        other = sandbox.cloneOrigin("other");
         service = new GitSyncService(sandbox.runner);
     }
 
+    private GitCliSandbox other() {
+        if (other == null) {
+            other = sandbox.cloneOrigin("other");
+        }
+        return other;
+    }
+
     private void pushFromOther(String file, String content) {
-        other.write(file, content);
-        other.commitAll("other " + file);
-        other.git("push");
+        other().write(file, content);
+        other().commitAll("other " + file);
+        other().git("push");
     }
 
     private void commitLocally(String file, String content) {
@@ -51,9 +57,9 @@ class GitSyncServiceTest {
     void fetchBringsInRemoteCommitsAndPrunesDeletedBranches() {
         prepare();
         pushFromOther("r.txt", "r\n");
-        other.git("push", "origin", "main:doomed");
+        other().git("push", "origin", "main:doomed");
         sandbox.git("fetch");
-        other.git("push", "origin", "--delete", "doomed");
+        other().git("push", "origin", "--delete", "doomed");
         var progress = new ArrayList<String>();
 
         service.fetch(sandbox.repo, progress::add);

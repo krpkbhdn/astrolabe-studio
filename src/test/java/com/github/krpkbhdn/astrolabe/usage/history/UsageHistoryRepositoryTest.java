@@ -92,7 +92,9 @@ class UsageHistoryRepositoryTest {
 
     @Test
     void rateLimitSampleAcceptsMissingWindows() {
-        repository.insertRateLimit(new RateLimitSample(noon(DAY), null, null, 40.0, noon(DAY).plusSeconds(60)));
+        org.assertj.core.api.Assertions.assertThatCode(() ->
+                repository.insertRateLimit(new RateLimitSample(noon(DAY), null, null, 40.0, noon(DAY).plusSeconds(60))))
+                .doesNotThrowAnyException();
     }
 
     @Test

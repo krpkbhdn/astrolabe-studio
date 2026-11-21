@@ -29,6 +29,7 @@ import kotlinx.coroutines.cancel
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
+import org.mockito.Mockito.clearInvocations
 import org.mockito.Mockito.doReturn
 import org.mockito.Mockito.doThrow
 import org.mockito.Mockito.mock
@@ -42,16 +43,7 @@ class TaskDialogStateTest {
     private val errors = CopyOnWriteArrayList<String>()
     private val createdFor = CopyOnWriteArrayList<Long>()
     private val queue = mock(QueueState::class.java)
-    private val terminal = object : TerminalPort {
-        override fun open(session: LaunchedSession) = Unit
-        override fun send(astrolabeSessionId: String, text: String) = Unit
-        override fun close(astrolabeSessionId: String) = Unit
-
-        @Composable
-        override fun View(astrolabeSessionId: String, modifier: Modifier) = Unit
-    }
-    private val world = PreviewWorld()
-    private val backend = world.backend(terminal)
+    private val backend = sharedBackend.also { clearInvocations(it.launcher) }
     private val worktrees = mock(TaskWorktreeService::class.java)
     private val worktree = TaskWorktree(5, 1, Path.of("repo-task-x"), "task/x", "main", "x")
     private val sessions = SessionsState(
@@ -191,19 +183,6 @@ class TaskDialogStateTest {
     }
 
     @Test
-    fun `a pasted text placeholder removed from the text is forgotten`() {
-        val tasks = tasks()
-        tasks.pasteLongText("a\n".repeat(12))
-
-        tasks.type("")
-        tasks.onTextChanged()
-        tasks.pasteLongText("b\n".repeat(12))
-
-        assertThat(tasks.task.text.toString()).isEqualTo("[Pasted text #2 +12 lines]")
-    }
-
-
-    @Test
     fun `backspace with a selection leaves tokens alone and a damaged token drops its image only`() {
         val tasks = tasks()
         val first = tasks.attach(1, "h.png")
@@ -339,5 +318,18 @@ class TaskDialogStateTest {
         tasks().queueFromTemplate(project(), "astrolabe-9", template)
 
         verify(queue).add("astrolabe-9", "review task/of-astrolabe-9")
+    }
+
+    private companion object {
+        val sharedBackend: Backend by lazy {
+            PreviewWorld().backend(object : TerminalPort {
+                override fun open(session: LaunchedSession) = Unit
+                override fun send(astrolabeSessionId: String, text: String) = Unit
+                override fun close(astrolabeSessionId: String) = Unit
+
+                @Composable
+                override fun View(astrolabeSessionId: String, modifier: Modifier) = Unit
+            })
+        }
     }
 }

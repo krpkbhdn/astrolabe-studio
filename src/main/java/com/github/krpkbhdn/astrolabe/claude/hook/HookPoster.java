@@ -25,8 +25,8 @@ public final class HookPoster {
     private static final String IPV6_LOOPBACK = "[::1]";
     private static final Set<String> LOOPBACK_HOSTS = Set.of(IPV4_LOOPBACK, LOCALHOST, IPV6_LOOPBACK);
     /** Constants, not properties: this runs before Spring starts. Connect plus read stay inside the 5 s SessionStart hook timeout. */
-    private static final int CONNECT_TIMEOUT_MILLIS = 1000;
-    private static final int READ_TIMEOUT_MILLIS = 2000;
+    static final int CONNECT_TIMEOUT_MILLIS = 1000;
+    static final int READ_TIMEOUT_MILLIS = 2000;
 
     private HookPoster() {
     }
@@ -41,6 +41,10 @@ public final class HookPoster {
     }
 
     static int run(String[] args, String envToken, InputStream stdin, PrintStream err) {
+        return run(args, envToken, stdin, err, READ_TIMEOUT_MILLIS);
+    }
+
+    static int run(String[] args, String envToken, InputStream stdin, PrintStream err, int readTimeoutMillis) {
         var token = tokenFromFile(args);
         if (token.isEmpty()) {
             token = envToken == null ? "" : envToken;
@@ -53,7 +57,7 @@ public final class HookPoster {
             return fail(err, "the hook URL must be http on a loopback host");
         }
         try {
-            var status = post(url, stdin.readAllBytes(), token);
+            var status = post(url, stdin.readAllBytes(), token, readTimeoutMillis);
             if (status / 100 != 2) {
                 err.println("astrolabe hook: the server answered HTTP " + status);
             }
@@ -89,11 +93,11 @@ public final class HookPoster {
         }
     }
 
-    static int post(String url, byte[] body, String token) throws IOException {
+    private static int post(String url, byte[] body, String token, int readTimeoutMillis) throws IOException {
         var connection = (HttpURLConnection) URI.create(url).toURL().openConnection(Proxy.NO_PROXY);
         try {
             connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
-            connection.setReadTimeout(READ_TIMEOUT_MILLIS);
+            connection.setReadTimeout(readTimeoutMillis);
             connection.setInstanceFollowRedirects(false);
             connection.setRequestMethod("POST");
             connection.setRequestProperty("Content-Type", "application/json");

@@ -11,7 +11,9 @@ import com.github.krpkbhdn.astrolabe.preset.BundledPresetLoader;
 import com.github.krpkbhdn.astrolabe.preset.ProjectPresetService;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -27,20 +29,27 @@ class PresetToolsFollowUpTest {
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final String ENV_VALUE = "real-password-123";
 
-    @TempDir
-    Path temp;
+    private static final AtomicInteger SEQUENCE = new AtomicInteger();
 
-    private ProjectPresetService presets;
+    @TempDir
+    static Path temp;
+
+    private static ProjectPresetService presets;
     private final PluginService plugins = mock(PluginService.class);
     private long id;
 
-    @BeforeEach
-    void setUp() {
+    @BeforeAll
+    static void migrateOnce() {
         var dataSource = new DriverManagerDataSource("jdbc:sqlite:" + temp.resolve("test.db") + "?foreign_keys=on");
         Flyway.configure().dataSource(dataSource).load().migrate();
         presets = new ProjectPresetService(JdbcClient.create(dataSource), new TransactionTemplate(new DataSourceTransactionManager(dataSource)), mock(BundledPresetLoader.class));
-        new CreatePresetTool(presets).call(args("{\"name\":\"Web\",\"description\":\"d\"}"));
-        id = presets.list().get(0).id();
+    }
+
+    @BeforeEach
+    void createPreset() {
+        var name = "Web" + SEQUENCE.incrementAndGet();
+        new CreatePresetTool(presets).call(args("{\"name\":\"" + name + "\",\"description\":\"d\"}"));
+        id = presets.list().stream().filter(p -> p.name().equals(name)).findFirst().orElseThrow().id();
     }
 
     private static JsonNode args(String json) {

@@ -13,7 +13,10 @@ final class OrderedWorker {
 
     private static final Duration CRITICAL_ENQUEUE_WAIT = Duration.ofSeconds(5);
     private static final Duration CRITICAL_ENQUEUE_POLL = Duration.ofMillis(10);
-    private static final Duration EXECUTOR_STOP_WAIT = Duration.ofSeconds(2);
+    private static final Duration DEFAULT_EXECUTOR_STOP_WAIT = Duration.ofSeconds(2);
+
+    /** Test seam: tests that stop a server with a stuck worker shorten the drain wait. */
+    static volatile Duration executorStopWait = DEFAULT_EXECUTOR_STOP_WAIT;
 
     private final ThreadPoolExecutor executor;
     private final ReentrantLock enqueueOrder = new ReentrantLock(true);
@@ -73,7 +76,7 @@ final class OrderedWorker {
     static void awaitTermination(ExecutorService executor) {
         executor.shutdown();
         try {
-            if (!executor.awaitTermination(EXECUTOR_STOP_WAIT.toMillis(), TimeUnit.MILLISECONDS)) {
+            if (!executor.awaitTermination(executorStopWait.toMillis(), TimeUnit.MILLISECONDS)) {
                 executor.shutdownNow();
             }
         } catch (InterruptedException e) {

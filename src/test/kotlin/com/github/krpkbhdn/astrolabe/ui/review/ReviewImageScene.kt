@@ -63,9 +63,13 @@ internal class ReviewImageScene(width: Int = 1000, height: Int = 700) : AutoClos
     }
 
     private fun await(condition: () -> Boolean) {
-        val deadline = System.currentTimeMillis() + 8_000
+        val deadline = System.nanoTime() + 20_000_000_000L
         pump.run()
-        while (!condition() && System.currentTimeMillis() < deadline) { Thread.sleep(20); pump.run() }
+        while (!condition()) {
+            check(System.nanoTime() < deadline) { "scene did not become ready" }
+            Thread.yield()
+            pump.run()
+        }
     }
 
     fun frames(count: Int = 5) = repeat(count) { pump.run(); scene.render(nanos); nanos += FRAME_NANOS }

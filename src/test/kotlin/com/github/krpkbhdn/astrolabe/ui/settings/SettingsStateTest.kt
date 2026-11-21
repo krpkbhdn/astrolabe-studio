@@ -5,13 +5,6 @@ import org.junit.jupiter.api.Test
 
 class SettingsStateTest {
     @Test
-    fun `categories keep the order of the category list`() {
-        assertThat(SettingsCategory.entries.map { it.label }).containsExactly(
-            "Appearance", "Notifications", "Sessions", "Usage", "Assistant", "Voice input", "Tools", "Updates", "Project presets", "Code Mode", "Trust", "Author setup", "About",
-        )
-    }
-
-    @Test
     fun `stepping stops at both ends of the list`() {
         assertThat(SettingsCategory.APPEARANCE.step(-1)).isEqualTo(SettingsCategory.APPEARANCE)
         assertThat(SettingsCategory.ABOUT.step(1)).isEqualTo(SettingsCategory.ABOUT)

@@ -79,13 +79,4 @@ class IdeLocatorTest {
     void nothingFoundOnEmptyHost() {
         assertThat(find(new FakeHostEnvironment(OperatingSystem.LINUX, home))).isEmpty();
     }
-
-    @Test
-    void detectsIdeaOnThisMachineWhenInstalled() {
-        var installed = Path.of("C:\\Program Files\\JetBrains");
-        org.junit.jupiter.api.Assumptions.assumeTrue(java.nio.file.Files.isDirectory(installed));
-
-        System.out.println("Resolved IDEA launcher: " + find(new SystemHostEnvironment()).orElse(null));
-        assertThat(find(new SystemHostEnvironment())).isPresent();
-    }
 }

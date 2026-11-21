@@ -48,6 +48,7 @@ class AddProjectToolTest {
 
         tool.call(JsonMapper.shared().readTree(args(false)));
 
+        verify(projects).add(dir);
         verifyNoInteractions(ui);
     }
 }

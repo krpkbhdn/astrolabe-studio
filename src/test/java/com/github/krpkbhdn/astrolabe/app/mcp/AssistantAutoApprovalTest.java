@@ -7,6 +7,7 @@ import static org.mockito.Mockito.mock;
 import com.github.krpkbhdn.astrolabe.claude.proposal.ProposalService;
 import com.github.krpkbhdn.astrolabe.claude.session.SessionRegistry;
 import java.util.List;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -25,18 +26,23 @@ class AssistantAutoApprovalTest {
             "create_preset", "update_preset", "duplicate_preset", "delete_preset", "restore_preset", "add_preset_component", "update_preset_component", "remove_preset_component",
             "move_preset_component", "apply_preset");
 
+    private static List<AssistantMcpTool> tools;
+    private static AssistantMcpEndpoint endpoint;
+
+    @BeforeAll
+    static void scanToolsOnce() {
+        tools = AssistantTools.all();
+        endpoint = new AssistantMcpEndpoint(tools, JsonMapper.builder().build(), mock(ProposalService.class), mock(SessionRegistry.class));
+    }
+
     @Test
     void onlyReadOnlyAndEasilyUndoneToolsAreAutoApproved() {
-        var endpoint = new AssistantMcpEndpoint(AssistantTools.all(), JsonMapper.builder().build(), mock(ProposalService.class), mock(SessionRegistry.class));
-
         assertThat(endpoint.autoApprovedToolNames()).containsExactlyElementsOf(AUTO_APPROVED);
     }
 
     @Test
     void writesDeletesAndConfigurationToolsAskPermission() {
-        var endpoint = new AssistantMcpEndpoint(AssistantTools.all(), JsonMapper.builder().build(), mock(ProposalService.class), mock(SessionRegistry.class));
-
         assertThat(endpoint.autoApprovedToolNames()).doesNotContainAnyElementsOf(NEEDS_PERMISSION);
-        assertThat(AssistantTools.all().stream().map(AssistantMcpTool::name)).containsAll(NEEDS_PERMISSION);
+        assertThat(tools.stream().map(AssistantMcpTool::name)).containsAll(NEEDS_PERMISSION);
     }
 }

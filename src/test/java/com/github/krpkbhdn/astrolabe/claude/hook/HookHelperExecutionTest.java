@@ -44,6 +44,8 @@ class HookHelperExecutionTest {
     private record Result(int exit, String stdout, String stderr) {
     }
 
+    private static List<Shell> probedShells;
+
     private final List<String> receivedAuthorization = new CopyOnWriteArrayList<>();
     private final List<byte[]> receivedBodies = new CopyOnWriteArrayList<>();
     private HttpServer http;
@@ -121,8 +123,16 @@ class HookHelperExecutionTest {
         return new HookHelperCommand().shellCommand(url).orElseThrow();
     }
 
-    /** Shells that start and run {@code exit 0}; the test is skipped when none is present. */
-    private static List<Shell> availableShells() throws Exception {
+    /** Shells that start and run {@code exit 0}, probed once per class (a PowerShell start costs seconds); the test is skipped when none is present. */
+    private static synchronized List<Shell> availableShells() throws Exception {
+        if (probedShells == null) {
+            probedShells = probeShells();
+        }
+        assumeTrue(!probedShells.isEmpty(), "no shell available");
+        return probedShells;
+    }
+
+    private static List<Shell> probeShells() throws Exception {
         var candidates = new ArrayList<Shell>();
         candidates.add(new Shell("sh", List.of("sh", "-c")));
         gitBash().ifPresent(bash -> candidates.add(new Shell("git bash", List.of(bash, "-c"))));
@@ -133,7 +143,6 @@ class HookHelperExecutionTest {
                 available.add(shell);
             }
         }
-        assumeTrue(!available.isEmpty(), "no shell available");
         return available;
     }
 

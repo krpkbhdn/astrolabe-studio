@@ -16,7 +16,11 @@ import javax.imageio.ImageIO
 private const val BYTES_PER_MB = 1024 * 1024
 
 /** PNG files of images pasted into the Start Task dialog, kept under [dir] so the started session can read them by path. */
-class TaskImages(private val dir: Path, private val limits: TaskAttachmentProperties) {
+class TaskImages(
+    private val dir: Path,
+    private val limits: TaskAttachmentProperties,
+    private val clipboardImage: () -> Image? = { Toolkit.getDefaultToolkit().systemClipboard.getData(DataFlavor.imageFlavor) as? Image },
+) {
     val maxCount: Int get() = limits.maxImages()
 
     /** True when the clipboard holds an image and no text; reads no data, so it is cheap enough for a key handler. */
@@ -27,7 +31,7 @@ class TaskImages(private val dir: Path, private val limits: TaskAttachmentProper
 
     /** Blocking; stores the clipboard image as a new PNG, or returns null when the clipboard holds none or cannot be read. Throws when the PNG exceeds the size limit. */
     fun saveFromClipboard(): Path? {
-        val image = runCatching { Toolkit.getDefaultToolkit().systemClipboard.getData(DataFlavor.imageFlavor) as? Image }.getOrNull() ?: return null
+        val image = runCatching { clipboardImage() }.getOrNull() ?: return null
         val width = image.getWidth(null)
         val height = image.getHeight(null)
         if (width <= 0 || height <= 0) return null

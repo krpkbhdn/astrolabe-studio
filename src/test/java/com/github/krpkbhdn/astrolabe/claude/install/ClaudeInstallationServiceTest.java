@@ -1,7 +1,6 @@
 package com.github.krpkbhdn.astrolabe.claude.install;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.github.krpkbhdn.astrolabe.workspace.FakeHostEnvironment;
 import com.github.krpkbhdn.astrolabe.workspace.HostEnvironment.OperatingSystem;
@@ -56,16 +55,6 @@ class ClaudeInstallationServiceTest {
     void mapsAuthExitCodeOneToLoggedOutAndOthersToUnknown() throws IOException {
         assertThat(detectWithFakeClaude(1).login()).isEqualTo(LoginState.LOGGED_OUT);
         assertThat(detectWithFakeClaude(7).login()).isEqualTo(LoginState.UNKNOWN);
-    }
-
-    @Test
-    void detectsRealClaudeOnThisMachineWhenPresent() {
-        var service = new ClaudeInstallationService(new SystemHostEnvironment(), new ClaudeBinaryLocator());
-        var result = service.recheck();
-        assumeTrue(result.installed(), "claude is not installed here");
-
-        System.out.println("Real claude: " + result);
-        assertThat(result.version()).matches("\\d+\\.\\d+\\.\\d+");
     }
 
     private ClaudeInstallation detectWithFakeClaude(int authExit) throws IOException {

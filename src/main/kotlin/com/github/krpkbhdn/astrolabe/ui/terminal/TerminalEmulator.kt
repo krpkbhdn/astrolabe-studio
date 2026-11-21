@@ -56,6 +56,7 @@ internal class TerminalEmulator(
     defaultStyle: TextStyle,
     private val onFrame: () -> Unit,
     scrollbackLines: Int = TerminalProperties.DEFAULT_SCROLLBACK_LINES,
+    private val exitWaitMillis: Long = EXIT_WAIT_MILLIS,
 ) {
     // the idle worker thread exits (an ended session keeps its tab) and is started again on demand
     private val worker = ScheduledThreadPoolExecutor(1) { task -> Thread(task, "TerminalWorker-${connector.name}").apply { isDaemon = true } }
@@ -153,7 +154,7 @@ internal class TerminalEmulator(
 
     /** The stream normally ends with the process; one that closed its side but stays alive keeps its connector. */
     private fun announceEnd() {
-        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(EXIT_WAIT_MILLIS)
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(exitWaitMillis)
         while (connector.isConnected && System.nanoTime() < deadline) Thread.sleep(EXIT_POLL_MILLIS)
         val dead = !connector.isConnected
         val exitCode = if (dead) runCatching { connector.waitFor() }.getOrDefault(-1) else null

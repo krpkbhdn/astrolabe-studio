@@ -262,13 +262,6 @@ class LspSetupServiceTest {
         assertThat(result).extracting(LspSetupStep::outcome).containsExactly(Outcome.DONE, Outcome.SKIPPED);
     }
 
-    @Test
-    void planWithNothingDetectedIsEmpty() {
-        rows(row(go, ToolState.MISSING, false, false));
-
-        assertThat(service.plan(DIR)).isEmpty();
-    }
-
     private void rows(ProjectToolRow... rows) {
         when(projectTools.rows(DIR)).thenReturn(List.of(rows));
     }

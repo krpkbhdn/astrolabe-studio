@@ -91,17 +91,23 @@ class ReviewState(
     private val saveJobs = ConcurrentHashMap<Long, Job>()
     private val writeLock = Mutex()
     private val watchedProjects = ConcurrentHashMap.newKeySet<Long>()
+    private val cacheLock = Any()
+    @Volatile private var retainEpoch = 0
     private var unsubscribe: Runnable? = null
     @Volatile private var finalFlush: Job? = null
     private val reload = Refresher(scope) {
         watchedProjects.toList().forEach { projectId ->
             runGuarded(reportError) {
+                val epoch = retainEpoch
                 val fresh = io { service.list(projectId) }.sortedWith(compareByDescending<Review> { it.createdAt }.thenByDescending { it.id })
-                if (projectId !in watchedProjects) return@runGuarded
-                val gone = reviewsByProject[projectId].orEmpty().map { it.id } - fresh.map { it.id }.toSet()
-                reviewsByProject[projectId] = fresh
-                gone.forEach(::forgetReview)
-                fresh.map { it.id }.filter { it in imagesByReview }.forEach { id -> refreshImages(id) }
+                val toRefresh = synchronized(cacheLock) {
+                    if (projectId !in watchedProjects || epoch != retainEpoch) return@runGuarded
+                    val gone = reviewsByProject[projectId].orEmpty().map { it.id } - fresh.map { it.id }.toSet()
+                    reviewsByProject[projectId] = fresh
+                    gone.forEach(::forgetReview)
+                    fresh.map { it.id }.filter { it in imagesByReview }
+                }
+                toRefresh.forEach { id -> refreshImages(id, epoch) }
             }
         }
     }
@@ -127,10 +133,15 @@ class ReviewState(
 
     /** Drops the reviews, images and decoded pictures of every project that is not in [existing]. */
     fun retain(existing: Collection<Long>) {
-        (watchedProjects + reviewsByProject.keys - existing.toSet()).forEach { projectId ->
-            watchedProjects.remove(projectId)
-            reviewsByProject.remove(projectId)?.forEach { forgetReview(it.id) }
-            selection.remove(projectId)
+        synchronized(cacheLock) {
+            val gone = watchedProjects + reviewsByProject.keys - existing.toSet()
+            // Only a real removal makes in-flight results stale; a list reload that kept every project must not drop them.
+            if (gone.isNotEmpty()) retainEpoch++
+            gone.forEach { projectId ->
+                watchedProjects.remove(projectId)
+                reviewsByProject.remove(projectId)?.forEach { forgetReview(it.id) }
+                selection.remove(projectId)
+            }
         }
     }
 
@@ -169,9 +180,13 @@ class ReviewState(
 
     fun images(reviewId: Long): List<ReviewImage> {
         imagesByReview[reviewId]?.let { return it }
+        val epoch = retainEpoch
         if (loadingImages.add(reviewId)) scope.launch {
             try {
-                runGuarded(reportError) { imagesByReview[reviewId] = io { service.images(reviewId) } }
+                runGuarded(reportError) {
+                    val loaded = io { service.images(reviewId) }
+                    synchronized(cacheLock) { if (epoch == retainEpoch) imagesByReview[reviewId] = loaded }
+                }
             } finally {
                 loadingImages.remove(reviewId)
             }
@@ -205,8 +220,11 @@ class ReviewState(
     }
 
     /** A screenshot added to an already shown review must appear, so loaded image lists are read again. */
-    private suspend fun refreshImages(reviewId: Long) {
-        runGuarded(reportError) { imagesByReview[reviewId] = io { service.images(reviewId) } }
+    private suspend fun refreshImages(reviewId: Long, epoch: Int) {
+        runGuarded(reportError) {
+            val fresh = io { service.images(reviewId) }
+            synchronized(cacheLock) { if (epoch == retainEpoch) imagesByReview[reviewId] = fresh }
+        }
     }
 
     private fun forgetReview(reviewId: Long) {

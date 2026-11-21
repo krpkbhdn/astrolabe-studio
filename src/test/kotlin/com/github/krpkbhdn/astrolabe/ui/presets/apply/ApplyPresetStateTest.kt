@@ -27,13 +27,13 @@ import org.mockito.Mockito.`when`
 
 class ApplyPresetStateTest {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val errors = mutableListOf<String>()
+    private val errors = java.util.concurrent.CopyOnWriteArrayList<String>()
     private val project = Project(7, "demo", Path.of("demo"), Instant.EPOCH)
     private val presets = listOf(ProjectPreset(1, "General", "", "general", false, false, 2, emptyList()), ProjectPreset(2, "Spring", "", null, false, false, 1, emptyList()))
     private val service: PresetApplyService = previewPresetApply()
     private val applications: PresetApplicationService = previewPresetApplications()
-    private var recommendedKeys: Set<String> = emptySet()
-    private val tidyStarted = mutableListOf<Pair<Project, String>>()
+    @Volatile private var recommendedKeys: Set<String> = emptySet()
+    private val tidyStarted = java.util.concurrent.CopyOnWriteArrayList<Pair<Project, String>>()
     private val state = ApplyPresetState(service, applications, { presets }, { id -> project.takeIf { it.id == id } }, scope, { errors += it }, { recommendedKeys }, { p, prompt, started -> tidyStarted += p to prompt; started() })
 
     @BeforeEach

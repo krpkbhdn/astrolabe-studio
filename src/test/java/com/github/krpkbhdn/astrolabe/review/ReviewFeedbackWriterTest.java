@@ -95,7 +95,7 @@ class ReviewFeedbackWriterTest {
     }
 
     @Test
-    void promptKeepsOneLineEvenWhenThePathHasControlCharacters() throws IOException {
+    void promptKeepsOneLineEvenWhenThePathHasControlCharacters() {
         Path file = dir.resolve("sub dir‮x").resolve("review.md");
 
         String prompt = ReviewFeedbackWriter.prompt(review("t"), file);

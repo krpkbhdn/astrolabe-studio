@@ -33,7 +33,7 @@ class ProposalServiceTest {
     private static final int POOL_THREADS = 8;
     private static final int ROOMY_CAP = 1000;
     private static final String BASH_LS = "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"ls\"}}";
-    private static final Duration SHORT_HOLD = Duration.ofMillis(100);
+    private static final Duration SHORT_HOLD = Duration.ofMillis(30);
 
     private final SessionRegistry registry = new SessionRegistry(new SessionProperties(Duration.ofMinutes(10), Duration.ofMinutes(10)), mock(TranscriptService.class));
     private final ProposalService service = serviceHolding(Duration.ofSeconds(30));
@@ -321,9 +321,10 @@ class ProposalServiceTest {
 
     @Test
     void newerProposalWithTheSameIdSurvivesTheOlderOneTimingOut() throws Exception {
-        var shortLived = serviceHolding(Duration.ofMillis(2400));
+        var shortLived = serviceHolding(Duration.ofMillis(600));
         var older = holdForApp(shortLived);
-        Thread.sleep(1200);
+        // the newer hold must start well inside the older one's window; there is no clock seam
+        Thread.sleep(300);
         var newer = holdForApp(shortLived);
 
         assertThat(older.get(WAIT_SECONDS, TimeUnit.SECONDS)).isEqualTo(AppDecision.Unanswered.TIMED_OUT);
@@ -356,7 +357,7 @@ class ProposalServiceTest {
         var count = 200;
         var pool = Executors.newFixedThreadPool(POOL_THREADS);
         try {
-            var futures = new java.util.ArrayList<CompletableFuture<Optional<String>>>();
+            var futures = new ArrayList<CompletableFuture<Optional<String>>>();
             for (var i = 0; i < count; i++) {
                 futures.add(CompletableFuture.supplyAsync(this::holdBash, pool).thenCompose(held -> held));
             }

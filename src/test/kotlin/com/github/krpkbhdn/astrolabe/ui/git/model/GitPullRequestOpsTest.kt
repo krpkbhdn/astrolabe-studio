@@ -6,7 +6,6 @@ import com.github.krpkbhdn.astrolabe.github.GhAvailability
 import com.github.krpkbhdn.astrolabe.github.PullRequest
 import com.github.krpkbhdn.astrolabe.github.PullRequestLookup
 import com.github.krpkbhdn.astrolabe.github.PullRequestState
-import com.github.krpkbhdn.astrolabe.notification.NotificationKind
 import com.github.krpkbhdn.astrolabe.ui.git.FakeGit
 import com.github.krpkbhdn.astrolabe.ui.git.SampleRepos
 import java.nio.file.Files
@@ -24,7 +23,6 @@ import org.junit.jupiter.api.io.TempDir
 
 class GitPullRequestOpsTest {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val toasts = mutableListOf<NotificationKind>()
 
     @AfterEach
     fun stop() = scope.cancel()
@@ -42,7 +40,7 @@ class GitPullRequestOpsTest {
         val data = SampleRepos.busy().also { it.topLevel = repo; it.remotes = listOf(GitMisc.Remote("origin", remoteUrl, remoteUrl)) }
         val b = FakeGit(data).backend
         val backend = GitBackend(b.status, b.index, b.branches, b.sync, b.log, b.stashes, b.history, b.conflicts, b.worktrees, b.watcher, b.taskWorktrees, github)
-        val git = GitState(1, repo, backend, scope, GitHost({ GitPrefs() }, { }, { kind, _, _ -> toasts += kind }))
+        val git = GitState(1, repo, backend, scope, GitHost({ GitPrefs() }, { }, { _, _, _ -> }))
         runBlocking { git.reloadNow() }
         return git
     }

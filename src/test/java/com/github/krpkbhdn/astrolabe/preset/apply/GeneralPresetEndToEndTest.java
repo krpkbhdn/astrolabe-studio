@@ -33,6 +33,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -48,6 +49,11 @@ class GeneralPresetEndToEndTest {
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     @TempDir
+    static Path shared;
+
+    private static Path template;
+
+    @TempDir
     Path temp;
 
     Path project;
@@ -58,16 +64,23 @@ class GeneralPresetEndToEndTest {
     ProjectPreset general;
     Set<Long> all;
 
+    @BeforeAll
+    static void migrateTemplate() {
+        template = shared.resolve("template.db");
+        var dataSource = new DriverManagerDataSource("jdbc:sqlite:" + template + "?foreign_keys=on");
+        Flyway.configure().dataSource(dataSource).load().migrate();
+        new ProjectPresetService(JdbcClient.create(dataSource), new TransactionTemplate(new DataSourceTransactionManager(dataSource)), new BundledPresetLoader()).syncBundled();
+    }
+
     @BeforeEach
     void setUp() throws IOException {
         project = Files.createDirectory(temp.resolve("proj"));
         overlayFile = temp.resolve("data/projects/5/instructions.md");
+        Files.copy(template, temp.resolve("e2e.db"));
         var dataSource = new DriverManagerDataSource("jdbc:sqlite:" + temp.resolve("e2e.db") + "?foreign_keys=on");
-        Flyway.configure().dataSource(dataSource).load().migrate();
         jdbc = JdbcClient.create(dataSource);
         jdbc.sql("INSERT INTO project (id, name, path) VALUES (5, 'p', ?)").param(project.toString()).update();
         presets = new ProjectPresetService(jdbc, new TransactionTemplate(new DataSourceTransactionManager(dataSource)), new BundledPresetLoader());
-        presets.syncBundled();
         var plugins = mock(PluginService.class);
         when(plugins.install(anyString(), any(), any())).thenReturn(new PluginInstallResult(true, "", null));
         service = new PresetApplyService(presets, new PresetApplicationService(jdbc), List.of(new MarketplaceApplier(plugins), new PluginApplier(plugins, OverlayInstructions.settings(temp.resolve("data"), 5, project)),

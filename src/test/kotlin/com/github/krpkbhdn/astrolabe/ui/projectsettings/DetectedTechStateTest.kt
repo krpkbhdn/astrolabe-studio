@@ -14,6 +14,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.job
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
@@ -62,11 +63,11 @@ class DetectedTechStateTest {
     fun `tracking probes at once off the calling thread`() {
         capturingWatch()
         val caller = Thread.currentThread()
-        var probeThread: Thread? = null
-        doAnswer { probeThread = Thread.currentThread(); null }.`when`(health).checkNow(dir)
+        val probeThread = java.util.concurrent.atomic.AtomicReference<Thread>()
+        doAnswer { probeThread.set(Thread.currentThread()); null }.`when`(health).checkNow(dir)
         DetectedTechState(health, scope).track(project)
-        await { probeThread != null }
-        assertThat(probeThread).isNotSameAs(caller)
+        await { probeThread.get() != null }
+        assertThat(probeThread.get()).isNotSameAs(caller)
     }
 
     @Test
@@ -98,9 +99,8 @@ class DetectedTechStateTest {
         val state = DetectedTechState(health, scope)
         state.track(group)
         state.refresh(group)
-        Thread.sleep(100)
+        verify(health, org.mockito.Mockito.timeout(5000).times(2)).checkNow(dir)
         verify(health).watch(eq(dir), any())
-        verify(health, org.mockito.Mockito.times(2)).checkNow(dir)
     }
 
     @Test
@@ -109,7 +109,8 @@ class DetectedTechStateTest {
         doAnswer { throw IllegalStateException("io") }.`when`(health).checkNow(dir)
         val state = DetectedTechState(health, scope)
         state.track(project)
-        Thread.sleep(150)
+        verify(health, org.mockito.Mockito.timeout(5000)).checkNow(dir)
+        await { scope.coroutineContext.job.children.none { it.isActive } }
         assertThat(state.of(1)).isEmpty()
     }
 

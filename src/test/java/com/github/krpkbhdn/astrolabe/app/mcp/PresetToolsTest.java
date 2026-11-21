@@ -30,6 +30,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -47,17 +48,28 @@ class PresetToolsTest {
     private static final String SECRET = "sk-very-secret";
 
     @TempDir
+    static Path templateDir;
+
+    @TempDir
     Path temp;
+
+    private static Path template;
 
     private ProjectPresetService presets;
     private final PluginService plugins = mock(PluginService.class);
     private final ProjectService projects = mock(ProjectService.class);
     private final PresetApplyService apply = mock(PresetApplyService.class);
 
+    @BeforeAll
+    static void migrateTemplateOnce() {
+        template = templateDir.resolve("template.db");
+        Flyway.configure().dataSource(new DriverManagerDataSource("jdbc:sqlite:" + template)).load().migrate();
+    }
+
     @BeforeEach
-    void setUp() {
+    void setUp() throws java.io.IOException {
+        java.nio.file.Files.copy(template, temp.resolve("test.db"));
         var dataSource = new DriverManagerDataSource("jdbc:sqlite:" + temp.resolve("test.db") + "?foreign_keys=on");
-        Flyway.configure().dataSource(dataSource).load().migrate();
         presets = new ProjectPresetService(JdbcClient.create(dataSource), new TransactionTemplate(new DataSourceTransactionManager(dataSource)), mock(BundledPresetLoader.class));
     }
 

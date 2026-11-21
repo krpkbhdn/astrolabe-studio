@@ -10,9 +10,13 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.spy;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -20,6 +24,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import tools.jackson.databind.json.JsonMapper;
 
 class HookEventStoreTest {
@@ -33,14 +38,36 @@ class HookEventStoreTest {
     private JdbcClient jdbc;
     private HookEventStore store;
 
+    private static Path template;
+
     @TempDir
     Path dir;
 
+    private SingleConnectionDataSource dataSource;
+
+    @BeforeAll
+    static void migrateTemplate() throws Exception {
+        template = Files.createTempFile("hook-event-template", ".db");
+        var source = new DriverManagerDataSource("jdbc:sqlite:" + template);
+        org.flywaydb.core.Flyway.configure().dataSource(source).load().migrate();
+    }
+
+    @AfterAll
+    static void deleteTemplate() throws Exception {
+        Files.deleteIfExists(template);
+    }
+
+    @AfterEach
+    void closeDatabase() {
+        dataSource.destroy();
+    }
+
     @BeforeEach
     void setUp() throws Exception {
-        var dataSource = new DriverManagerDataSource("jdbc:sqlite:" + dir.resolve("test.db"));
+        var db = dir.resolve("test.db");
+        Files.copy(template, db);
+        dataSource = new SingleConnectionDataSource("jdbc:sqlite:" + db, true);
         jdbc = JdbcClient.create(dataSource);
-        org.flywaydb.core.Flyway.configure().dataSource(dataSource).load().migrate();
         store = new HookEventStore(jdbc, JsonMapper.builder().build(), properties(MAX_SCANNED), Runnable::run);
     }
 
@@ -121,7 +148,7 @@ class HookEventStoreTest {
             store.save(of("InstructionsLoaded"));
         }
 
-        assertThat(new HookEventStore(jdbc, JsonMapper.builder().build(), properties(8)).recent("s1", 2)).isEmpty();
+        assertThat(new HookEventStore(jdbc, JsonMapper.builder().build(), properties(8), Runnable::run).recent("s1", 2)).isEmpty();
     }
 
     @Test
@@ -175,7 +202,7 @@ class HookEventStoreTest {
             }
             return call.callRealMethod();
         }).when(spied).sql(anyString());
-        var paged = new HookEventStore(spied, JsonMapper.builder().build(), properties(MAX_SCANNED));
+        var paged = new HookEventStore(spied, JsonMapper.builder().build(), properties(MAX_SCANNED), Runnable::run);
 
         assertThat(paged.recent("s1", 3)).extracting(ActivityEntry::text).containsExactly("Prompt: b", "Prompt: a");
     }

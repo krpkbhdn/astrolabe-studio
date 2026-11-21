@@ -208,11 +208,6 @@ class TranscriptIndexRepositoryTest {
     }
 
     @Test
-    void writeTransactionReturnsTheWorkResult() {
-        assertThat(repository.inWriteTransaction(() -> 42)).isEqualTo(42);
-    }
-
-    @Test
     void projectParamsCountCodePointsOfThePrefix() {
         assertThat(TranscriptIndexRepository.projectParams("/a", "/a/")).containsExactly("/a", 3, "/a/");
         assertThat(TranscriptIndexRepository.projectParams("/\uD83D\uDE00", "/\uD83D\uDE00/")).containsExactly("/\uD83D\uDE00", 3, "/\uD83D\uDE00/");

@@ -37,15 +37,15 @@ class GitTaskMergeTest {
 
     @BeforeEach
     fun setUp() {
-        Assumptions.assumeTrue(runCatching { TestProcesses.run(ProcessBuilder("git", "--version").start()).exitCode() == 0 }.getOrDefault(false), "git is not installed")
+        Assumptions.assumeTrue(GIT_INSTALLED, "git is not installed")
+        val config = Files.writeString(
+            root.resolve("test.gitconfig"),
+            "[user]\n\tname = Test User\n\temail = test@example.com\n[commit]\n\tgpgsign = false\n[core]\n\tautocrlf = false\n",
+        ).toString()
         val empty = Files.createFile(root.resolve("empty.gitconfig")).toString()
-        runner = GitRunner(GitProperties.defaults(), mapOf("GIT_CONFIG_GLOBAL" to empty, "GIT_CONFIG_SYSTEM" to empty, "GIT_CONFIG_NOSYSTEM" to "1"))
+        runner = GitRunner(GitProperties.defaults(), mapOf("GIT_CONFIG_GLOBAL" to config, "GIT_CONFIG_SYSTEM" to empty, "GIT_CONFIG_NOSYSTEM" to "1"))
         repo = Files.createDirectories(root.resolve("work"))
         git(repo, "init", "-b", "main")
-        git(repo, "config", "user.name", "Test User")
-        git(repo, "config", "user.email", "test@example.com")
-        git(repo, "config", "commit.gpgsign", "false")
-        git(repo, "config", "core.autocrlf", "false")
         write(repo, "README.md", "hello\n")
         git(repo, "add", "-A")
         git(repo, "commit", "-m", "initial")
@@ -56,6 +56,10 @@ class GitTaskMergeTest {
     }
 
     private fun merge(f: TaskMergeForm = form) = backend.mergeTask(backend.inspectTaskMerge(wt, f)) {}
+
+    private companion object {
+        val GIT_INSTALLED = runCatching { TestProcesses.run(ProcessBuilder("git", "--version").start()).exitCode() == 0 }.getOrDefault(false)
+    }
 
     @Test
     fun `dirty files are committed in the worktree then merged with a merge commit and nothing is pushed`() {

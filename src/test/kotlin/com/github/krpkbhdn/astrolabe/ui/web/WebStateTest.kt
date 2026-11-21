@@ -854,7 +854,7 @@ class WebStateTest {
         state.unpin(1)
         state.perform(view, WebAction.Screenshot(ShotArea.Visible))
 
-        await { captured.size == 2 && !view.shooting }
+        await { captured.size == 2 && !view.shooting && state.pinnedReview(1) == 7L }
         verify(reviews, never()).addCapture(anyLong(), anyLong(), any(ByteArray::class.java), anyString())
         assertThat(state.pinnedReview(1)).isEqualTo(7L)
     }
@@ -883,7 +883,7 @@ class WebStateTest {
 
         confirms.single().onConfirm()
 
-        await { captured.isNotEmpty() && opened.isNotEmpty() }
+        await { captured.isNotEmpty() && opened.isNotEmpty() && state.pinnedReview(1) == 7L && !view.shooting }
         assertThat(captured.single()[3] as ByteArray).containsExactly(5, 6)
         assertThat(state.pinnedReview(1)).isEqualTo(7L)
         assertThat(opened).containsExactly(1L to 7L)

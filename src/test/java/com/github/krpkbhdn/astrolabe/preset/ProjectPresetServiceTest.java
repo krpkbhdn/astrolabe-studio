@@ -3,10 +3,13 @@ package com.github.krpkbhdn.astrolabe.preset;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -27,10 +30,24 @@ class ProjectPresetServiceTest {
     JdbcClient jdbc;
     DriverManagerDataSource dataSource;
 
+    static Path template;
+
+    @BeforeAll
+    static void migrateOnce() throws Exception {
+        template = Files.createTempFile("preset-template", ".db");
+        Flyway.configure().dataSource(new DriverManagerDataSource("jdbc:sqlite:" + template)).load().migrate();
+    }
+
+    @AfterAll
+    static void dropTemplate() throws Exception {
+        Files.deleteIfExists(template);
+    }
+
     @BeforeEach
-    void setUp() {
-        dataSource = new DriverManagerDataSource("jdbc:sqlite:" + temp.resolve("test.db") + "?foreign_keys=on");
-        Flyway.configure().dataSource(dataSource).load().migrate();
+    void setUp() throws Exception {
+        var db = temp.resolve("test.db");
+        Files.copy(template, db);
+        dataSource = new DriverManagerDataSource("jdbc:sqlite:" + db + "?foreign_keys=on");
         jdbc = JdbcClient.create(dataSource);
     }
 

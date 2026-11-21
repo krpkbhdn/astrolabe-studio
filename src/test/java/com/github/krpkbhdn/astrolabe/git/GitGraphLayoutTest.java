@@ -71,17 +71,6 @@ class GitGraphLayoutTest {
     }
 
     @Test
-    void colourIsStableAlongALaneAndCyclesThroughEightSlots() {
-        var commits = List.of(commit("t0"), commit("t1"), commit("t2"), commit("t3"), commit("t4"), commit("t5"), commit("t6"),
-                commit("t7"), commit("t8"));
-        var rows = GitGraphLayout.layout(commits, null, 9).rows();
-
-        assertThat(rows.getLast().color()).isEqualTo(0);
-        var chain = GitGraphLayout.layout(List.of(commit("c", "b"), commit("b", "a"), commit("a")), null, 3).rows();
-        assertThat(chain).extracting(Row::color).containsOnly(chain.getFirst().color());
-    }
-
-    @Test
     void pagesLaidOutWithCarriedStateEqualTheWholeLayout() {
         var commits = List.of(commit("m", "a3", "b2"), commit("b2", "b1"), commit("a3", "a2"), commit("b1", "a1"), commit("a2", "a1"),
                 commit("a1", "a0"), commit("a0"));

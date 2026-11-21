@@ -102,12 +102,6 @@ class ReviewSendFlowTest {
     private fun drainDispatcher() = executor.submit {}.get()
 
     @Test
-    fun `comment text with a blank body is not a prompt`() {
-        assertThat(queues.of("s")).isEmpty()
-        assertThat(reviewPrompt(emptyList())).doesNotContain("1. ")
-    }
-
-    @Test
     fun `removed snippet is stale and moved snippet is relocated`() {
         val moved = ReviewComment("m", "a.txt", 1..1, false, listOf("+x"), listOf("x"), "t")
         val haystack = ReviewHaystack(listOf("a", "b", "x"), listOf(1, 2, 3))

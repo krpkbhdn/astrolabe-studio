@@ -179,13 +179,20 @@ class UsageRecorderTest {
         var properties = new UsageProperties(Duration.ofDays(90), Duration.ofHours(6), 80, 80, 0, Duration.ofMinutes(5));
         var recorder = new UsageRecorder(registry, usage, rateLimits, repository, alerts, properties, executor, java.time.Clock.systemUTC());
         var done = new java.util.concurrent.atomic.AtomicBoolean();
+        var gate = new java.util.concurrent.CountDownLatch(1);
         executor.execute(() -> {
             try {
-                Thread.sleep(20);
+                gate.await(5, java.util.concurrent.TimeUnit.SECONDS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
             done.set(true);
+        });
+        Thread.startVirtualThread(() -> {
+            while (!executor.isShutdown()) {
+                Thread.onSpinWait();
+            }
+            gate.countDown();
         });
 
         recorder.shutdown();

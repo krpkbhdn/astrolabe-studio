@@ -147,23 +147,33 @@ class ArchiveDownloadTest {
     @Test
     void interruptDuringAStalledReadCancelsAtOnce() throws Exception {
         try (var server = new LocalHttp(); var pool = java.util.concurrent.Executors.newSingleThreadExecutor()) {
-            server.stall("/stuck");
+            var served = new java.util.concurrent.CountDownLatch(1);
+            var release = new java.util.concurrent.CountDownLatch(1);
+            server.route("/stuck", exchange -> {
+                exchange.sendResponseHeaders(200, 1_000_000);
+                exchange.getResponseBody().flush();
+                served.countDown();
+                try {
+                    release.await(30, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
+                exchange.close();
+            });
             var downloader = new ArchiveDownload(server.http(), Duration.ofMinutes(5), 1_000_000);
-            var progressed = new java.util.concurrent.CountDownLatch(1);
             var thread = new java.util.concurrent.atomic.AtomicReference<Thread>();
             var running = pool.submit(() -> {
                 thread.set(Thread.currentThread());
-                progressed.countDown();
                 downloader.download(server.uri("/stuck"), directory, (p, r, t) -> {});
                 return null;
             });
-            assertThat(progressed.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
-            Thread.sleep(500);
+            assertThat(served.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
 
             thread.get().interrupt();
 
             assertThatThrownBy(() -> running.get(5, java.util.concurrent.TimeUnit.SECONDS))
                     .hasCauseInstanceOf(InterruptedException.class);
+            release.countDown();
             assertThat(leftoverFiles()).isZero();
         }
     }

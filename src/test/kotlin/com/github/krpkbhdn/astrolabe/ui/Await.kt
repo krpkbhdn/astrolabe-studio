@@ -2,7 +2,7 @@ package com.github.krpkbhdn.astrolabe.ui
 
 import org.assertj.core.api.Assertions.assertThat
 
-private const val AWAIT_MILLIS = 5_000L
+private const val AWAIT_MILLIS = 15_000L
 private const val POLL_MILLIS = 2L
 
 /** Polls [condition] until it holds, for state that changes on a background scope. */

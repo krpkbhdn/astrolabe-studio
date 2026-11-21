@@ -3,23 +3,20 @@ package com.github.krpkbhdn.astrolabe.codemode.mcp;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Duration;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 
 /** Timeouts, stops and cancels against a real script and server: the session must always recover. */
 class CodeModeRecoveryTest extends EndToEndFixture {
 
-    @Test
-    void stuckToolCallTimesOutInsteadOfHanging() {
-        var started = System.nanoTime();
-        var result = execute("return await servers.fake.hang({});");
-
-        assertThat(result.path("isError").asBoolean()).isTrue();
-        assertThat(text(result)).containsIgnoringCase("timed out");
-        assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofSeconds(15));
-    }
-
     private static final long HEALTHY_SERVER = -1;
+    private static final Duration CALL_LIMIT = Duration.ofSeconds(1);
+
+    @BeforeEach
+    void shortCallLimit() throws Exception {
+        wire(Duration.ofSeconds(20), CALL_LIMIT);
+    }
 
     private long pid() {
         return Long.parseLong(text(execute("return await servers.fake.pid({});")));
@@ -29,14 +26,17 @@ class CodeModeRecoveryTest extends EndToEndFixture {
         assertThat(executions.isRunning("s1")).isFalse();
         var next = execute("return await servers.fake.pid({});");
         assertThat(next.path("isError").asBoolean()).as(text(next)).isFalse();
-        if (stuckServerPid == HEALTHY_SERVER) {
-            assertThat(runWorkers()).isZero();
-            return;
+        var healthy = stuckServerPid == HEALTHY_SERVER;
+        if (!healthy) {
+            assertThat(Long.parseLong(text(next))).isNotEqualTo(stuckServerPid);
         }
-        assertThat(Long.parseLong(text(next))).isNotEqualTo(stuckServerPid);
         var deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
-        while (System.nanoTime() < deadline && (ProcessHandle.of(stuckServerPid).map(ProcessHandle::isAlive).orElse(false) || runWorkers() > 0)) {
-            Thread.sleep(50);
+        while (System.nanoTime() < deadline && ((!healthy && ProcessHandle.of(stuckServerPid).map(ProcessHandle::isAlive).orElse(false)) || runWorkers() > 0)) {
+            Thread.sleep(5);
+        }
+        if (healthy) {
+            assertThat(runWorkers()).as("code-mode worker threads").isZero();
+            return;
         }
         assertThat(ProcessHandle.of(stuckServerPid).map(ProcessHandle::isAlive).orElse(false)).as("old server process").isFalse();
         assertThat(runWorkers()).as("code-mode worker threads").isZero();
@@ -54,7 +54,7 @@ class CodeModeRecoveryTest extends EndToEndFixture {
         var result = execute("return await servers.fake.sleep({ms: 30000});");
 
         assertThat(result.path("isError").asBoolean()).isTrue();
-        assertThat(text(result)).contains("timed out after 2 s").contains("astrolabe.code-mode.tool-call-timeout");
+        assertThat(text(result)).contains("timed out after 1 s").contains("astrolabe.code-mode.tool-call-timeout");
         assertSessionRecovered(stuck);
     }
 
@@ -66,7 +66,7 @@ class CodeModeRecoveryTest extends EndToEndFixture {
         assertSessionRecovered(stuck);
 
         var stuckAgain = pid();
-        execute("return await servers.fake.sleep({ms: 3000});");
+        execute("return await servers.fake.sleep({ms: 1500});");
         assertSessionRecovered(stuckAgain);
     }
 
@@ -103,7 +103,6 @@ class CodeModeRecoveryTest extends EndToEndFixture {
         var runner = executeInBackground(7, "return await servers.fake.hang({});", outcome, this::serverIsHanging);
 
         cancelRequest("s2", 7);
-        runner.join(100);
         assertThat(runner.isAlive()).isTrue();
         assertThat(executions.isRunning("s1")).isTrue();
         cancelRequest("s1", 7);

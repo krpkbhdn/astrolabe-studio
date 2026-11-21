@@ -115,7 +115,7 @@ class AllowlistedHttpTest {
                 return server.http().readText(server.uri("/stuck"), 100, Duration.ofMinutes(5));
             });
             assertThat(started.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
-            Thread.sleep(500);
+            assertThat(server.stalled().await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
 
             thread.get().interrupt();
 

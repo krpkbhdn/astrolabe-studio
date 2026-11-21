@@ -50,10 +50,11 @@ class CodeModeServiceStopTest extends CodeModeFixture {
         });
         scriptCallingAlphaAndReportingErrors();
         var outcome = new AtomicReference<ScriptResult>();
-        var runner = Thread.ofPlatform().start(() -> outcome.set(serviceWith(scriptTimeout(Duration.ofMillis(1000))).execute(SESSION, "code")));
+        var runner = Thread.ofPlatform().start(() -> outcome.set(serviceWith(scriptTimeout(Duration.ofMillis(300))).execute(SESSION, "code")));
         assertThat(asking.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
 
-        sleep(3000);
+        var pastTimeout = System.nanoTime() + Duration.ofMillis(800).toNanos();
+        await(() -> System.nanoTime() >= pastTimeout);
         answer.countDown();
         runner.join(10_000);
 
@@ -76,7 +77,7 @@ class CodeModeServiceStopTest extends CodeModeFixture {
             }
         });
 
-        var result = serviceWith(scriptTimeout(Duration.ofMillis(200))).execute(SESSION, "code");
+        var result = serviceWith(scriptTimeout(Duration.ofMillis(100))).execute(SESSION, "code");
 
         assertThat(result.error()).hasValueSatisfying(error -> assertThat(error).contains("timed out"));
         verify(alpha, never()).callTool(any(), any());

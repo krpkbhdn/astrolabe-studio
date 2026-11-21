@@ -7,8 +7,11 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.runBlocking
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
@@ -31,8 +34,8 @@ class BitmapCacheTest {
 
         cache.drop(image.id)
         release.countDown()
-        await { decoded.get() }
-        Thread.sleep(100)
+        runBlocking { scope.coroutineContext[Job]!!.children.toList().joinAll() }
+        assertThat(decoded.get()).isTrue()
 
         assertThat(cache.get(image)).isNull()
     }

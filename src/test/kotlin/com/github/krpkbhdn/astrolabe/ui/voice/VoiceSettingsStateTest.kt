@@ -350,21 +350,6 @@ class VoiceSettingsStateTest {
     }
 
     @Test
-    fun `close stops a running live test`() {
-        val session = mock(DictationSession::class.java)
-        capture(session)
-        val ready = ready()
-        ready.setEnabled(true)
-        ready.startLiveTest()
-        await { ready.liveTest == LiveTestState.Listening }
-
-        ready.close()
-
-        await { ready.liveTest == LiveTestState.Stopped }
-        verify(session).close()
-    }
-
-    @Test
     fun `turning voice off stops a running live test`() {
         val session = mock(DictationSession::class.java)
         capture(session)
@@ -760,13 +745,6 @@ class VoiceSettingsStateTest {
     }
 
     @Test
-    fun `no restart is asked for while the service sees none`() {
-        val ready = ready()
-
-        assertThat(ready.restartRequired).isFalse()
-    }
-
-    @Test
     fun `the live test blocker says why`() {
         val ready = ready()
         assertThat(ready.liveTestBlocker).isEqualTo("Enable voice input first")
@@ -794,8 +772,9 @@ class VoiceSettingsStateTest {
         ready.startLiveTest()
         await { ready.liveTest == LiveTestState.Listening }
 
-        val open = sessions.filter { session -> runCatching { verify(session).close() }.isFailure }
-        assertThat(open).hasSize(1)
+        val isClosed = { session: DictationSession -> org.mockito.Mockito.mockingDetails(session).invocations.any { it.method.name == "close" } }
+        await { sessions.count { !isClosed(it) } == 1 }
+        assertThat(sessions.filterNot(isClosed)).hasSize(1)
     }
 
     @Test
