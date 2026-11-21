@@ -108,7 +108,8 @@ class WebStateTest {
         await { view.pageKey != null }
         state.setToggles(view, view.toggles.togglePick())
         emit(pickJson())
-        await { view.picked != null }
+        // startPick sets picked first, then clears the comment and turns pick off on the event thread; wait for the last step
+        await { view.picked != null && !view.toggles.pick }
         if (host.captureResult != null) await { view.pickShot != null }
     }
 

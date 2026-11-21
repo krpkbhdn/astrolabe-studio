@@ -175,11 +175,19 @@ class UsageRecorderTest {
 
     @Test
     void shutdownDrainsQueuedSamplesBeforeExit() throws Exception {
-        var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        var gate = new java.util.concurrent.CountDownLatch(1);
+        // the queued task is released only by shutdown() itself, so it can finish only if shutdown waits for it
+        var executor = new java.util.concurrent.ThreadPoolExecutor(1, 1, 0, java.util.concurrent.TimeUnit.SECONDS,
+                new java.util.concurrent.LinkedBlockingQueue<>()) {
+            @Override
+            public void shutdown() {
+                super.shutdown();
+                gate.countDown();
+            }
+        };
         var properties = new UsageProperties(Duration.ofDays(90), Duration.ofHours(6), 80, 80, 0, Duration.ofMinutes(5));
         var recorder = new UsageRecorder(registry, usage, rateLimits, repository, alerts, properties, executor, java.time.Clock.systemUTC());
         var done = new java.util.concurrent.atomic.AtomicBoolean();
-        var gate = new java.util.concurrent.CountDownLatch(1);
         executor.execute(() -> {
             try {
                 gate.await(5, java.util.concurrent.TimeUnit.SECONDS);
@@ -187,12 +195,6 @@ class UsageRecorderTest {
                 Thread.currentThread().interrupt();
             }
             done.set(true);
-        });
-        Thread.startVirtualThread(() -> {
-            while (!executor.isShutdown()) {
-                Thread.onSpinWait();
-            }
-            gate.countDown();
         });
 
         recorder.shutdown();
