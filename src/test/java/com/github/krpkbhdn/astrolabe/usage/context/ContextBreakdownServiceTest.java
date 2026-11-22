@@ -116,19 +116,21 @@ class ContextBreakdownServiceTest {
         });
         try (var pool = Executors.newFixedThreadPool(2)) {
             var first = pool.submit(() -> service.measure(DIRECTORY, ID, true));
-            started.await();
+            assertThat(started.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
             var secondThread = new java.util.concurrent.atomic.AtomicReference<Thread>();
             var second = pool.submit(() -> {
                 secondThread.set(Thread.currentThread());
                 return service.measure(DIRECTORY, ID, true);
             });
-            while (secondThread.get() == null || secondThread.get().getState() == Thread.State.RUNNABLE) {
+            var deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+            while (secondThread.get() == null || java.util.Arrays.stream(secondThread.get().getStackTrace()).noneMatch(f -> f.getClassName().contains("CompletableFuture"))) {
+                assertThat(System.nanoTime()).isLessThan(deadline);
                 Thread.onSpinWait();
             }
             release.countDown();
 
-            assertThat(first.get().succeeded()).isTrue();
-            assertThat(second.get().succeeded()).isTrue();
+            assertThat(first.get(10, java.util.concurrent.TimeUnit.SECONDS).succeeded()).isTrue();
+            assertThat(second.get(10, java.util.concurrent.TimeUnit.SECONDS).succeeded()).isTrue();
         }
         verify(claude, times(1)).execute(any(), any(), anyList());
     }

@@ -86,6 +86,7 @@ class BackgroundAgentsStateTest {
 
         state.refresh(PROJECT_ID, path)
         await { errors.isNotEmpty() }
+        await { scope.coroutineContext[Job]!!.children.none() }
         state.refresh(PROJECT_ID, path)
         await { state[PROJECT_ID] != null }
 

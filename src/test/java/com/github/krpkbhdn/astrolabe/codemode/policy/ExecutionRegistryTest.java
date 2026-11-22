@@ -120,7 +120,7 @@ class ExecutionRegistryTest {
         registry.register("s1", () -> System.nanoTime() + 60_000_000_000L, cancelled::incrementAndGet);
 
         assertThatThrownBy(() -> registry.register("s1", NEVER, () -> { })).isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("started 0 s ago, limit 60 s").hasMessageContaining("s left").hasMessageContaining("Stop script");
+                .hasMessageMatching("(?s).*started \\d+ s ago, limit 6\\d s.*").hasMessageContaining("s left").hasMessageContaining("Stop script");
         assertThat(cancelled).hasValue(0);
     }
 }

@@ -2,6 +2,7 @@ package com.github.krpkbhdn.astrolabe.ui.terminal
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import com.github.krpkbhdn.astrolabe.ui.await
 import com.jediterm.terminal.emulator.mouse.MouseFormat
 import com.jediterm.terminal.emulator.mouse.MouseMode
 import com.jediterm.core.util.TermSize
@@ -79,29 +80,26 @@ class TerminalSessionTest {
         play("$ESC[?1000h$ESC[?1006h")
         session.reportMouse(com.jediterm.core.input.MouseEvent(com.jediterm.core.input.MouseEvent.Type.PRESSED, 0, 0), 4, 2)
         session.reportMouse(com.jediterm.core.input.MouseEvent(com.jediterm.core.input.MouseEvent.Type.RELEASED, 0, 0), 4, 2)
-        settle(connector, session)
-        assertThat(connector.writtenText()).isEqualTo("$ESC[<0;5;3M$ESC[<0;5;3m")
+        assertThat(connector.awaitWritten("$ESC[<0;5;3M$ESC[<0;5;3m")).isEqualTo("$ESC[<0;5;3M$ESC[<0;5;3m")
     }
 
     @Test
     fun wheelOnTheAlternateScreenSendsArrowKeys() {
         play("$ESC[?1049h")
         session.reportWheel(com.jediterm.terminal.emulator.mouse.MouseButtonCodes.SCROLLUP, 0, 2, 0, 0)
-        settle(connector, session)
-        assertThat(connector.writtenText()).isEqualTo("$ESC[B$ESC[B")
+        assertThat(connector.awaitWritten("$ESC[B$ESC[B")).isEqualTo("$ESC[B$ESC[B")
     }
 
     @Test
     fun typedTextAndPasteReachTheProcess() {
         session.send("ls\r")
-        settle(connector, session)
-        assertThat(connector.writtenText()).isEqualTo("ls\r")
+        assertThat(connector.awaitWritten("ls\r")).isEqualTo("ls\r")
     }
 
     @Test
     fun theEscapeKeyReachesTheConnectorAsOneLoneByte() {
         session.onKey(com.jediterm.core.input.KeyInputEvent(com.jediterm.core.input.KeyInputEvent.Type.PRESSED, java.awt.event.KeyEvent.VK_ESCAPE, '\u001b', 0))
-        settle(connector, session)
+        await { connector.written.isNotEmpty() }
         assertThat(connector.written).hasSize(1)
         assertThat(isLoneEscape(connector.written.single())).isTrue()
     }

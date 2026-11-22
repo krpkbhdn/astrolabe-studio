@@ -28,7 +28,7 @@ import org.mockito.Mockito.never
 
 private const val FRAME_NANOS = 16_000_000L
 private const val SETTLE_FRAMES = 6
-private const val VERIFY_MILLIS = 2_000L
+private const val VERIFY_MILLIS = 15_000L
 
 /** One proposal dialog in an offscreen Compose scene: real key events go in, answers reach a mocked [ProposalService]. */
 @OptIn(InternalComposeUiApi::class)

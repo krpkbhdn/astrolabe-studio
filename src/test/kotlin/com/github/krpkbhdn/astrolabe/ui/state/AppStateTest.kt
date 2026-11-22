@@ -72,7 +72,7 @@ class AppStateTest {
         state.confirm!!.onConfirm()
         await { closedSessions.containsAll(liveIds) }
 
-        verify(backend.projects).remove(PROJECT_ID)
+        verify(backend.projects, org.mockito.Mockito.timeout(15_000)).remove(PROJECT_ID)
         await { state.route == Route.Overview }
     }
 

@@ -144,12 +144,21 @@ class TeamsStateTest {
 
     @Test
     fun doubleClickingNewTeamCreatesOneTeam() {
-        state.newTeam()
-        state.newTeam()
-        await { state.selected?.name == "New team" }
+        val gate = java.util.concurrent.CountDownLatch(1)
+        val slow = org.mockito.Mockito.spy(service)
+        org.mockito.Mockito.doAnswer { gate.await(); it.callRealMethod() }.`when`(slow).create(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyList())
+        val gated = TeamsState(slow, scope, { confirmation = it }, { errors += it })
+        gated.start()
+        await { gated.selected != null }
+
+        gated.newTeam()
+        gated.newTeam()
+        gate.countDown()
+        await { gated.selected?.name == "New team" }
         await { scope.coroutineContext.job.children.none { it.isActive } }
 
         assertThat(service.list().count { it.name == "New team" }).isEqualTo(1)
+        gated.dispose()
     }
 
     @Test

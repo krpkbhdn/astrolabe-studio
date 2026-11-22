@@ -91,8 +91,8 @@ class ReviewSendFlowTest {
         drainDispatcher()
         assertThat(sent).isEmpty()
 
-        status = AgentStatus.IDLE
         draft = true
+        status = AgentStatus.IDLE
         runBlocking(thread) { dispatch.evaluate() }
         drainDispatcher()
         assertThat(sent).isEmpty()

@@ -139,7 +139,8 @@ class ProjectGitsTest {
         val vanished = gits.of(1)
 
         listWorktrees()
-        runBlocking { gits.mainOf(1)!!.loadWorktrees(); gits.syncWorktrees(1) }
+        // the background reload of switchTo may publish the old list late, so reload until the new list sticks
+        await { runBlocking { gits.mainOf(1)!!.loadWorktrees(); gits.syncWorktrees(1) }; gits.activeDirectoryOf(1) == null }
 
         assertThat(gits.activeDirectoryOf(1)).isNull()
         assertThat(gits.of(1)).isSameAs(gits.mainOf(1))

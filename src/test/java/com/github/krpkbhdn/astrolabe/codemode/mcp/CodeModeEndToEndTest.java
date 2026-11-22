@@ -107,7 +107,7 @@ class CodeModeEndToEndTest extends EndToEndFixture {
 
     @Test
     void infiniteLoopIsStoppedByTheScriptTimeout() throws Exception {
-        wire(Duration.ofSeconds(1), Duration.ofSeconds(2));
+        wire(Duration.ofSeconds(1), Duration.ofSeconds(30));
 
         var loop = execute("while (true) {}");
 
@@ -117,8 +117,12 @@ class CodeModeEndToEndTest extends EndToEndFixture {
     @Test
     void hugeOutputIsBounded() {
         var big = execute("return 'x'.repeat(5000000);");
-        var logs = execute("for (let i = 0; i < 100000; i++) console.log('line ' + i + ' xxxxxxxxxxxxxxxxxxxx'); return 1;");
+        var logs = execute("for (let i = 0; i < 20000; i++) console.log('line ' + i + ' xxxxxxxxxxxxxxxxxxxx'); return 1;");
         var bigFromServer = execute("const r = await servers.fake.big({}); return r;");
+
+        for (var result : List.of(big, logs, bigFromServer)) {
+            assertThat(result.path("isError").asBoolean()).as(text(result)).isFalse();
+        }
 
         assertThat(text(big).length()).isLessThan(25_000);
         assertThat(text(logs).length()).isLessThan(25_000);

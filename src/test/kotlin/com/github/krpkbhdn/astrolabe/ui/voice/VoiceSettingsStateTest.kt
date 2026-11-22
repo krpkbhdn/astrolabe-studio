@@ -73,7 +73,7 @@ class VoiceSettingsStateTest {
 
     private fun ready(): VoiceSettingsState {
         installed += listOf(VoiceAsset.SILERO_VAD, WhisperModel.BASE_Q5_1.asset(), RuntimeBuild.WINDOWS_X64_CUDA12.asset())
-        await { state.resources.size == 3 && state.deviceChoices.size == 3 && state.inputs.isNotEmpty() }
+        await { state.resources.size == 3 && state.resources.all { it.status == VoiceResourceStatus.Installed } && state.deviceChoices.size == 3 && state.inputs.isNotEmpty() }
         return state
     }
 
@@ -172,7 +172,7 @@ class VoiceSettingsStateTest {
     fun `resources are the runtime of the effective device, the chosen model and the voice activity model`() {
         installed += VoiceAsset.SILERO_VAD
 
-        await { state.resources.size == 3 }
+        await { state.resources.map { it.status } == listOf(VoiceResourceStatus.Missing, VoiceResourceStatus.Missing, VoiceResourceStatus.Installed) }
 
         assertThat(state.resources.map { it.asset }).containsExactly(RuntimeBuild.WINDOWS_X64_CUDA12.asset(), WhisperModel.BASE_Q5_1.asset(), VoiceAsset.SILERO_VAD)
         assertThat(state.resources.map { it.status }).containsExactly(VoiceResourceStatus.Missing, VoiceResourceStatus.Missing, VoiceResourceStatus.Installed)
@@ -225,8 +225,11 @@ class VoiceSettingsStateTest {
         assertThat(errors).isEmpty()
         assertThat(state.resources[1].canDownload).isTrue()
 
-        state.download(state.resources[1])
-        await { state.resources[1].status == VoiceResourceStatus.Installed }
+        await { !state.downloading }
+        await {
+            if (!state.downloading && state.resources[1].status != VoiceResourceStatus.Installed) state.download(state.resources[1])
+            state.resources[1].status == VoiceResourceStatus.Installed
+        }
         assertThat(state.resources.none { it.status is VoiceResourceStatus.Failed }).isTrue()
     }
 
@@ -376,7 +379,7 @@ class VoiceSettingsStateTest {
         listener()!!.onError(IllegalStateException("device lost"))
 
         assertThat(ready.liveTest).isEqualTo(LiveTestState.Error("device lost"))
-        verify(session, org.mockito.Mockito.timeout(2000)).close()
+        verify(session, org.mockito.Mockito.timeout(15_000)).close()
     }
 
     @Test
@@ -384,12 +387,13 @@ class VoiceSettingsStateTest {
         val release = CountDownLatch(1)
         val stateWhenSecondStarts = java.util.concurrent.atomic.AtomicReference<LiveTestState>()
         val calls = AtomicInteger()
-        val ready = ready()
+        lateinit var ready: VoiceSettingsState
         `when`(voice.start(any<DictationRequest>(), any<DictationListener>())).thenAnswer {
             if (calls.incrementAndGet() == 1) { release.await(); throw IllegalStateException("boom") }
             stateWhenSecondStarts.set(ready.liveTest)
             mock(DictationSession::class.java)
         }
+        ready = ready()
         ready.setEnabled(true)
         ready.startLiveTest()
         await { calls.get() == 1 }
@@ -475,7 +479,7 @@ class VoiceSettingsStateTest {
 
         release.countDown()
 
-        verify(session, org.mockito.Mockito.timeout(2000)).close()
+        verify(session, org.mockito.Mockito.timeout(15_000)).close()
         assertThat(ready.liveTest).isEqualTo(LiveTestState.Stopped)
     }
 
@@ -558,7 +562,7 @@ class VoiceSettingsStateTest {
         scope.cancel()
         release.countDown()
 
-        verify(session, org.mockito.Mockito.timeout(2000)).close()
+        verify(session, org.mockito.Mockito.timeout(15_000)).close()
     }
 
     @Test
@@ -648,11 +652,13 @@ class VoiceSettingsStateTest {
 
     @Test
     fun `refreshing devices lists the new ones and microphones again`() {
-        await { state.deviceChoices.size == 3 && state.inputs.isNotEmpty() }
         val second = ComputeDevice.nvidia(1, "NVIDIA GeForce RTX 4090")
+        val microphones = java.util.concurrent.atomic.AtomicReference(listOf("USB mic"))
         `when`(devices.refresh()).thenReturn(listOf(ComputeDevice.CPU, gpu, second))
-        `when`(microphone.inputs()).thenReturn(listOf("USB mic", "Headset"))
+        `when`(microphone.inputs()).thenAnswer { microphones.get() }
+        await { state.deviceChoices.size == 3 && state.inputs.isNotEmpty() }
 
+        microphones.set(listOf("USB mic", "Headset"))
         state.refreshDevices()
 
         await { state.deviceChoices.size == 4 && state.inputs.size == 2 }

@@ -670,22 +670,18 @@ class WebStateTest {
         )
         val view = openView()
         ready()
-        await { view.pageItems.size == 3 && host.scripts.any { it.contains("setAnnotations") } }
+        fun lastPins() = host.scripts.lastOrNull { it.contains("setAnnotations") }
+        await { lastPins()?.let { it.contains("\"n\":11") && it.contains("\"n\":12") && it.contains("\"n\":13") } == true }
 
-        host.scripts.clear()
         view.device = DeviceSelection(DeviceSelection.presets.first { it.name == "iPhone 14" }, 390, 844)
         androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
 
-        await { host.scripts.any { it.contains("setAnnotations") } }
-        val pushed = host.scripts.last { it.contains("setAnnotations") }
-        assertThat(pushed).contains("\"n\":11").contains("\"n\":13").doesNotContain("\"n\":12")
+        await { lastPins()?.let { it.contains("\"n\":11") && it.contains("\"n\":13") && !it.contains("\"n\":12") } == true }
         assertThat(view.visibleItems.map { it.n() }).containsExactly(11, 13)
 
-        host.scripts.clear()
         view.device = DeviceSelection.Responsive
         androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
-        await { host.scripts.any { it.contains("setAnnotations") } }
-        assertThat(host.scripts.last { it.contains("setAnnotations") }).contains("\"n\":11", "\"n\":12", "\"n\":13")
+        await { lastPins()?.let { it.contains("\"n\":11") && it.contains("\"n\":12") && it.contains("\"n\":13") } == true }
     }
 
     @Test

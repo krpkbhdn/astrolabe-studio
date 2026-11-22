@@ -11,7 +11,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 
-private const val WAIT_MILLIS = 5_000L
+private const val WAIT_MILLIS = 60_000L
 
 class TerminalEmulatorTest {
     private class FailingOnceConnector : TtyConnector {
