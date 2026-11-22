@@ -175,6 +175,14 @@ class ClaudeCommandTest {
     }
 
     @Test
+    void searchPathWithPutsTheExecutableFolderFirstOnUnixOnly() {
+        var executable = java.nio.file.Path.of("/n/bin/claude");
+        var expected = java.io.File.pathSeparatorChar == ';' ? "x" : java.nio.file.Path.of("/n/bin") + java.io.File.pathSeparator + "x";
+
+        assertThat(ClaudeCommand.searchPathWith(executable, "x")).isEqualTo(expected);
+    }
+
+    @Test
     void searchPathReplacesTheExistingKeyKeepingItsCasingWithoutDuplicates() {
         Map<String, String> parent = Map.of("Path", "old", "OTHER", "x");
 

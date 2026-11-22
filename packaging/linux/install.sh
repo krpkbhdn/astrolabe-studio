@@ -43,6 +43,7 @@ Comment=Run and manage local Claude Code sessions
 Exec="$dest/bin/Astrolabe Studio"
 Icon=astrolabe-studio
 Terminal=false
+StartupWMClass=astrolabe-studio
 Categories=Development;
 DESKTOP
 

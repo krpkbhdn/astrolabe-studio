@@ -42,6 +42,7 @@ public class ClaudeInstallationService {
 
     /** Runs detection again (UI check-again button). */
     public synchronized ClaudeInstallation recheck() {
+        locator.refresh();
         current = detect();
         return current;
     }
@@ -91,7 +92,7 @@ public class ClaudeInstallationService {
         var command = new java.util.ArrayList<>(List.of(executable.toString()));
         command.addAll(List.of(arguments));
         try {
-            return Optional.of(CommandRunner.run(command, null, COMMAND_TIMEOUT));
+            return Optional.of(CommandRunner.run(command, null, COMMAND_TIMEOUT, locator.environmentFor(host, executable)));
         } catch (IOException e) {
             log.warn("Could not run {} {}: {}", executable, String.join(" ", arguments), e.getMessage());
             return Optional.empty();

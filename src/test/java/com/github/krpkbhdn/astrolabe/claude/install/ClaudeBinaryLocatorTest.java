@@ -3,6 +3,7 @@ package com.github.krpkbhdn.astrolabe.claude.install;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.github.krpkbhdn.astrolabe.workspace.FakeHostEnvironment;
+import com.github.krpkbhdn.astrolabe.workspace.LoginShellPath;
 import com.github.krpkbhdn.astrolabe.workspace.HostEnvironment.OperatingSystem;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
@@ -35,6 +36,36 @@ class ClaudeBinaryLocatorTest {
         var host = new FakeHostEnvironment(OperatingSystem.LINUX, home).withFile(npm);
 
         assertThat(locator.find(host)).contains(npm);
+    }
+
+    @Test
+    void unixFindsClaudeInNvmNodeVersionWithEmptyPath() {
+        var home = Path.of("/home/u");
+        var claude = home.resolve(".nvm/versions/node/v22.1.0/bin/claude");
+        var host = new FakeHostEnvironment(OperatingSystem.LINUX, home).withFile(claude);
+
+        assertThat(locator.find(host)).contains(claude);
+    }
+
+    @Test
+    void configuredPathIsCheckedBeforePath() {
+        var home = Path.of("/home/u").toAbsolutePath();
+        var custom = Path.of("/custom/claude").toAbsolutePath();
+        var host = new FakeHostEnvironment(OperatingSystem.LINUX, home).withPath(Path.of("/a")).withFile(Path.of("/a/claude")).withFile(custom);
+        var configured = new ClaudeBinaryLocator(new ClaudeProperties(custom.toString()), LoginShellPath.disabled());
+        var relative = new ClaudeBinaryLocator(new ClaudeProperties("relative/claude"), LoginShellPath.disabled());
+
+        assertThat(configured.find(host)).contains(custom);
+        assertThat(relative.candidates(host)).first().isEqualTo(Path.of("/a/claude"));
+    }
+
+    @Test
+    void unixEnvironmentPutsTheClaudeFolderFirstAndWindowsHasNone() {
+        var host = new FakeHostEnvironment(OperatingSystem.LINUX, Path.of("/home/u")).withPath(Path.of("/a"));
+        var windows = new FakeHostEnvironment(OperatingSystem.WINDOWS, WINDOWS_HOME);
+
+        assertThat(locator.environmentFor(host, Path.of("/n/bin/claude"))).containsEntry("PATH", Path.of("/n/bin") + ":" + Path.of("/a"));
+        assertThat(locator.environmentFor(windows, Path.of("C:\\x\\claude.exe"))).isEmpty();
     }
 
     @Test

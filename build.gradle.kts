@@ -15,7 +15,7 @@ plugins {
 }
 
 group = "com.github.krpkbhdn"
-version = "2.3.54"
+version = "2.3.55"
 
 java {
     toolchain {
@@ -415,7 +415,9 @@ val packageTarGz = tasks.register<Tar>("packageTarGz") {
     dependsOn("createDistributable")
     val arch = System.getProperty("os.arch").let { if (it == "amd64") "x64" else it }
     from(layout.buildDirectory.dir("compose/binaries/main/app"))
-    from("packaging/linux") { filePermissions { unix("rwxr-xr-x") } }
+    from("packaging/linux")
+    // Top-level scripts only; the app image keeps its own modes (launcher, runtime/bin).
+    filesMatching("*.sh") { permissions { unix("rwxr-xr-x") } }
     from("packaging/icon.png")
     compression = Compression.GZIP
     archiveFileName = "astrolabe-studio-$version-linux-$arch.tar.gz"

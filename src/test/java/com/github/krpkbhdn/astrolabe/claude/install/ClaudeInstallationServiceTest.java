@@ -10,6 +10,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 class ClaudeInstallationServiceTest {
@@ -55,6 +57,36 @@ class ClaudeInstallationServiceTest {
     void mapsAuthExitCodeOneToLoggedOutAndOthersToUnknown() throws IOException {
         assertThat(detectWithFakeClaude(1).login()).isEqualTo(LoginState.LOGGED_OUT);
         assertThat(detectWithFakeClaude(7).login()).isEqualTo(LoginState.UNKNOWN);
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void versionCommandSeesToolsBesideClaudeEvenWithEmptyPath() throws IOException {
+        var dir = Files.createDirectories(temp.resolve(".nvm/versions/node/v1.0.0/bin"));
+        var node = dir.resolve("fakenode");
+        Files.writeString(node, "#!/bin/sh\n");
+        assertThat(node.toFile().setExecutable(true)).isTrue();
+        var script = dir.resolve("claude");
+        Files.writeString(script, "#!/bin/sh\ncommand -v fakenode >/dev/null || exit 3\necho 9.8.7\nexit 0\n");
+        assertThat(script.toFile().setExecutable(true)).isTrue();
+        var host = new SystemHostEnvironment() {
+            @Override
+            public Path home() {
+                return temp;
+            }
+
+            @Override
+            public List<Path> pathDirectories() {
+                return List.of();
+            }
+
+            @Override
+            public String env(String name) {
+                return name.equals("PATH") ? "/usr/bin:/bin" : super.env(name);
+            }
+        };
+
+        assertThat(new ClaudeInstallationService(host, new ClaudeBinaryLocator()).recheck().version()).isEqualTo("9.8.7");
     }
 
     private ClaudeInstallation detectWithFakeClaude(int authExit) throws IOException {

@@ -12,6 +12,7 @@ fun main(args: Array<String>) {
     if (args.firstOrNull() == HookPoster.FLAG) {
         exitProcess(HookPoster.run(args))
     }
+    applyLinuxWmClass()
     val context = AstrolabeApplication.start(args)
     val backend = Backend.from(context)
     TerminalHost.configure(backend.sessions, context.getBean(TerminalProperties::class.java))

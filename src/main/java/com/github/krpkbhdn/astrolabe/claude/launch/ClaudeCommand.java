@@ -6,6 +6,7 @@ import com.github.krpkbhdn.astrolabe.project.ModelSelection;
 import com.github.krpkbhdn.astrolabe.team.Team;
 import com.github.krpkbhdn.astrolabe.team.TeamAgentsJson;
 import com.github.krpkbhdn.astrolabe.team.TeamRole;
+import java.io.File;
 import java.nio.file.Path;
 import com.github.krpkbhdn.astrolabe.claude.hook.HookServer;
 import java.util.ArrayList;
@@ -163,6 +164,15 @@ public final class ClaudeCommand {
         List<String> flags = new ArrayList<>();
         directories.forEach(directory -> flags.addAll(List.of("--add-dir", directory.toAbsolutePath().toString())));
         command.addAll(command.indexOf(SETTINGS_FLAG) + 2, flags);
+    }
+
+    /** On Unix the folder of [executable] goes first (an npm shim finds the node beside it); on Windows [searchPath] is returned unchanged. */
+    public static String searchPathWith(Path executable, String searchPath) {
+        var directory = executable.getParent();
+        if (File.pathSeparatorChar == ';' || directory == null) {
+            return searchPath;
+        }
+        return searchPath == null || searchPath.isBlank() ? directory.toString() : directory + File.pathSeparator + searchPath;
     }
 
     /** A copy of [parent] whose only PATH key (any casing; "Path" on Windows when absent) holds [searchPath]; a blank path leaves it as is. */

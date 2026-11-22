@@ -156,6 +156,16 @@ Claude будує вебсайт, а ви переглядаєте саму за
 
 > Інсталятор не підписаний, тому Windows SmartScreen може попередити. Після перевірки хешу оберіть *Докладніше*, потім *Усе одно виконати*.
 
+### Перевірка завантаженого файлу
+
+Біля кожного файлу є `<file>.sha256` у форматі `sha256sum` (`sha256sum -c <file>.sha256`) і атестація походження збірки:
+
+```sh
+gh attestation verify <file> --repo krpkbhdn/astrolabe-studio
+```
+
+Якщо до релізу додано підписи `<file>.asc`, імпортуйте відкритий ключ `packaging/astrolabe-release.pub.asc` із цього репозиторію (`gpg --import packaging/astrolabe-release.pub.asc`) і перевірте командою `gpg --verify <file>.asc <file>`.
+
 ### Linux
 
 Зберіть `.deb` самостійно (див. нижче) і встановіть:

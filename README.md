@@ -156,6 +156,16 @@ published `.sha256` (`(Get-FileHash .\<installer>.msi).Hash`), and run it. It in
 
 > The installer is not code-signed, so Windows SmartScreen may warn. Choose *More info*, then *Run anyway*, after checking the hash.
 
+### Verify a download
+
+Each file has a `<file>.sha256` in `sha256sum` format (`sha256sum -c <file>.sha256`) and a build provenance attestation:
+
+```sh
+gh attestation verify <file> --repo krpkbhdn/astrolabe-studio
+```
+
+When the release carries `<file>.asc` signatures, import the public key `packaging/astrolabe-release.pub.asc` from this repository (`gpg --import packaging/astrolabe-release.pub.asc`) and check with `gpg --verify <file>.asc <file>`.
+
 ### Linux
 
 Build the `.deb` yourself (see below) and install it:

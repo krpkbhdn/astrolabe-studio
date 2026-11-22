@@ -3,54 +3,278 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Create a GitHub release (needs a v* tag as the selected ref); off = build packages as artifacts only"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Artifacts of a publishing run are consumed by the publish job minutes later (1 day); the rest are kept 7 days for inspection.
+  ARTIFACT_RETENTION: ${{ (github.ref_type == 'tag' && (github.event_name == 'push' || inputs.publish)) && 1 || 7 }}
+
+# Release builds are cold: caches written on tag refs are never reused, so the caches below only help manual runs from branches.
 jobs:
+  # Always runs (never skipped, so the build jobs are not blocked on branches); its checks apply to tag refs only.
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Refuse to publish from a branch
+        if: github.ref_type != 'tag' && inputs.publish
+        run: |
+          echo "::error::publish=true needs a v* tag as the selected ref, not branch ${GITHUB_REF_NAME}"
+          exit 1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        if: github.ref_type == 'tag'
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check tag matches build version
+        if: github.ref_type == 'tag'
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' build.gradle.kts)
+          test "v$version" = "${GITHUB_REF_NAME}" || { echo "::error::Tag ${GITHUB_REF_NAME} does not match build.gradle.kts version $version"; exit 1; }
+      - name: Check tagged commit is on main
+        if: github.ref_type == 'tag'
+        run: |
+          git merge-base --is-ancestor "${GITHUB_SHA}" origin/main \
+            || { echo "::error::Tagged commit ${GITHUB_SHA} is not an ancestor of origin/main"; exit 1; }
+
   windows-msi:
-    runs-on: windows-latest
-    timeout-minutes: 30
+    needs: verify
+    runs-on: windows-2025
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - name: Check tag matches build version
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.gradle/jdks
+          key: jdks-${{ runner.os }}-${{ hashFiles('build.gradle.kts', 'settings.gradle.kts', 'gradle/**') }}
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          cache-read-only: ${{ github.ref_type == 'tag' }}
+      # Tests and the package in one invocation. The Linux job runs the test suite too (Unix-only tests); macOS runs none.
+      - name: Test and build MSI
+        timeout-minutes: 40
+        shell: bash
+        run: ./gradlew test packageMsi --no-daemon --console=plain
+      # Published name = local name (GitHub would turn spaces into dots).
+      - name: Rename
         shell: bash
         run: |
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' build.gradle.kts)
-          test "v$version" = "${GITHUB_REF_NAME}" || { echo "Tag ${GITHUB_REF_NAME} does not match version $version"; exit 1; }
-      - name: Test
-        timeout-minutes: 25
-        shell: bash
-        run: ./gradlew test --no-daemon --console=plain
-      - name: Build MSI
-        timeout-minutes: 15
-        shell: bash
-        run: ./gradlew packageMsi --no-daemon
+          cd build/compose/binaries/main/msi
+          for f in *.msi; do
+            n="Astrolabe-Studio-${version}.msi"
+            [ "$f" = "$n" ] || mv -- "$f" "$n"
+          done
+      # Windows code signing, prepared but NOT enabled: waits for the SignPath Foundation approval.
+      # Needs repository variables SIGNPATH_ORGANIZATION_ID, SIGNPATH_PROJECT_SLUG, SIGNPATH_SIGNING_POLICY_SLUG and the
+      # secret SIGNPATH_API_TOKEN. The action does not read files from disk: it signs a GitHub artifact, so the unsigned
+      # file is uploaded first and that step's `artifact-id` output is passed as the `github-artifact-id` input.
+      # The artifact configuration in SignPath must describe that artifact (a zip holding the .msi). The signed result is
+      # extracted over the unsigned file (the checksum step below then hashes the signed msi).
+      # - id: upload-unsigned
+      #   uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      #   with:
+      #     name: msi-unsigned
+      #     path: build/compose/binaries/main/msi/*.msi
+      #     retention-days: 1
+      #     if-no-files-found: error
+      # - uses: signpath/github-action-submit-signing-request@c92b958760219087e01f8d67a1669ed57afe2627 # v2
+      #   with:
+      #     api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+      #     organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+      #     project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+      #     signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+      #     github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+      #     wait-for-completion: true
+      #     output-artifact-directory: build/compose/binaries/main/msi
       - name: Checksum
         shell: bash
         run: |
           cd build/compose/binaries/main/msi
-          for f in *.msi; do sha256sum "$f" | cut -d' ' -f1 > "$f.sha256"; done
+          for f in *.msi; do
+            printf '%s  %s\n' "$(sha256sum -- "$f" | cut -d' ' -f1)" "$f" > "$f.sha256"
+          done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: msi
           path: build/compose/binaries/main/msi/*
+          retention-days: ${{ env.ARTIFACT_RETENTION }}
+          if-no-files-found: error
+
+  # ubuntu-22.04 is the oldest runner image still offered; the real glibc baseline of the bundled JBR and native
+  # libraries is unverified, so do not assume the packages run on every older distro.
+  linux-packages:
+    needs: verify
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install packaging tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends binutils rpm fakeroot
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.gradle/jdks
+          key: jdks-${{ runner.os }}-${{ hashFiles('build.gradle.kts', 'settings.gradle.kts', 'gradle/**') }}
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          cache-read-only: ${{ github.ref_type == 'tag' }}
+      # Runs the suite here too: LoginShellPathTest, UnixToolDirectoriesTest and LinuxWindowClassTest only run on Unix.
+      - name: Test and build deb, rpm and tar.gz
+        timeout-minutes: 50
+        run: ./gradlew test packageDeb packageRpm packageTarGz --no-daemon --console=plain
+      - name: Rename and checksum
+        shell: bash
+        run: |
+          for d in deb rpm tar; do
+            (
+              cd "build/compose/binaries/main/$d"
+              for f in *; do
+                [ -f "$f" ] || continue
+                n="${f// /-}"
+                [ "$f" = "$n" ] || mv -- "$f" "$n"
+                printf '%s  %s\n' "$(sha256sum -- "$n" | cut -d' ' -f1)" "$n" > "$n.sha256"
+              done
+            )
+          done
+      # One artifact per format: upload-artifact v4 keeps directories when one artifact spans several, which breaks a flat dist/.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-deb
+          path: build/compose/binaries/main/deb/*
+          retention-days: ${{ env.ARTIFACT_RETENTION }}
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-rpm
+          path: build/compose/binaries/main/rpm/*
+          retention-days: ${{ env.ARTIFACT_RETENTION }}
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-tar
+          path: build/compose/binaries/main/tar/*
+          retention-days: ${{ env.ARTIFACT_RETENTION }}
+          if-no-files-found: error
+
+  # Unsigned: no signing secrets exist. The build ad-hoc signs the app (addJcefToAppImage); Gatekeeper will
+  # warn until the user allows it (right click, Open). macos-15 is arm64; macos-15-intel is the x64 runner.
+  # No tests here (the Windows and Linux jobs run the suite). The dmg name carries no architecture, so it is renamed.
+  macos-dmg:
+    needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.gradle/jdks
+          key: jdks-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('build.gradle.kts', 'settings.gradle.kts', 'gradle/**') }}
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          cache-read-only: ${{ github.ref_type == 'tag' }}
+      - name: Build DMG
+        timeout-minutes: 35
+        run: ./gradlew packageDmg --no-daemon --console=plain
+      - name: Rename and checksum
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' build.gradle.kts)
+          cd build/compose/binaries/main/dmg
+          for f in *.dmg; do
+            n="Astrolabe-Studio-${version}-${ARCH}.dmg"
+            [ "$f" = "$n" ] || mv -- "$f" "$n"
+            printf '%s  %s\n' "$(shasum -a 256 -- "$n" | cut -d' ' -f1)" "$n" > "$n.sha256"
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dmg-${{ matrix.arch }}
+          path: build/compose/binaries/main/dmg/*
+          retention-days: ${{ env.ARTIFACT_RETENTION }}
           if-no-files-found: error
 
   publish:
-    needs: windows-msi
-    runs-on: ubuntu-latest
+    # Tag pushes always publish; manual runs only when the input is set (and then the ref must be a tag, enforced in verify).
+    if: github.ref_type == 'tag' && (github.event_name == 'push' || inputs.publish)
+    needs: [verify, windows-msi, linux-packages, macos-dmg]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: msi
-          path: msi
+          path: dist
+          merge-multiple: true
+      - name: Check dist is flat
+        run: |
+          find dist -type f -print
+          [ -z "$(find dist -mindepth 1 -type d -print -quit)" ] || { echo "::error::dist/ is not flat"; exit 1; }
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
+      # Secrets cannot be used in `if:`, so a prior step turns their presence into an output.
+      - name: Detect GPG key
+        id: gpg
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          if [ -n "$GPG_PRIVATE_KEY" ]; then echo "has_gpg=true" >> "$GITHUB_OUTPUT"; else echo "has_gpg=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Sign release files with GPG
+        if: steps.gpg.outputs.has_gpg == 'true'
+        shell: bash
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          GNUPGHOME="$(mktemp -d)"
+          export GNUPGHOME
+          chmod 700 "$GNUPGHOME"
+          cleanup() { gpgconf --kill gpg-agent || true; rm -rf "$GNUPGHOME"; }
+          trap cleanup EXIT
+          printf '%s\n' "$GPG_PRIVATE_KEY" | gpg --batch --quiet --import
+          while IFS= read -r -d '' f; do
+            gpg --batch --yes --quiet --pinentry-mode loopback --passphrase-fd 3 \
+              --armor --detach-sign --output "$f.asc" -- "$f" 3<<<"$GPG_PASSPHRASE"
+          done < <(find dist -maxdepth 1 -type f ! -name '*.asc' -print0)
       - name: Publish release
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh release create "${GITHUB_REF_NAME}" msi/* --title "${GITHUB_REF_NAME}" --generate-notes
+        run: |
+          # Draft first, upload, publish last: a half-uploaded release is never public, and a re-run reuses the draft or release.
+          existing=$(gh release list --limit 200 --json tagName --jq '.[].tagName')
+          if ! grep -Fxq -- "${GITHUB_REF_NAME}" <<<"$existing"; then
+            gh release create "${GITHUB_REF_NAME}" --draft --verify-tag --title "${GITHUB_REF_NAME}" --generate-notes
+          fi
+          find dist -maxdepth 1 -type f -print0 | xargs -0 gh release upload "${GITHUB_REF_NAME}" --clobber
+          gh release edit "${GITHUB_REF_NAME}" --draft=false

@@ -1,15 +1,21 @@
 package com.github.krpkbhdn.astrolabe.claude.install;
 
 import com.github.krpkbhdn.astrolabe.workspace.HostEnvironment;
+import com.github.krpkbhdn.astrolabe.workspace.LoginShellPath;
+import com.github.krpkbhdn.astrolabe.workspace.UnixToolDirectories;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /** Where claude may live: PATH, native installer, package-manager bins; any claude.exe beats a .cmd shim. */
 @Component
+@EnableConfigurationProperties(ClaudeProperties.class)
 public class ClaudeBinaryLocator {
 
     private static final String APPDATA = "APPDATA";
@@ -22,6 +28,43 @@ public class ClaudeBinaryLocator {
     private static final List<String> UNIX_NAMES = List.of("claude");
     private static final Path NPM_SHIM_EXE =
             Path.of("node_modules", "@anthropic-ai", "claude-code", "bin", "claude.exe");
+
+    private final ClaudeProperties properties;
+    private final LoginShellPath loginShell;
+
+    @Autowired
+    public ClaudeBinaryLocator(ClaudeProperties properties, LoginShellPath loginShell) {
+        this.properties = properties;
+        this.loginShell = loginShell;
+    }
+
+    public ClaudeBinaryLocator() {
+        this(new ClaudeProperties(""), LoginShellPath.disabled());
+    }
+
+    /** Forgets the cached login-shell PATH so the next lookup asks the shell again. */
+    public void refresh() {
+        loginShell.invalidate();
+    }
+
+    /**
+     * Unix child-process environment for running claude: PATH starts with the folder holding the binary (an npm shim's
+     * {@code #!/usr/bin/env node} finds the node installed beside it), then the process PATH and the login-shell PATH.
+     * Empty on Windows.
+     */
+    public Map<String, String> environmentFor(HostEnvironment host, Path executable) {
+        if (host.windows() || executable.getParent() == null) {
+            return Map.of();
+        }
+        var entries = new ArrayList<String>();
+        entries.add(executable.getParent().toString());
+        var raw = host.env("PATH");
+        if (raw != null && !raw.isBlank()) {
+            entries.add(raw);
+        }
+        loginShell.directories(host).forEach(directory -> entries.add(directory.toString()));
+        return Map.of("PATH", String.join(":", entries));
+    }
 
     public Optional<Path> find(HostEnvironment host) {
         return candidates(host).stream().filter(host::isFile).findFirst().map(found -> preferNpmExe(host, found));
@@ -41,13 +84,29 @@ public class ClaudeBinaryLocator {
         var names = host.windows() ? WINDOWS_NAMES : UNIX_NAMES;
         var nativeDirectory = host.home().resolve(".local").resolve("bin");
         var result = new ArrayList<Path>();
-        var fallbacks = fallbackDirectories(host);
+        var override = overridePath();
+        override.ifPresent(result::add);
+        var fallbacks = new ArrayList<>(loginShell.directories(host));
+        fallbacks.addAll(fallbackDirectories(host));
         for (var name : names) {
             result.addAll(host.pathCandidates(List.of(name)));
             result.add(nativeDirectory.resolve(name));
             fallbacks.forEach(dir -> result.add(dir.resolve(name)));
         }
         return result.stream().distinct().toList();
+    }
+
+    private Optional<Path> overridePath() {
+        var configured = properties.path();
+        if (configured == null || configured.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            var path = Path.of(configured.strip());
+            return path.isAbsolute() ? Optional.of(path) : Optional.empty();
+        } catch (InvalidPathException e) {
+            return Optional.empty();
+        }
     }
 
     private static List<Path> fallbackDirectories(HostEnvironment host) {
@@ -83,6 +142,7 @@ public class ClaudeBinaryLocator {
         addEnvDirectory(result, host, PNPM_HOME);
         result.add(home.resolve(".local").resolve("share").resolve("pnpm"));
         result.add(Path.of("/home/linuxbrew/.linuxbrew/bin"));
+        result.addAll(UnixToolDirectories.of(host));
         return result;
     }
 
