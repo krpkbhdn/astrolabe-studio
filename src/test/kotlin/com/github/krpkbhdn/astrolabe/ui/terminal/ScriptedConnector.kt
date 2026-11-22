@@ -1,5 +1,6 @@
 package com.github.krpkbhdn.astrolabe.ui.terminal
 
+import com.github.krpkbhdn.astrolabe.ui.await
 import com.jediterm.core.util.TermSize
 import com.jediterm.terminal.TtyConnector
 import java.util.concurrent.CopyOnWriteArrayList
@@ -35,6 +36,12 @@ internal class ScriptedConnector : TtyConnector {
     fun hasUnreadOutput(): Boolean = processed != fed.get()
 
     fun writtenText(): String = written.joinToString("") { String(it, Charsets.ISO_8859_1) }
+
+    /** Waits for the emulator's writer thread to hand over at least as many bytes as [expected] has, then returns everything written. */
+    fun awaitWritten(expected: String): String {
+        await { writtenText().length >= expected.length }
+        return writtenText()
+    }
 
     override fun read(buf: CharArray, offset: Int, length: Int): Int {
         while (pending.isEmpty()) {

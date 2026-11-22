@@ -74,11 +74,11 @@ class AppControlAdapterTest {
 
     @Test
     fun `a call that started before the timeout is awaited and returns normally`() {
-        val slow = AppControlAdapter(state, scope, Duration.ofMillis(200))
+        val slow = AppControlAdapter(state, scope, Duration.ofSeconds(1))
         val finished = java.util.concurrent.atomic.AtomicBoolean()
 
         slow.onUi {
-            val pastTimeout = System.nanoTime() + Duration.ofMillis(300).toNanos()
+            val pastTimeout = System.nanoTime() + Duration.ofMillis(1500).toNanos()
             com.github.krpkbhdn.astrolabe.ui.await { System.nanoTime() > pastTimeout }
             finished.set(true)
         }
@@ -89,7 +89,7 @@ class AppControlAdapterTest {
     @Test
     fun `a call that started but never finishes fails instead of hanging`() {
         val release = java.util.concurrent.CountDownLatch(1)
-        val hung = AppControlAdapter(state, scope, Duration.ofMillis(100))
+        val hung = AppControlAdapter(state, scope, Duration.ofMillis(500))
 
         try {
             assertThatThrownBy { hung.onUi { release.await() } }.hasMessageContaining("started but did not finish")

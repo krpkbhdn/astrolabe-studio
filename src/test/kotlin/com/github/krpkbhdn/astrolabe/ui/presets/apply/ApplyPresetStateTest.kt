@@ -46,6 +46,8 @@ class ApplyPresetStateTest {
     @AfterEach
     fun stop() = scope.cancel()
 
+    private fun awaitReviewed(target: ApplyPresetState = state) = await { target.plan != null && target.selection.isNotEmpty() }
+
     @Test
     fun `opening for a project starts at the choice with the first preset marked`() {
         state.open(7)
@@ -81,7 +83,7 @@ class ApplyPresetStateTest {
 
     @Test
     fun `plan is null while it is worked out`() {
-        PreviewApply.planDelayMillis = 300
+        PreviewApply.planDelayMillis = 3000
 
         state.open(7, 1)
 
@@ -92,7 +94,7 @@ class ApplyPresetStateTest {
     @Test
     fun `toggling unchecks a change and never checks a conflict`() {
         state.open(7, 1)
-        await { state.plan != null }
+        awaitReviewed()
         val create = state.plan!!.first { it.componentId() == 2L }
         val conflict = state.plan!!.first { it.componentId() == 9L }
 
@@ -105,7 +107,7 @@ class ApplyPresetStateTest {
     @Test
     fun `apply sends the checked components and shows the outcomes`() {
         state.open(7, 1)
-        await { state.plan != null }
+        awaitReviewed()
         state.toggle(state.plan!!.first { it.componentId() == 2L })
 
         state.apply()
@@ -120,7 +122,7 @@ class ApplyPresetStateTest {
     fun `apply failure stays on the review with the message`() {
         `when`(service.apply(anyLong(), anyList<Long>(), any(Path::class.java), any())).thenThrow(IllegalStateException("disk full"))
         state.open(7, 1)
-        await { state.plan != null }
+        awaitReviewed()
 
         state.apply()
         await { state.error != null && !state.running }
@@ -134,7 +136,7 @@ class ApplyPresetStateTest {
         `when`(service.plan(anyList<Long>(), any(Path::class.java))).thenThrow(IllegalArgumentException("Unknown preset 1"))
 
         state.open(7, 1)
-        await { state.error != null }
+        await { state.error != null && state.plan != null }
 
         assertThat(state.plan).isEmpty()
         assertThat(state.error).isEqualTo("Unknown preset 1")
@@ -182,7 +184,9 @@ class ApplyPresetStateTest {
 
     @Test
     fun `several checked presets are planned together in list order`() {
+        recommendedKeys = setOf("general")
         state.open(7)
+        await { state.recommended.isNotEmpty() }
         state.toggleChosen(2)
         state.review()
         await { state.plan != null }
@@ -197,7 +201,7 @@ class ApplyPresetStateTest {
         val withFile = Project(7, "demo", dir, Instant.EPOCH)
         val tidyState = ApplyPresetState(service, applications, { presets }, { withFile }, scope, {}, { emptySet() }, { p, prompt, started -> tidyStarted += p to prompt; started() })
         tidyState.open(7, 1)
-        await { tidyState.plan != null }
+        awaitReviewed(tidyState)
 
         tidyState.apply()
         await { tidyState.step == ApplyStep.RESULT && tidyState.tidyOffered }

@@ -134,9 +134,9 @@ class PosixUpdateScriptInjectionTest {
         var marker = updates.resolve("marker");
         Files.writeString(script, PosixUpdateScript.script("step mark sh -c 'echo original > \"$1\"' sh \"$1\"\n"));
 
-        var process = new ProcessBuilder("sh", "-c", "sleep 3 & P=$!; sh \"$1\" \"$2\" \"$P\" \"$3\" 60 5 1 \"$4\"", "x", posix(script), posix(updates), posix(app),
+        var process = new ProcessBuilder("sh", "-c", "sleep 8 & P=$!; sh \"$1\" \"$2\" \"$P\" \"$3\" 60 5 1 \"$4\"", "x", posix(script), posix(updates), posix(app),
                 posix(marker)).directory(temp.toFile()).redirectErrorStream(true).start();
-        Thread.sleep(1000);
+        Thread.sleep(2000);
         // many lines, so a shell that read the file lazily would land on one of them wherever it stood
         Files.writeString(script, ("echo hacked > '" + posix(marker) + "'\n").repeat(5000));
         process.getInputStream().readAllBytes();

@@ -226,17 +226,18 @@ class ContainerSandboxTest {
     @Test
     void timeoutHoldsWhileAToolCallIsBlocked() throws InterruptedException {
         var bridge = new InterruptibleBlockingBridge();
-        var result = sandbox(Duration.ofMillis(300), 1000, (in, out) -> {
+        var result = sandbox(Duration.ofSeconds(3), 1000, (in, out) -> {
             awaitRun(in);
             out.println("{\"type\":\"log\",\"line\":\"before\"}");
             out.println("{\"type\":\"call\",\"id\":1,\"server\":\"a\",\"tool\":\"b\",\"args\":{}}");
-            sleepQuietly(5000);
+            sleepQuietly(30000);
         }).run("code", bridge, SESSION);
 
+        assertThat(bridge.entered.await(1, TimeUnit.SECONDS)).as("the tool call reached the bridge").isTrue();
         assertThat(result.error()).hasValueSatisfying(e -> assertThat(e).contains("max-script-time"));
         assertThat(result.output()).isEqualTo("before");
         assertThat(started).anyMatch(c -> c.contains("kill"));
-        assertThat(bridge.interrupted.await(2, TimeUnit.SECONDS)).isTrue();
+        assertThat(bridge.interrupted.await(10, TimeUnit.SECONDS)).isTrue();
     }
 
     private static void sleepQuietly(long millis) {

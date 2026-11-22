@@ -78,6 +78,7 @@ class CodeModeRecoveryTest extends EndToEndFixture {
 
         assertThat(result.path("isError").asBoolean()).isTrue();
         assertThat(text(result)).contains("timed out after 1 s").contains("astrolabe.code-mode.timeout");
+        wire(Duration.ofSeconds(20), Duration.ofSeconds(20));
         assertSessionRecovered(HEALTHY_SERVER);
     }
 

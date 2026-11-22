@@ -201,8 +201,8 @@ class GraalJsSandboxTest {
 
     @Test
     void timersRunInDueOrderAndClearedOnesDoNot() {
-        ScriptResult result = run("const seen = []; setTimeout(() => seen.push('late'), 30); const gone = setTimeout(() => seen.push('gone'), 5);"
-                + " clearTimeout(gone); await new Promise(r => setTimeout(r, 10, 'x')); seen.push('slept'); await new Promise(r => setTimeout(r, 60));"
+        ScriptResult result = run("const seen = []; setTimeout(() => seen.push('late'), 250); const gone = setTimeout(() => seen.push('gone'), 5);"
+                + " clearTimeout(gone); await new Promise(r => setTimeout(r, 10, 'x')); seen.push('slept'); await new Promise(r => setTimeout(r, 300));"
                 + " return [typeof setTimeout, typeof setInterval, seen.join()];");
 
         assertThat(result.error()).isEmpty();
@@ -306,12 +306,13 @@ class GraalJsSandboxTest {
     @Test
     void timeoutHoldsWhileAnInterruptibleHostCallBlocks() throws InterruptedException {
         InterruptibleBlockingBridge blocking = new InterruptibleBlockingBridge();
-        try (GraalJsSandbox slow = sandbox(Duration.ofMillis(500), Long.MAX_VALUE, 1000)) {
+        try (GraalJsSandbox slow = sandbox(Duration.ofSeconds(3), Long.MAX_VALUE, 1000)) {
             ScriptResult result = slow.run("console.log('before'); await servers.a.b({});", blocking, SESSION);
 
+            assertThat(blocking.entered.await(1, TimeUnit.SECONDS)).as("the host call was entered").isTrue();
             assertThat(result.error()).hasValueSatisfying(e -> assertThat(e).contains("max-script-time"));
             assertThat(result.output()).isEqualTo("before");
-            assertThat(blocking.interrupted.await(2, TimeUnit.SECONDS)).isTrue();
+            assertThat(blocking.interrupted.await(10, TimeUnit.SECONDS)).isTrue();
         }
     }
 
@@ -372,14 +373,12 @@ class GraalJsSandboxTest {
 
     @Test
     void runawayRegexIsCancelledAndItsWorkerEnds() throws InterruptedException {
+        awaitNoScriptWorker();
         ScriptResult result;
         try (GraalJsSandbox regex = sandbox(Duration.ofMillis(500), 100_000, 1000)) {
             result = regex.run("return /^(.*?,){11}P/.test('1,'.repeat(200000));", bridge, SESSION);
         }
-        long deadline = System.currentTimeMillis() + 10_000;
-        while (scriptWorkerAlive() && System.currentTimeMillis() < deadline) {
-            Thread.sleep(10);
-        }
+        awaitNoScriptWorker();
 
         assertThat(result.error()).hasValueSatisfying(e -> assertThat(e).contains("max-script-time"));
         assertThat(scriptWorkerAlive()).isFalse();
@@ -388,6 +387,14 @@ class GraalJsSandboxTest {
     @Test
     void atomicsWaitIsRefused() {
         assertThat(run("Atomics.wait(new Int32Array(new SharedArrayBuffer(16)), 0, 0); return 1;").error()).isPresent();
+    }
+
+    // leftovers of earlier tests are closed asynchronously, so wait for a clean slate before and after the run
+    private static void awaitNoScriptWorker() throws InterruptedException {
+        long deadline = System.nanoTime() + Duration.ofSeconds(20).toNanos();
+        while (scriptWorkerAlive() && System.nanoTime() < deadline) {
+            Thread.sleep(10);
+        }
     }
 
     private static boolean scriptWorkerAlive() {

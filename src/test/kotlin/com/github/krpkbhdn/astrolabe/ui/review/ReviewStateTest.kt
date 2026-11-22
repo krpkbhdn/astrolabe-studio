@@ -64,11 +64,13 @@ class ReviewStateTest {
         `when`(service.list(1)).thenReturn(listOf(review(1, ReviewStatus.PENDING)))
         val first = ReviewImage(10, 1, 0, "a", "a.png", 1, 1)
         val second = ReviewImage(11, 1, 1, "b", "b.png", 1, 1)
-        `when`(service.images(1)).thenReturn(listOf(first), listOf(first, second))
+        val current = java.util.concurrent.atomic.AtomicReference(listOf(first))
+        `when`(service.images(1)).thenAnswer { current.get() }
         state.start()
         await { state.reviews(1).isNotEmpty() }
         await { state.images(1).size == 1 }
 
+        current.set(listOf(first, second))
         changed.run()
 
         await { state.images(1).size == 2 }

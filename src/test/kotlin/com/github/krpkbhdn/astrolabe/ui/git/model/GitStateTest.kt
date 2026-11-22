@@ -137,7 +137,7 @@ class GitStateTest {
         val (git, data) = open()
 
         git.checkout("dirty-branch")
-        await { git.dialog is GitDialog.DirtyCheckout }
+        await { git.dialog is GitDialog.DirtyCheckout && !git.busy }
         git.dialog = null
         git.checkout("dirty-branch", autoStash = true)
 
@@ -164,7 +164,7 @@ class GitStateTest {
         data.failure = GitException(GitException.Kind.LOCKED, "index.lock exists", "index.lock")
 
         git.stage(listOf("build.gradle.kts"))
-        await { git.error != null }
+        await { git.error != null && !git.busy }
         git.perform(ErrorAction.RETRY)
 
         await { "build.gradle.kts" in paths(git, staged = true) }
@@ -232,10 +232,11 @@ class GitStateTest {
     @Test
     fun `stashing updates the stash list`() {
         val (git, _) = open()
+        await { git.stashes.size == 2 }
 
         git.stashPush("parked", includeUntracked = false)
 
-        await { git.stashes.first().message() == "parked" }
+        await { git.stashes.firstOrNull()?.message() == "parked" }
         await { git.status!!.changes().isEmpty() }
     }
 
@@ -258,6 +259,8 @@ class GitStateTest {
         val data = SampleRepos.busy()
         data.rows = List(LOG_PAGE_SIZE + 50) { withHash(data.rows[it % data.rows.size], "h$it") }
         val (git, _) = open(data)
+        // identity is set after the first load compared the refs, so no late reload can join the log below
+        await { git.identity != null }
 
         git.log.reload()
         await { git.log.rows.size == LOG_PAGE_SIZE && !git.log.loading }
@@ -273,6 +276,7 @@ class GitStateTest {
         val first = data.rows.first()
         data.rows = List(LOG_PAGE_SIZE) { withHash(first, "h$it") } + withHash(first, "h0") + withHash(first, "tail")
         val (git, _) = open(data)
+        await { git.identity != null }
 
         git.log.reload()
         await { git.log.rows.size == LOG_PAGE_SIZE && !git.log.loading }

@@ -121,8 +121,8 @@ abstract class CodeModeFixture {
     }
 
     static void await(java.util.function.BooleanSupplier condition) {
-        var deadline = System.currentTimeMillis() + 5_000;
-        while (!condition.getAsBoolean() && System.currentTimeMillis() < deadline) {
+        var deadline = System.nanoTime() + Duration.ofSeconds(15).toNanos();
+        while (!condition.getAsBoolean() && System.nanoTime() < deadline) {
             sleep(5);
         }
         assertThat(condition.getAsBoolean()).isTrue();

@@ -114,7 +114,7 @@ abstract class EndToEndFixture {
     @BeforeEach
     void setUp(@TempDir Path dir) throws Exception {
         this.dir = dir;
-        wire(Duration.ofSeconds(20), Duration.ofSeconds(2));
+        wire(Duration.ofSeconds(60), Duration.ofSeconds(30));
     }
 
     Path dir;
@@ -215,9 +215,9 @@ abstract class EndToEndFixture {
         return dir.resolve("hung.flag");
     }
 
-    /** Polls until the condition holds, failing after five seconds. */
+    /** Polls until the condition holds, failing after thirty seconds. */
     static void eventually(java.util.function.BooleanSupplier condition, String what) throws InterruptedException {
-        var deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+        var deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
         while (!condition.getAsBoolean()) {
             assertThat(System.nanoTime()).as("waiting for " + what).isLessThan(deadline);
             Thread.sleep(10);

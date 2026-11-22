@@ -175,7 +175,7 @@ class TerminalAwtKeyPipelineTest {
         selectHello()
         ctrl(KeyEvent.VK_C, '\u0003')
         ctrl(KeyEvent.VK_C, '\u0003')
-        assertThat(written()).isEqualTo("\u0003")
+        assertThat(writtenAtLeast("\u0003")).isEqualTo("\u0003")
     }
 
     @Test
@@ -202,6 +202,6 @@ class TerminalAwtKeyPipelineTest {
             override fun getTransferData(flavor: DataFlavor) = throw java.awt.datatransfer.UnsupportedFlavorException(flavor)
         })
         ctrl(KeyEvent.VK_V, '\u0016')
-        assertThat(written()).isEqualTo("\u0016")
+        assertThat(writtenAtLeast("\u0016")).isEqualTo("\u0016")
     }
 }

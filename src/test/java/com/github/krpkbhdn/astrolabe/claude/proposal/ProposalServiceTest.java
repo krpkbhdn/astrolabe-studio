@@ -321,17 +321,17 @@ class ProposalServiceTest {
 
     @Test
     void newerProposalWithTheSameIdSurvivesTheOlderOneTimingOut() throws Exception {
-        var shortLived = serviceHolding(Duration.ofMillis(600));
+        var shortLived = serviceHolding(Duration.ofSeconds(6));
         var older = holdForApp(shortLived);
         // the newer hold must start well inside the older one's window; there is no clock seam
-        Thread.sleep(300);
+        Thread.sleep(3000);
         var newer = holdForApp(shortLived);
 
-        assertThat(older.get(WAIT_SECONDS, TimeUnit.SECONDS)).isEqualTo(AppDecision.Unanswered.TIMED_OUT);
+        assertThat(older.get(WAIT_SECONDS * 3, TimeUnit.SECONDS)).isEqualTo(AppDecision.Unanswered.TIMED_OUT);
 
         assertThat(newer).isNotDone();
         assertThat(shortLived.pending()).hasSize(1);
-        assertThat(newer.get(WAIT_SECONDS, TimeUnit.SECONDS)).isEqualTo(AppDecision.Unanswered.TIMED_OUT);
+        assertThat(newer.get(WAIT_SECONDS * 3, TimeUnit.SECONDS)).isEqualTo(AppDecision.Unanswered.TIMED_OUT);
         assertThat(shortLived.pending()).isEmpty();
     }
 

@@ -66,7 +66,7 @@ class TerminalInteractionTest {
     fun typedCyrillicLettersReachTheProcessAsUtf8() {
         typed('ї')
         typed('ж')
-        settle(connector, session)
+        connector.awaitWritten("1234")
         assertThat(connector.written.flatMap { it.toList() }).containsExactly(0xD1.toByte(), 0x97.toByte(), 0xD0.toByte(), 0xB6.toByte())
     }
 
@@ -75,7 +75,7 @@ class TerminalInteractionTest {
         pressed(AwtKeyEvent.VK_C, '\u0003', InputEvent.CTRL_DOWN_MASK)
         pressed(AwtKeyEvent.VK_UP)
         pressed(AwtKeyEvent.VK_ENTER, '\n', InputEvent.SHIFT_DOWN_MASK)
-        settle(connector, session)
+        connector.awaitWritten("\u0003$ESC[A$ESC\r")
         assertThat(written()).isEqualTo("\u0003$ESC[A$ESC\r")
     }
 
@@ -130,11 +130,11 @@ class TerminalInteractionTest {
     fun applicationMouseModeReceivesClicksInsteadOfSelection() {
         scene.play("${ESC}[?1000h${ESC}[?1006h")
         click(4, 2)
-        settle(connector, session)
+        connector.awaitWritten("$ESC[<0;5;3M$ESC[<0;5;3m")
         assertThat(written()).isEqualTo("$ESC[<0;5;3M$ESC[<0;5;3m")
         assertThat(session.selection).isNull()
         pointer(PointerEventType.Scroll, point(4, 2), scroll = Offset(0f, 1f))
-        settle(connector, session)
+        connector.awaitWritten("$ESC[<0;5;3M$ESC[<0;5;3m$ESC[<65;5;3M")
         assertThat(written()).endsWith("$ESC[<65;5;3M")
     }
 

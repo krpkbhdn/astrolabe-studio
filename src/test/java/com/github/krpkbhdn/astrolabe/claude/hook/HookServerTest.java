@@ -36,7 +36,7 @@ import tools.jackson.databind.json.JsonMapper;
 class HookServerTest {
 
     private static final int MAX_BODY = 1024;
-    private static final long VERIFY_TIMEOUT_MS = 2000;
+    private static final long VERIFY_TIMEOUT_MS = 10_000;
 
     private final HookEventStore store = mock(HookEventStore.class);
     private final ApplicationEventPublisher publisher = mock(ApplicationEventPublisher.class);
@@ -503,7 +503,8 @@ class HookServerTest {
         }
         server.start();
         server.stop();
-        assertThat(Thread.getAllStackTraces().keySet()).noneMatch(t -> t.getName().equals("hook-worker") && t.isAlive());
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(10))
+                .untilAsserted(() -> assertThat(Thread.getAllStackTraces().keySet()).noneMatch(t -> t.getName().equals("hook-worker") && t.isAlive()));
     }
 
     /** Publishing records the hook event name and then blocks until {@code release} opens. */

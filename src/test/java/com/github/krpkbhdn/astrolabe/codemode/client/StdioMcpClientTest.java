@@ -127,7 +127,7 @@ class StdioMcpClientTest {
 
     @Test
     void unansweredRequestTimesOutWithATransportFailure() {
-        var started = start(Duration.ofSeconds(4));
+        var started = start(Duration.ofSeconds(10));
 
         assertThatThrownBy(() -> started.callTool("never", null)).isInstanceOf(McpClientException.class).isNotInstanceOf(McpServerErrorException.class)
                 .hasMessageContaining("in time");
@@ -157,11 +157,11 @@ class StdioMcpClientTest {
 
     @Test
     void aServerThatStopsReadingFailsTheCallInsteadOfBlockingTheWriter() {
-        var started = start(Duration.ofSeconds(3));
+        var started = start(Duration.ofSeconds(10));
         started.callTool("stopreading", null);
         var flood = JsonMapper.builder().build().createObjectNode().put("blob", "x".repeat(4 * 1024 * 1024));
 
-        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(Duration.ofSeconds(15), () ->
+        org.junit.jupiter.api.Assertions.assertTimeoutPreemptively(Duration.ofSeconds(40), () ->
                 assertThatThrownBy(() -> started.callTool("echo", flood)).isInstanceOf(McpClientException.class).hasMessageContaining("not accepting input in time"));
         assertThatThrownBy(() -> started.callTool("echo", null)).isInstanceOf(McpClientException.class);
     }

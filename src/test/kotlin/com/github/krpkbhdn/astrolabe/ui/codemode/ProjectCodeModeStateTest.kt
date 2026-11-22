@@ -61,7 +61,7 @@ class ProjectCodeModeStateTest {
         state.setServer("jira", true)
         releaseFirstSave.countDown()
 
-        await { saved.size == 2 && state.servers == listOf("jira") && state.enabled }
+        await { saved.size == 2 && shownAtSecondSave.get() != null && running.get() == 0 }
         assertThat(saved).containsExactly(emptyList(), listOf("jira"))
         assertThat(mostAtOnce).hasValue(1)
         assertThat(shownAtSecondSave.get()).containsExactly("jira")

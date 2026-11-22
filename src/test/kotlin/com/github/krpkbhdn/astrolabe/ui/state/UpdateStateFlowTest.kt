@@ -212,6 +212,7 @@ class UpdateStateFlowTest {
         await { state.status == UpdateStatus.Available(offer) }
         val gate = CountDownLatch(1)
         `when`(service.checkForUpdate()).thenAnswer { gate.await(); Optional.of(offer) }
+        await { !state.checking }
         state.checkNow()
         await { state.checking }
 

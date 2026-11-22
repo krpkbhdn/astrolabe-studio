@@ -157,6 +157,7 @@ class LanguagesStateTest {
         val languages = state()
         languages.refresh()
         await { languages.rows.size == 3 }
+        await { !languages.loading }
 
         languages.setEnabled("a", true)
         firstEntered.await()
@@ -203,9 +204,11 @@ class LanguagesStateTest {
         val languages = LanguagesState(service, dir, scope, groupLsp, 7)
         languages.refresh()
         await { languages.rows.isNotEmpty() }
+        await { !languages.loading }
 
         languages.inheritFromMembers(true)
         await { languages.inherits }
+        await { !languages.busy && !languages.loading }
         verify(groupLsp).inherit(7)
 
         languages.inheritFromMembers(false)
