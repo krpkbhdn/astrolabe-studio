@@ -9,8 +9,7 @@
 Visual review of what Claude builds (screenshots and live websites), agent teams, notifications, and one-click approval of everything Claude asks for.
 
 [![Release](https://img.shields.io/github/v/release/krpkbhdn/astrolabe-studio?label=release)](https://github.com/krpkbhdn/astrolabe-studio/releases)
-![Windows](https://img.shields.io/badge/Windows-installer-informational)
-![Linux and macOS](https://img.shields.io/badge/Linux%20%7C%20macOS-installers-lightgrey)
+![Platforms](https://img.shields.io/badge/Platforms-Windows%20%7C%20Linux%20%7C%20macOS-informational)
 ![Java](https://img.shields.io/badge/Java-25%20(JBR)-orange)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4-7F52FF)
 ![License](https://img.shields.io/badge/License-Apache%202.0-blue)
