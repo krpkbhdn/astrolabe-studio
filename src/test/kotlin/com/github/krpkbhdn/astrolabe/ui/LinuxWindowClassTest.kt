@@ -13,8 +13,15 @@ class LinuxWindowClassTest {
     }
 
     @Test
-    fun `WM_CLASS equals the Linux packageName in the build script`() {
+    fun `deb post-processing StartupWMClass equals the Kotlin WM_CLASS constant`() {
         val build = Files.readString(Path.of("build.gradle.kts"))
-        assertThat(build).contains("packageName = \"$LINUX_WM_CLASS\"")
+        assertThat(build).contains("\"StartupWMClass=$LINUX_WM_CLASS\"")
+    }
+
+    @Test
+    fun `WM_CLASS is the jpackage desktop id of the Linux packageName and launcher`() {
+        val build = Files.readString(Path.of("build.gradle.kts"))
+        assertThat(build).contains("packageName = \"astrolabe-studio\"")
+        assertThat(LINUX_WM_CLASS).isEqualTo("astrolabe-studio-Astrolabe_Studio")
     }
 }

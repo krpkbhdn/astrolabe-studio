@@ -58,7 +58,7 @@ Comment=Run and manage local Claude Code sessions
 Exec="$exec_path"
 Icon=astrolabe-studio
 Terminal=false
-StartupWMClass=astrolabe-studio
+StartupWMClass=astrolabe-studio-Astrolabe_Studio
 Categories=Development;
 DESKTOP
 
