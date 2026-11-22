@@ -7,7 +7,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import com.github.krpkbhdn.astrolabe.claude.hook.ActivityEntry
 import com.github.krpkbhdn.astrolabe.claude.install.LoginState
-import com.github.krpkbhdn.astrolabe.claude.launch.BackgroundAgent
 import com.github.krpkbhdn.astrolabe.claude.launch.ClaudeLauncher
 import com.github.krpkbhdn.astrolabe.claude.session.AgentStatus
 import com.github.krpkbhdn.astrolabe.claude.session.SessionSnapshot
@@ -99,7 +98,7 @@ class AppState(
     var loginBannerDismissed by mutableStateOf(false)
 
     val views = mutableStateMapOf<Long, ProjectView>()
-    val backgroundAgents = mutableStateMapOf<Long, List<BackgroundAgent>>()
+    val backgroundAgents = BackgroundAgentsState(scope, backend.backgroundAgents::list) { notifications.reportError(it) }
 
     val prefs = UiPreferences(settingsStore, scope, backend.sound, backend.usageAlerts, backend.usageDefaults) { notifications.reportError(it) }
     val environment = ClaudeEnvironment(backend, scope, prefs) { notifications.reportError(it) }
@@ -222,11 +221,10 @@ class AppState(
     val tools: ToolsState = ToolsState(backend.toolchain, scope, { lspSetup.running }, notifications::reportError)
     val detectedTech = DetectedTechState(backend.toolchain?.health, scope)
     val lspSetup: LspSetupState = LspSetupState(backend.toolchain?.lspSetup, scope, { tools.install != InstallFlow.Idle || tools.installRunning }, detectedTech::refresh, notifications::reportError)
-    val update = UpdateState(backend.updates, scope, notifications::reportError, ::requestQuit) { exitApp() }
+    val update = UpdateState(backend.updates, scope, notifications::reportError, ::requestUpdateInstall) { exitApp() }
     var exitApp: () -> Unit = {}
     val agents = AgentsState(backend.transcripts, scope, { live }, ::showSessionTerminal)
     private val unsubscribers = mutableListOf<Runnable>()
-    private val refreshingAgents = mutableSetOf<Long>()
     val worktrees: WorktreeActions = WorktreeActions(projects, sessions, shells, runs, backend.git.taskWorktrees, backend.terminal) { gits }
     val gits = ProjectGits(
         backend.git, scope,
@@ -386,15 +384,7 @@ class AppState(
     }
 
     fun refreshBackgroundAgents(projectId: Long) {
-        val path: Path = projects.find(projectId)?.path ?: return
-        if (!refreshingAgents.add(projectId)) return
-        scope.launch {
-            try {
-                guarded { backgroundAgents[projectId] = io { backend.backgroundAgents.list(path) } }
-            } finally {
-                refreshingAgents.remove(projectId)
-            }
-        }
+        projects.find(projectId)?.path?.let { backgroundAgents.refresh(projectId, it) }
     }
 
     val terminal: TerminalPort get() = backend.terminal
@@ -419,10 +409,16 @@ class AppState(
         )
     }
 
+    /** Always asks, with [message] naming the update, because installing quits the app and closes every session; a running tool install is warned about like on quit. */
+    fun requestUpdateInstall(message: String, install: () -> Unit, cancel: () -> Unit) {
+        val full = listOfNotNull(message, quitWarningOf(0, tools.installRunning)).joinToString(" ")
+        confirm = supersede(confirm, ConfirmRequest(title = "Install update", message = full, confirmLabel = "Install and restart", destructive = false, onConfirm = install, onCancel = cancel))
+    }
+
     private fun forgetRemovedProjects(projectIds: Set<Long>) {
         views.keys.retainAll(projectIds)
         gits.retain(projectIds)
-        backgroundAgents.keys.retainAll(projectIds)
+        backgroundAgents.retain(projectIds)
         runs.retainProjects(projectIds)
         navigator.leaveProjectIf { it !in projectIds }
         liveSync.request()

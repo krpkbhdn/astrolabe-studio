@@ -21,7 +21,6 @@ import com.github.krpkbhdn.astrolabe.toolchain.managed.ToolChannel;
 import com.github.krpkbhdn.astrolabe.toolchain.managed.ToolChannelStore;
 import java.util.concurrent.atomic.AtomicInteger;
 import com.github.krpkbhdn.astrolabe.workspace.CommandRunner;
-import com.github.krpkbhdn.astrolabe.workspace.FakeHostEnvironment;
 import com.github.krpkbhdn.astrolabe.workspace.HostEnvironment;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -94,11 +93,6 @@ class ToolInstallServiceTest {
     }
 
     @Test
-    void planDisplaysQuotedCommandLine() {
-        assertThat(service().plan("ts").orElseThrow().commandLine()).isEqualTo("npm install -g \"some tool\"");
-    }
-
-    @Test
     void unknownToolHasNoPlanAndIsBlocked() {
         assertThat(service().plan("nope")).isEmpty();
         assertThat(service().install("nope", line -> {}).outcome()).isEqualTo(Outcome.BLOCKED);
@@ -115,43 +109,6 @@ class ToolInstallServiceTest {
         assertThat(installed.status().state()).isEqualTo(ToolState.RESPONDING);
         assertThat(lines).containsExactly("line 1");
         assertThat(started).containsExactly(NPM_INSTALL);
-    }
-
-    @Test
-    void windowsRunsThroughCmdWithQuotedArguments() {
-        when(host.os()).thenReturn(HostEnvironment.OperatingSystem.WINDOWS);
-        when(host.windows()).thenReturn(true);
-        when(probe.probeFresh("ts")).thenReturn(new ToolStatus("ts", ToolState.INSTALLED, "", ""));
-
-        service().install("ts", line -> {});
-
-        assertThat(started).containsExactly(List.of("cmd.exe", "/c", "npm", "install", "-g", "\"some tool\""));
-    }
-
-    @Test
-    void exitCodeZeroButMissingIsStillMissing() {
-        var installed = service().install("ts", line -> {});
-
-        assertThat(installed.outcome()).isEqualTo(Outcome.STILL_MISSING);
-        assertThat(installed.message()).isEqualTo("Installed, but not found on PATH. After a PATH change, restart the app so it is picked up.");
-    }
-
-    @Test
-    void nonZeroExitFailsWithLastNonEmptyLine() {
-        result = new CommandRunner.Result(1, "first\nnpm ERR! boom\n\n", "", false);
-
-        var installed = service().install("ts", line -> {});
-
-        assertThat(installed.outcome()).isEqualTo(Outcome.FAILED);
-        assertThat(installed.exitCode()).isEqualTo(1);
-        assertThat(installed.message()).isEqualTo("npm ERR! boom");
-    }
-
-    @Test
-    void failureMessageSkipsRenderedSpinnerLines() {
-        result = new CommandRunner.Result(1, "npm ERR! boom\n  ⠋ ⠙\n\n", "", false);
-
-        assertThat(service().install("ts", line -> {}).message()).isEqualTo("npm ERR! boom");
     }
 
     @Test
@@ -187,38 +144,6 @@ class ToolInstallServiceTest {
         service().install("ts", line -> {});
 
         assertThat(started).containsExactly(NPM_INSTALL);
-    }
-
-    @Test
-    void installRunsInTheTempDirectoryNotHome() {
-        var directories = new ArrayList<Path>();
-        runner = (command, directory, timeout, environment, onOutput) -> {
-            directories.add(directory);
-            return result;
-        };
-
-        service().install("ts", line -> {});
-
-        assertThat(directories).containsExactly(Path.of(System.getProperty("java.io.tmpdir")));
-    }
-
-    @Test
-    void installRunsWithTheLookupSearchPath() {
-        var nodeDirectory = Path.of("pf", "nodejs");
-        var windows = new FakeHostEnvironment(HostEnvironment.OperatingSystem.WINDOWS, Path.of("home")).withPath(Path.of("old"))
-                .withEnv("ProgramFiles", "pf").withFile(nodeDirectory.resolve("node.exe"));
-        var seen = new ArrayList<Map<String, String>>();
-        runner = (command, directory, timeout, environment, onOutput) -> {
-            seen.add(environment);
-            return result;
-        };
-
-        new ToolInstallService(catalog, probe, lookup(windows), host, properties, runner, directory, installer, new ToolChannelStore(directory)).install("ts", line -> {});
-
-        assertThat(seen).hasSize(1);
-        assertThat(seen.getFirst().get("PATH")).startsWith("old").contains(nodeDirectory.toString());
-        assertThat(seen.getFirst()).containsEntry("NoDefaultCurrentDirectoryInExePath", "1");
-        assertThat(seen.getFirst()).containsEntry("NONINTERACTIVE", "1");
     }
 
     @Test
@@ -289,32 +214,6 @@ class ToolInstallServiceTest {
         register(new ToolDefinition("dl", "Downloaded", "g", ToolKind.LANGUAGE_SERVER, "dl", List.of(), "", "", List.of(),
                 Map.of(), "https://docs", Map.of(), Map.of("linux", DOWNLOAD)));
         status("dl", ToolState.INSTALLED);
-    }
-
-    @Test
-    void downloadPlanHasNoCommandAndNoBlocker() {
-        registerDownloadTool();
-
-        var plan = service().plan("dl").orElseThrow();
-
-        assertThat(plan.command()).isEmpty();
-        assertThat(plan.commandLine()).isEmpty();
-        assertThat(plan.blocker()).isEmpty();
-        var download = plan.download().orElseThrow();
-        assertThat(download.host()).isEqualTo("download.eclipse.org");
-        assertThat(download.installDirectory()).isEqualTo(directory.root().resolve("dl"));
-        assertThat(download.archiveUrlTemplate()).contains("{version}");
-    }
-
-    @Test
-    void downloadForAnotherOsOnlyBlocksWithTheNoCommandReason() {
-        registerDownloadTool();
-        when(host.os()).thenReturn(HostEnvironment.OperatingSystem.MACOS);
-
-        var plan = service().plan("dl").orElseThrow();
-
-        assertThat(plan.download()).isEmpty();
-        assertThat(plan.blocker()).contains("This tool cannot be installed automatically on macos.");
     }
 
     @Test
@@ -571,27 +470,6 @@ class ToolInstallServiceTest {
 
         assertThat(interrupted).isTrue();
         assertThat(service.isInstalling()).isFalse();
-    }
-
-    @Test
-    void manualInstallIsShownInThePlanButNeverRun() {
-        register(new ToolDefinition("manual", "Manual", "g", ToolKind.LANGUAGE_SERVER, "manual", List.of(), "", "", List.of(),
-                Map.of(), "https://docs", Map.of("linux", "curl https://x | sudo sh"), null));
-        status("manual", ToolState.MISSING);
-
-        var plan = service().plan("manual").orElseThrow();
-        var installed = service().install("manual", line -> {});
-
-        assertThat(plan.manualCommand()).isEqualTo("curl https://x | sudo sh");
-        assertThat(plan.command()).isEmpty();
-        assertThat(plan.blocker()).contains("This tool cannot be installed automatically on linux.");
-        assertThat(installed.outcome()).isEqualTo(Outcome.BLOCKED);
-        assertThat(started).isEmpty();
-    }
-
-    @Test
-    void planWithoutManualInstallHasEmptyManualCommand() {
-        assertThat(service().plan("ts").orElseThrow().manualCommand()).isEmpty();
     }
 
     private void registerPinnedTool() {

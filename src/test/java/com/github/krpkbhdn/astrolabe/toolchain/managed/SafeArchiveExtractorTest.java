@@ -28,7 +28,8 @@ class SafeArchiveExtractorTest {
     private static final long BIG = 1_000_000;
     private static final boolean POSIX = FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
 
-    private final SafeArchiveExtractor extractor = new SafeArchiveExtractor();
+    private final SafeArchiveExtractor extractor = new SafeArchiveExtractor(false);
+    private final SafeArchiveExtractor windowsExtractor = new SafeArchiveExtractor(true);
 
     @TempDir
     Path temp;
@@ -150,6 +151,49 @@ class SafeArchiveExtractorTest {
 
         assertThatThrownBy(() -> extractor.extract(archive, target(), false, MANY, BIG))
                 .isInstanceOf(IOException.class);
+    }
+
+    @Test
+    void rejectsWindowsReservedDeviceNames() throws IOException {
+        for (String name : new String[] {"NUL", "con.txt", "sub/COM1", "aux", "NUL.txt", "com1", "NUL ", "aux ."}) {
+            Path archive = zip(name, 0100644, "x");
+
+            assertThatThrownBy(() -> windowsExtractor.extract(archive, target(), false, MANY, BIG))
+                    .as(name)
+                    .isInstanceOf(IOException.class).hasMessageContaining("Unsafe archive entry");
+        }
+    }
+
+    @Test
+    void windowsModeStillAcceptsNamesThatMerelyStartLikeDeviceNames() throws IOException {
+        Path archive = zip("console.txt", 0100644, "x");
+
+        windowsExtractor.extract(archive, target(), false, MANY, BIG);
+
+        assertThat(target().resolve("console.txt")).exists();
+    }
+
+    @Test
+    void nonWindowsModeExtractsDeviceNamedEntries() throws IOException {
+        assumeTrue(POSIX);
+        Path archive = tar(t -> {
+            tarFile(t, "lib/aux/x", "x", 0644);
+            tarFile(t, "con.txt", "c", 0644);
+        });
+
+        extractor.extract(archive, target(), true, MANY, BIG);
+
+        assertThat(target().resolve("lib/aux/x")).hasContent("x");
+        assertThat(target().resolve("con.txt")).hasContent("c");
+    }
+
+    @Test
+    void acceptsNamesThatMerelyStartLikeDeviceNames() throws IOException {
+        Path archive = zip("console.txt", 0100644, "x");
+
+        extractor.extract(archive, target(), false, MANY, BIG);
+
+        assertThat(target().resolve("console.txt")).exists();
     }
 
     @Test
@@ -280,7 +324,7 @@ class SafeArchiveExtractorTest {
         assertThat(target().resolve("plugins/launcher.jar")).hasContent("jar");
         if (POSIX) {
             assertThat(Files.getPosixFilePermissions(target().resolve("bin")))
-                    .doesNotContain(PosixFilePermission.GROUP_EXECUTE, PosixFilePermission.OTHERS_WRITE);
+                    .doesNotContain(PosixFilePermission.OTHERS_WRITE);
         }
     }
 

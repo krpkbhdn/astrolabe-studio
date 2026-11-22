@@ -511,7 +511,12 @@ class HookServerTest {
         var names = new java.util.concurrent.CopyOnWriteArrayList<String>();
         org.mockito.Mockito.doAnswer(call -> {
             names.add(call.<HookEvent>getArgument(0).text("hook_event_name"));
-            release.await();
+            try {
+                release.await();
+            } catch (InterruptedException e) {
+                // stop() interrupts the worker; ending the task quietly keeps the worker from dying with an uncaught exception that Awaitility reports
+                Thread.currentThread().interrupt();
+            }
             return null;
         }).when(publisher).publishEvent(any(HookEvent.class));
         return names;

@@ -37,7 +37,7 @@ class GitWorktreesTool extends GitTool {
 
     @Override
     public String inputSchema() {
-        return "{\"type\":\"object\",\"properties\":{" + PROJECT_PROPERTY + "},\"required\":[\"project\"]}";
+        return PROJECT_ONLY_SCHEMA;
     }
 
     @Override

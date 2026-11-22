@@ -6,10 +6,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.github.krpkbhdn.astrolabe.git.GitMisc.ConflictSide;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.util.Comparator;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,7 +15,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 class GitConflictServiceTest {
 
-    private static Path template;
+    private static GitRepoTemplate template;
 
     private final GitConflictService service = new GitConflictService(new GitRunner());
     private HistoryTestRepo repo;
@@ -26,41 +23,23 @@ class GitConflictServiceTest {
     @BeforeAll
     static void buildTemplate() throws IOException {
         assumeTrue(HistoryTestRepo.gitAvailable());
-        template = Files.createTempDirectory("conflict-template");
-        var base = HistoryTestRepo.init(template);
-        base.commit("a.txt", "base\n", "base");
-        base.git("checkout", "-q", "-b", "feature");
-        base.commit("a.txt", "feature\n", "feature change");
-        base.git("checkout", "-q", "main");
-        base.commit("a.txt", "main\n", "main change");
+        template = GitRepoTemplate.build("conflict-template", base -> {
+            base.commit("a.txt", "base\n", "base");
+            base.git("checkout", "-q", "-b", "feature");
+            base.commit("a.txt", "feature\n", "feature change");
+            base.git("checkout", "-q", "main");
+            base.commit("a.txt", "main\n", "main change");
+        });
     }
 
     @AfterAll
     static void deleteTemplate() throws IOException {
-        if (template == null) {
-            return;
-        }
-        try (var paths = Files.walk(template)) {
-            paths.sorted(Comparator.reverseOrder()).forEach(path -> {
-                path.toFile().setWritable(true);
-                path.toFile().delete();
-            });
-        }
+        GitRepoTemplate.delete(template);
     }
 
     @BeforeEach
     void setUp(@TempDir Path directory) throws IOException {
-        try (var paths = Files.walk(template)) {
-            for (var source : (Iterable<Path>) paths::iterator) {
-                var target = directory.resolve(template.relativize(source).toString());
-                if (Files.isDirectory(source)) {
-                    Files.createDirectories(target);
-                } else {
-                    Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
-                }
-            }
-        }
-        repo = HistoryTestRepo.open(directory);
+        repo = template.copyInto(directory);
     }
 
     private void conflictingMerge() {

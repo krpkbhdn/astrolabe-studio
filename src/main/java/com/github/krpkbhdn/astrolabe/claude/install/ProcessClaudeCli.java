@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -23,20 +24,26 @@ class ProcessClaudeCli implements ClaudeCli {
 
     private final ClaudeInstallationService installation;
     private final HostEnvironment host;
+    private final ClaudeBinaryLocator locator;
 
-    ProcessClaudeCli(ClaudeInstallationService installation, HostEnvironment host) {
+    ProcessClaudeCli(ClaudeInstallationService installation, HostEnvironment host, ClaudeBinaryLocator locator) {
         this.installation = installation;
         this.host = host;
+        this.locator = locator;
     }
 
     @Override
     public CommandRunner.Result execute(Path directory, Duration timeout, List<String> arguments) {
-        return run(timeout, arguments, command -> CommandRunner.run(command, directory, timeout));
+        return run(timeout, arguments, command -> CommandRunner.run(command, directory, timeout, environment(command)));
     }
 
     @Override
     public CommandRunner.Result executeInTerminal(Path directory, Duration timeout, List<String> arguments, Consumer<String> onOutput) {
-        return run(timeout, arguments, command -> PtyCommandRunner.run(command, directory, timeout, onOutput));
+        return run(timeout, arguments, command -> PtyCommandRunner.run(command, directory, timeout, environment(command), onOutput));
+    }
+
+    private Map<String, String> environment(List<String> command) {
+        return locator.environmentFor(host, Path.of(command.getFirst()));
     }
 
     private interface Launch {

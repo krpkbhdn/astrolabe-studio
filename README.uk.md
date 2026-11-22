@@ -10,7 +10,7 @@
 
 [![Release](https://img.shields.io/github/v/release/krpkbhdn/astrolabe-studio?label=release)](https://github.com/krpkbhdn/astrolabe-studio/releases)
 ![Windows](https://img.shields.io/badge/Windows-installer-informational)
-![Linux and macOS](https://img.shields.io/badge/Linux%20%7C%20macOS-build%20from%20source-lightgrey)
+![Linux and macOS](https://img.shields.io/badge/Linux%20%7C%20macOS-installers-lightgrey)
 ![Java](https://img.shields.io/badge/Java-25%20(JBR)-orange)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4-7F52FF)
 ![License](https://img.shields.io/badge/License-Apache%202.0-blue)
@@ -22,7 +22,7 @@
 
 ![Огляд](docs/images/overview.png)
 
-**Зміст:** [Навіщо](#навіщо) · [Візуальне рев'ю](#візуальне-ревю) · [Веб-рев'ю](#веб-ревю) · [Швидкий старт](#швидкий-старт) · [Можливості](#можливості) · [Скріншоти](#скріншоти) · [Вимоги](#вимоги) · [Встановлення](#встановлення) · [Збірка і запуск із коду](#збірка-і-запуск-із-коду) · [Гарячі клавіші](#гарячі-клавіші) · [Конфігурація](#конфігурація) · [Підтримати](#підтримати-проєкт) · [Ліцензія](#ліцензія)
+**Зміст:** [Навіщо](#навіщо) · [Візуальне рев'ю](#візуальне-ревю) · [Веб-рев'ю](#веб-ревю) · [Швидкий старт](#швидкий-старт) · [Можливості](#можливості) · [Скріншоти](#скріншоти) · [Вимоги](#вимоги) · [Встановлення](#встановлення) · [Збірка і запуск із коду](#збірка-і-запуск-із-коду) · [Збірка інсталяторів](#збірка-інсталяторів) · [Гарячі клавіші](#гарячі-клавіші) · [Конфігурація](#конфігурація) · [Підтримати](#підтримати-проєкт) · [Ліцензія](#ліцензія)
 
 ## Навіщо
 
@@ -79,7 +79,7 @@ Claude будує вебсайт, а ви переглядаєте саму за
 ## Швидкий старт
 
 1. Встановіть [Claude Code](https://code.claude.com/docs/en/overview) і увійдіть в акаунт.
-2. Встановіть Astrolabe Studio (Windows: `.msi` зі сторінки [Releases](https://github.com/krpkbhdn/astrolabe-studio/releases); Linux і macOS: [зберіть інсталятор](#збірка-і-запуск-із-коду)).
+2. Встановіть Astrolabe Studio зі сторінки [Releases](https://github.com/krpkbhdn/astrolabe-studio/releases) (`.msi`, `.deb`, `.rpm`, `.tar.gz`, `.dmg`; див. [Встановлення](#встановлення)) або [зберіть із коду](#збірка-і-запуск-із-коду).
 3. Запустіть застосунок, натисніть `Ctrl+Shift+O`, щоб додати теку проєкту, потім `Ctrl+Shift+T`, щоб запустити в ній сесію Claude.
 
 Коли сесії потрібна ваша увага, вона червоніє в «Огляді» та в рядку стану; `Ctrl+Shift+N` відповідає на наступну.
@@ -145,7 +145,7 @@ Claude будує вебсайт, а ви переглядаєте саму за
   (близько 670 МБ, один раз). Більше нічого встановлювати не треба.
 - Пакування треба виконувати на цільовій ОС: інсталятор для Windows збирається у Windows, `.deb` у Linux, `.dmg` у macOS.
 
-> Найкраще протестовано Windows. Збірки для Linux і macOS підтримуються, але тестувалися менше.
+> Найкраще протестовано Windows. Linux-пакети встановлювали на Ubuntu, Fedora і Manjaro; macOS тестувався менше.
 
 ## Встановлення
 
@@ -156,17 +156,35 @@ Claude будує вебсайт, а ви переглядаєте саму за
 
 > Інсталятор не підписаний, тому Windows SmartScreen може попередити. Після перевірки хешу оберіть *Докладніше*, потім *Усе одно виконати*.
 
-### Linux
+### Перевірка завантаженого файлу
 
-Зберіть `.deb` самостійно (див. нижче) і встановіть:
+Біля кожного файлу є `<file>.sha256` у форматі `sha256sum` (`sha256sum -c <file>.sha256`) і атестація походження збірки:
 
 ```sh
-sudo apt install ./build/compose/binaries/main/deb/*.deb
+gh attestation verify <file> --repo krpkbhdn/astrolabe-studio
 ```
+
+Якщо до релізу додано підписи `<file>.asc`, імпортуйте відкритий ключ `packaging/astrolabe-release.pub.asc` із цього репозиторію (`gpg --import packaging/astrolabe-release.pub.asc`) і перевірте командою `gpg --verify <file>.asc <file>`.
+
+### Linux
+
+Завантажте пакет для свого дистрибутива зі сторінки [Releases](https://github.com/krpkbhdn/astrolabe-studio/releases) (x64):
+
+```sh
+sudo apt install ./astrolabe-studio-<версія>-linux-x64.deb     # Debian, Ubuntu
+sudo dnf install ./astrolabe-studio-<версія>-linux-x64.rpm     # Fedora, RHEL, openSUSE (zypper install)
+tar xzf astrolabe-studio-<версія>-linux-x64.tar.gz && ./install.sh   # будь-який дистрибутив, напр. Arch, Manjaro; для користувача, без root
+```
+
+Інсталятор `.tar.gz` описано в розділі [Збірка інсталяторів](#збірка-інсталяторів).
 
 ### macOS
 
-Зберіть `.dmg` самостійно (див. нижче), відкрийте його й перетягніть застосунок до «Програм».
+Завантажте `.dmg` зі сторінки [Releases](https://github.com/krpkbhdn/astrolabe-studio/releases), відкрийте його й перетягніть застосунок до «Програм». Він не підписаний і не нотаризований, тому під час першого запуску скористайтеся правим кліком і *Відкрити*.
+
+### Оновлення
+
+У Windows, macOS і Linux застосунок перевіряє останній реліз на GitHub і пропонує його встановити. Кожне оновлення мусить мати чинний GPG-підпис (`<file>.asc`) закріпленого ключа релізів і відповідну суму SHA-256, інакше його не встановлять. Установка з `.tar.gz` оновлюється для користувача; `.deb` і `.rpm` просять пароль через `pkexec` (polkit). Для Linux arm64 сповіщень про оновлення немає (збирається лише x64).
 
 ## Збірка і запуск із коду
 
@@ -186,14 +204,27 @@ cd astrolabe-studio
 
 Перша збірка потребує інтернету: вона завантажує Gradle і JBR 25, тож триває довго. Без JBR застосунок повертається до звичайної рамки вікна ОС; `-Dastrolabe.nativeFrame=true` примусово вмикає нативну рамку ОС, навіть на JBR.
 
-- Linux `.tar.gz` (задача `packageTarGz`, також для Arch/Manjaro): `tar xzf astrolabe-studio-<версія>-linux-x64.tar.gz`, перейдіть у теку й запустіть `./install.sh`, щоб додати Astrolabe Studio до меню застосунків (`sudo ./install.sh` або `--system` для всіх користувачів). Скрипт копіює застосунок у `~/.local/opt/astrolabe-studio`, робить посилання `~/.local/bin/astrolabe-studio` і кладе іконку та `astrolabe-studio.desktop` у `~/.local/share` (системний режим: `/opt`, `/usr/local/bin`, `/usr/share`); повторний запуск оновлює. `./uninstall.sh` прибирає саме це; ваші дані в `~/.astrolabe-studio` лишаються.
+## Збірка інсталяторів
+
+| Платформа | Формати | Задача |
+|---|---|---|
+| Windows x64 | `.msi`, `.exe` | `packageMsi`, `packageExe` |
+| Linux x64 | `.deb` (Debian/Ubuntu), `.rpm` (Fedora/RHEL/openSUSE), тека AppImage (app image від jpackage), портативний `.tar.gz` (також для Arch/Manjaro) | `packageDeb`, `packageRpm`, `packageAppImage`, `packageTarGz` |
+| macOS arm64 | `.dmg`, `.pkg` | `packageDmg`, `packagePkg` |
+
+`./gradlew packageDistributionForCurrentOS` збирає всі формати поточної ОС. Результати лежать у `build/compose/binaries/main/<формат>/` (`.tar.gz` у `tar/`). Локальні збірки не підписані; релізи, зібрані в CI, мають GPG-підписи `.asc` і підтвердження походження збірки (див. [Перевірка завантаженого файлу](#перевірка-завантаженого-файлу)); самі інсталятори Windows і macOS не підписані кодом.
+
+- Linux `.tar.gz`: `tar xzf astrolabe-studio-<версія>-linux-x64.tar.gz`, перейдіть у теку й запустіть `./install.sh`, щоб додати Astrolabe Studio до меню застосунків (`sudo ./install.sh` або `--system` для всіх користувачів). Скрипт копіює застосунок у `~/.local/opt/astrolabe-studio`, робить посилання `~/.local/bin/astrolabe-studio` і кладе іконку та `astrolabe-studio.desktop` у `~/.local/share` (системний режим: `/opt`, `/usr/local/bin`, `/usr/share`); повторний запуск оновлює. `./uninstall.sh` прибирає саме це; ваші дані в `~/.astrolabe-studio` лишаються.
+- jpackage не вміє кросукомпіляцію: збирайте на цільовій ОС і архітектурі. Linux arm64 і Windows arm64 не тестувалися.
+- Потрібно: JDK для запуску Gradle; тулчейн JBR 25 (JCEF) збірка завантажує сама (близько 670 МБ, один раз). Windows `.msi`/`.exe`: WiX Toolset у `PATH` (3.x; новіші версії не перевірено). Linux: `rpmbuild` (для `.rpm`) і `fakeroot` (для `.deb`). macOS: інструменти командного рядка Xcode.
+- Linux: `.deb` вказує бібліотеки, потрібні JCEF (вкладка Web), як `Recommends`, а `.rpm` і `.tar.gz` їх не оголошують, тож на чистій системі можуть знадобитися `libnss3`, `libgbm`, `libatk` тощо.
 
 ## Гарячі клавіші
 
 <details>
 <summary>Показати всі комбінації</summary>
 
-Таблиця показує комбінації для Windows і Linux. У macOS більшість із них використовують `Cmd` або `Cmd+Shift` (`Cmd+T`, `Cmd+O`, `Cmd+K`, `Cmd+1`..`9`, `Cmd+Shift+S/I/E/N/G/K/U/R/Y/Z/M`); `Alt+F12` не змінюється.
+Таблиця показує комбінації для Windows і Linux. У macOS більшість із них використовують натомість `Cmd` або `Cmd+Shift` (`Cmd+T`, `Cmd+O`, `Cmd+K`, `Cmd+1`..`9`, `Cmd+Shift+S/I/E/N/G/K/U/R/Y/Z/M`); `Alt+F12` не змінюється.
 
 | Дія | Комбінація |
 |---|---|
@@ -218,7 +249,8 @@ cd astrolabe-studio
 
 ## Конфігурація
 
-Дані зберігаються в `~/.astrolabe-studio` (база SQLite `astrolabe-studio.db`); розташування змінює властивість `astrolabe.data-dir`.
+Дані зберігаються в `~/.astrolabe-studio` (база SQLite `astrolabe-studio.db`); розташування змінює властивість `astrolabe.data-dir` (або змінна середовища `ASTROLABE_DATA_DIR`).
+`./gradlew run` з git worktree використовує натомість `<tmp>/astrolabe-studio-worktrees/<тека worktree>`, якщо не задано `ASTROLABE_DATA_DIR`.
 Налаштування це властивості `astrolabe.*`, див. [`application.properties`](src/main/resources/application.properties).
 Довідник про хуки та протокол: [docs/claude-code-protocol.md](docs/claude-code-protocol.md).
 

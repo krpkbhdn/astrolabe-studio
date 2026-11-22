@@ -2,6 +2,8 @@ package com.github.krpkbhdn.astrolabe.toolchain;
 
 import com.github.krpkbhdn.astrolabe.toolchain.managed.ManagedToolsDirectory;
 import com.github.krpkbhdn.astrolabe.workspace.HostEnvironment;
+import com.github.krpkbhdn.astrolabe.workspace.LoginShellPath;
+import com.github.krpkbhdn.astrolabe.workspace.UnixToolDirectories;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -12,6 +14,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /** Finds a tool binary on PATH and in the user bin directories package managers use, which a GUI-launched app often lacks on PATH. */
@@ -24,9 +27,17 @@ public class ExecutableLookup {
 
     private final ManagedToolsDirectory managedTools;
 
-    public ExecutableLookup(HostEnvironment host, ManagedToolsDirectory managedTools) {
+    private final LoginShellPath loginShell;
+
+    @Autowired
+    public ExecutableLookup(HostEnvironment host, ManagedToolsDirectory managedTools, LoginShellPath loginShell) {
         this.host = host;
         this.managedTools = managedTools;
+        this.loginShell = loginShell;
+    }
+
+    public ExecutableLookup(HostEnvironment host, ManagedToolsDirectory managedTools) {
+        this(host, managedTools, LoginShellPath.disabled());
     }
 
     /** PATH directories win; the extra user-writable directories after them are searched only when PATH has no match. */
@@ -98,6 +109,8 @@ public class ExecutableLookup {
         } else {
             result.addAll(List.of(Path.of("/opt/homebrew/bin"), Path.of("/usr/local/bin"), Path.of("/usr/local/go/bin"),
                     home.resolve(".dotnet"), Path.of("/opt/homebrew/opt/openjdk@25/bin"), Path.of("/usr/local/opt/openjdk@25/bin")));
+            result.addAll(loginShell.directories(host));
+            result.addAll(UnixToolDirectories.of(host));
         }
         return result;
     }

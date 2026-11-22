@@ -15,7 +15,7 @@ plugins {
 }
 
 group = "com.github.krpkbhdn"
-version = "2.3.52"
+version = "2.3.65"
 
 java {
     toolchain {
@@ -44,6 +44,7 @@ dependencies {
     implementation("org.jetbrains.runtime:jbr-api:1.9.0")
     implementation("org.graalvm.polyglot:polyglot:25.5.5.0.3")
     implementation("org.apache.commons:commons-compress:1.28.0")
+    implementation("org.bouncycastle:bcpg-jdk18on:1.86")
     runtimeOnly("org.graalvm.polyglot:js-community:25.5.5.0.3")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
@@ -298,6 +299,7 @@ val jdtlsBundleJar = tasks.register<Jar>("jdtlsBundleJar") {
 
 tasks.processResources {
     from(jdtlsBundleJar) { into("toolchain/jdtls") }
+    from("packaging") { include("astrolabe-release.pub.asc"); into("update") }
 }
 
 compose.desktop {
@@ -317,6 +319,9 @@ compose.desktop {
                 // deb/rpm names must be lowercase without spaces, unlike the shared packageName.
                 packageName = "astrolabe-studio"
                 rpmLicenseType = "ASL 2.0"
+                // Desktop entry Categories (jpackage's --linux-menu-group) and the deb Section / rpm Group.
+                menuGroup = "Development;"
+                appCategory = "devel"
             }
             macOS {
                 iconFile.set(file("packaging/icon.icns"))
@@ -373,6 +378,7 @@ val addJcefToAppImage = tasks.register("addJcefToAppImage") {
         check(helper.isFile || serverHelper.isFile) { "jcef Helper is missing in $runtime/Frameworks after copying from $frameworks." }
         check(File(runtime, "Frameworks/cef_server.app").isDirectory) { "cef_server.app is missing in $runtime/Frameworks after copying from $frameworks." }
         if (File("/usr/bin/codesign").isFile) run("/usr/bin/codesign", "--force", "--deep", "-s", "-", app.absolutePath)
+        else logger.warn("/usr/bin/codesign is missing: ad-hoc signing of $app was skipped.")
     }
 }
 if (isMac) tasks.matching { it.name == "packageDmg" }.configureEach { dependsOn(addJcefToAppImage) }
@@ -406,6 +412,41 @@ if (!isMac) tasks.withType<org.jetbrains.compose.desktop.application.tasks.Abstr
 }
 val isLinux = org.gradle.internal.os.OperatingSystem.current().isLinux
 
+// jpackage writes the build machine's libraries into the deb Depends; their names differ between releases (libpcre3, libasound2 vs libasound2t64),
+// so a deb built on one release does not install on another. The app bundles its JBR; the scriptlets only need xdg-utils, so the system
+// libraries of the bundled binaries become Recommends with t64 alternatives. jpackage's desktop entry gets StartupWMClass (not configurable).
+val debDepends = "libc6, xdg-utils"
+val debRecommends = listOf(
+    "libasound2t64 | libasound2", "libatk-bridge2.0-0t64 | libatk-bridge2.0-0", "libatk1.0-0t64 | libatk1.0-0", "libatspi2.0-0t64 | libatspi2.0-0",
+    "libatomic1", "libcups2t64 | libcups2", "libdrm2", "libfontconfig1", "libfreetype6", "libgbm1", "libgl1", "libglib2.0-0t64 | libglib2.0-0", "libnspr4", "libnss3", "libpango-1.0-0",
+    "libwayland-client0", "libwayland-cursor0", "libx11-6", "libxcomposite1", "libxcursor1", "libxdamage1", "libxext6", "libxfixes3", "libxi6",
+    "libxkbcommon0", "libxrandr2", "libxrender1", "libxres1", "libxtst6", "libxxf86vm1",
+).joinToString(", ")
+val debWmClass = "StartupWMClass=astrolabe-studio-Astrolabe_Studio"
+tasks.withType<org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask>().matching { it.name == "packageDeb" }.configureEach {
+    doLast {
+        fun run(vararg cmd: String) {
+            val p = ProcessBuilder(*cmd).redirectErrorStream(true).start()
+            val out = p.inputStream.bufferedReader().readText()
+            check(p.waitFor() == 0) { "${cmd.joinToString(" ")} failed: $out" }
+        }
+        val deb = checkNotNull(destinationDir.get().asFile.listFiles { f -> f.name.endsWith(".deb") }?.singleOrNull()) { "Expected exactly one .deb in ${destinationDir.get()}." }
+        val root = temporaryDir.resolve("deb-root").also { it.deleteRecursively() }
+        run("dpkg-deb", "-R", deb.path, root.path)
+        val control = File(root, "DEBIAN/control")
+        control.writeText(control.readLines().filter { it.isNotBlank() }.joinToString("\n", postfix = "\n") {
+            if (it.startsWith("Depends:")) "Depends: $debDepends\nRecommends: $debRecommends" else it
+        })
+        val desktop = File(root, "opt/astrolabe-studio/lib/astrolabe-studio-Astrolabe_Studio.desktop")
+        check(desktop.isFile) { "jpackage desktop entry is missing in $root." }
+        if (!desktop.readText().contains("StartupWMClass=")) desktop.writeText(desktop.readText().trimEnd() + "\n$debWmClass\n")
+        val out = temporaryDir.resolve(deb.name)
+        run("dpkg-deb", "--root-owner-group", "-b", root.path, out.path)
+        out.copyTo(deb, overwrite = true)
+        root.deleteRecursively(); out.delete()
+    }
+}
+
 // Portable archive of the app image (for distros without deb/rpm, e.g. Arch); shortcut: Gradle 9.3 Tar follows symlinks, switch to symbolicLinks once available.
 val packageTarGz = tasks.register<Tar>("packageTarGz") {
     group = "compose desktop"
@@ -414,7 +455,9 @@ val packageTarGz = tasks.register<Tar>("packageTarGz") {
     dependsOn("createDistributable")
     val arch = System.getProperty("os.arch").let { if (it == "amd64") "x64" else it }
     from(layout.buildDirectory.dir("compose/binaries/main/app"))
-    from("packaging/linux") { filePermissions { unix("rwxr-xr-x") } }
+    from("packaging/linux")
+    // Gradle 9 drops the execute bits of copied files in an archive, so restore them from the source (launcher, runtime/bin, jcef_helper, scripts).
+    eachFile { permissions { unix(if (file.canExecute()) "rwxr-xr-x" else "rw-r--r--") } }
     from("packaging/icon.png")
     compression = Compression.GZIP
     archiveFileName = "astrolabe-studio-$version-linux-$arch.tar.gz"

@@ -19,7 +19,7 @@ class UpdateStateTest {
         `when`(it.enabled()).thenReturn(true)
         `when`(it.checkForUpdate()).thenReturn(Optional.empty())
     }
-    private val update = UpdateState(service, scope, { _, _ -> }, { it() }) {}
+    private val update = UpdateState(service, scope, { _, _ -> }, { _, install, _ -> install() }) {}
 
     @AfterEach
     fun stop() = scope.cancel()

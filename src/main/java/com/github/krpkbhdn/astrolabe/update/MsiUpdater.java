@@ -1,7 +1,6 @@
 package com.github.krpkbhdn.astrolabe.update;
 
 import com.github.krpkbhdn.astrolabe.workspace.CommandRunner;
-import com.github.krpkbhdn.astrolabe.workspace.HostEnvironment;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -13,9 +12,7 @@ import org.springframework.stereotype.Component;
  * The paths are script arguments because cmd reads the script in the OEM code page, which mangles non-ASCII user names.
  */
 @Component
-class UpdateInstaller {
-
-    private static final String APP_PATH_PROPERTY = "jpackage.app-path";
+class MsiUpdater implements PlatformUpdater {
 
     /** Runs {@code cmd /d /c ""script" "msi" "exe""} hidden without waiting, then deletes itself; the doubled quotes survive cmd's outer-quote rule. */
     private static final String LAUNCHER = """
@@ -25,22 +22,30 @@ class UpdateInstaller {
             CreateObject("Scripting.FileSystemObject").DeleteFile WScript.ScriptFullName
             """;
 
-    private final HostEnvironment host;
-
-    UpdateInstaller(HostEnvironment host) {
-        this.host = host;
+    @Override
+    public InstallKind kind() {
+        return InstallKind.MSI;
     }
 
-    boolean supported() {
-        return host.os() == HostEnvironment.OperatingSystem.WINDOWS && System.getProperty(APP_PATH_PROPERTY) != null;
+    @Override
+    public boolean supported(Installation installation) {
+        return installation.kind() == InstallKind.MSI;
+    }
+
+    @Override
+    public boolean needsAuthentication() {
+        return false;
+    }
+
+    @Override
+    public Path prepare(Path verifiedDownload, String verifiedSha256, Installation installation) {
+        return verifiedDownload;
     }
 
     /** @throws IllegalStateException when the installer script cannot be started */
-    void launchAfterExit(Path msi) {
-        var appExecutable = System.getProperty(APP_PATH_PROPERTY);
-        if (appExecutable == null) {
-            throw new IllegalStateException("The app was not started from an installed package");
-        }
+    @Override
+    public void launchAfterExit(Path msi, Installation installation) {
+        var appExecutable = installation.appExecutable().toString();
         Path script = null;
         Path launcher = null;
         try {

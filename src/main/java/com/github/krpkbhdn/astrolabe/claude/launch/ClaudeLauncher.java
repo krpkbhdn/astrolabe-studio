@@ -220,7 +220,7 @@ public class ClaudeLauncher {
                 ClaudeCommand.addDirectories(command, memberPaths);
             }
             String sessionToken = hookSettings.sessionToken(astrolabeSessionId);
-            Map<String, String> parent = ClaudeCommand.withSearchPath(System.getenv(), executableLookup.searchPath());
+            Map<String, String> parent = ClaudeCommand.withSearchPath(System.getenv(), ClaudeCommand.searchPathWith(executable, executableLookup.searchPath()));
             Map<String, String> environment = group ? ClaudeCommand.groupEnvironment(parent, astrolabeSessionId, sessionToken)
                     : ClaudeCommand.environment(parent, astrolabeSessionId, sessionToken);
             process = PtySpawner.spawn(command, directory, environment);
@@ -338,7 +338,7 @@ public class ClaudeLauncher {
         try {
             hookSettings.delete(astrolabeSessionId);
         } catch (RuntimeException e) {
-            log.debug("Could not delete hook settings of {}", astrolabeSessionId, e);
+            log.warn("Could not delete hook settings of {}: {}", astrolabeSessionId, e.getClass().getName());
         }
     }
 

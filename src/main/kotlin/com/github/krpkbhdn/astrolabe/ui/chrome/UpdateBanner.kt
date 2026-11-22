@@ -17,9 +17,10 @@ fun UpdateBanner(update: UpdateState) {
     when (val status = update.status) {
         UpdateStatus.None -> Unit
         is UpdateStatus.Available -> if (!update.dismissed) {
-            Banner("Version ${status.update.version} is available", colors.accent, Icons.Download) {
+            val action = update.actionFor(status.update)
+            Banner("Version ${status.update.version} is available${action.note?.let { ". $it" }.orEmpty()}", colors.accent, Icons.Download) {
                 GhostButton("Later", update::dismiss)
-                if (update.canInstall) PrimaryButton("Download", update::download) else PrimaryButton("Open release page", update::openReleasePage)
+                PrimaryButton(action.label, if (action.installs) update::download else update::openReleasePage)
             }
         }
         is UpdateStatus.Downloading -> {
@@ -28,8 +29,11 @@ fun UpdateBanner(update: UpdateState) {
                 PrimaryButton("Downloading", {}, enabled = false, loading = true)
             }
         }
-        is UpdateStatus.Ready -> Banner("Version ${status.update.version} is ready. Restart to apply the update", colors.success, Icons.Refresh) {
-            PrimaryButton("Restart", update::restart)
+        is UpdateStatus.Preparing -> Banner("Preparing version ${status.update.version}...", colors.accent, Icons.Download) {
+            PrimaryButton("Preparing", {}, enabled = false, loading = true)
+        }
+        is UpdateStatus.Ready -> Banner("Version ${status.update.version} is downloaded. Install it and restart to apply the update", colors.success, Icons.Refresh) {
+            PrimaryButton("Install and restart", update::restart)
         }
     }
 }

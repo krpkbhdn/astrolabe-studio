@@ -17,6 +17,7 @@ import java.util.Enumeration;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.zip.GZIPInputStream;
 
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
@@ -36,7 +37,16 @@ public final class SafeArchiveExtractor {
     private static final int ZIP_DIRECTORY = 0040000;
     private static final int ZIP_REGULAR = 0100000;
     private static final int OWNER_EXEC_BIT = 0100;
+    private static final Pattern RESERVED_DEVICE =
+            Pattern.compile("(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\\..*)?");
     private static final boolean POSIX = FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
+
+    private final boolean windowsNames;
+
+    /** @param windowsNames the target is Windows, so device names and trailing dots or spaces are refused */
+    public SafeArchiveExtractor(boolean windowsNames) {
+        this.windowsNames = windowsNames;
+    }
 
     /**
      * Extracts {@code archive} into {@code targetDir} and returns the number of entries written.
@@ -61,7 +71,7 @@ public final class SafeArchiveExtractor {
         int strip = commonTopFolder(names) ? 1 : 0;
         Path root = targetDir.toAbsolutePath().normalize();
         Files.createDirectories(root);
-        Run run = new Run(root, root.toRealPath(), strip, maxUnpackedBytes);
+        Run run = new Run(root, root.toRealPath(), strip, maxUnpackedBytes, this);
         walk(archive, tarGz, run::write);
         return run.written;
     }
@@ -82,7 +92,12 @@ public final class SafeArchiveExtractor {
         return top != null && names.stream().anyMatch(s -> s.size() > 1);
     }
 
-    private static List<String> segments(String name) throws IOException {
+    private static boolean windowsUnsafe(String segment) {
+        // Windows drops trailing spaces and dots, so such a segment would still resolve to a device
+        return segment.endsWith(" ") || segment.endsWith(".") || RESERVED_DEVICE.matcher(segment).matches();
+    }
+
+    private List<String> segments(String name) throws IOException {
         String normalized = name.replace('\\', '/');
         if (normalized.startsWith("/") || normalized.indexOf('\0') >= 0) {
             throw new IOException("Unsafe archive entry: " + printable(name));
@@ -92,7 +107,7 @@ public final class SafeArchiveExtractor {
             if (segment.isEmpty() || segment.equals(".")) {
                 continue;
             }
-            if (segment.equals("..") || segment.indexOf(':') >= 0) {
+            if (segment.equals("..") || segment.indexOf(':') >= 0 || (windowsNames && windowsUnsafe(segment))) {
                 throw new IOException("Unsafe archive entry: " + printable(name));
             }
             result.add(segment);
@@ -183,6 +198,7 @@ public final class SafeArchiveExtractor {
     }
 
     private static final class Run {
+        private final SafeArchiveExtractor names;
         private final Path root;
         private final Path realRoot;
         private final int strip;
@@ -190,7 +206,8 @@ public final class SafeArchiveExtractor {
         private long bytes;
         private int written;
 
-        Run(Path root, Path realRoot, int strip, long maxBytes) {
+        Run(Path root, Path realRoot, int strip, long maxBytes, SafeArchiveExtractor names) {
+            this.names = names;
             this.root = root;
             this.realRoot = realRoot;
             this.strip = strip;
@@ -198,7 +215,7 @@ public final class SafeArchiveExtractor {
         }
 
         void write(Item item, InputStream content) throws IOException {
-            List<String> parts = segments(item.name());
+            List<String> parts = names.segments(item.name());
             if (parts.size() <= strip) {
                 return;
             }
@@ -301,7 +318,7 @@ public final class SafeArchiveExtractor {
         }
 
         private void copyHardlink(Path target, String linkName, int mode) throws IOException {
-            List<String> parts = segments(linkName == null ? "" : linkName);
+            List<String> parts = names.segments(linkName == null ? "" : linkName);
             if (parts.size() <= strip) {
                 throw new IOException("Unsafe link in archive: " + printable(String.valueOf(linkName)));
             }

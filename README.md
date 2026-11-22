@@ -10,7 +10,7 @@ Visual review of what Claude builds (screenshots and live websites), agent teams
 
 [![Release](https://img.shields.io/github/v/release/krpkbhdn/astrolabe-studio?label=release)](https://github.com/krpkbhdn/astrolabe-studio/releases)
 ![Windows](https://img.shields.io/badge/Windows-installer-informational)
-![Linux and macOS](https://img.shields.io/badge/Linux%20%7C%20macOS-build%20from%20source-lightgrey)
+![Linux and macOS](https://img.shields.io/badge/Linux%20%7C%20macOS-installers-lightgrey)
 ![Java](https://img.shields.io/badge/Java-25%20(JBR)-orange)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.4-7F52FF)
 ![License](https://img.shields.io/badge/License-Apache%202.0-blue)
@@ -79,7 +79,7 @@ The Web tab needs the JCEF flavour of JetBrains Runtime (`jbrsdk_jcef`); the bui
 ## Quick start
 
 1. Install and log in to [Claude Code](https://code.claude.com/docs/en/overview).
-2. Install Astrolabe Studio (Windows: the `.msi` from [Releases](https://github.com/krpkbhdn/astrolabe-studio/releases); Linux and macOS: [build the installer](#build-and-run-from-source)).
+2. Install Astrolabe Studio from [Releases](https://github.com/krpkbhdn/astrolabe-studio/releases) (`.msi`, `.deb`, `.rpm`, `.tar.gz`, `.dmg`; see [Install](#install)), or [build it from source](#build-and-run-from-source).
 3. Start the app, press `Ctrl+Shift+O` to add a project folder, then `Ctrl+Shift+T` to start a Claude session in it.
 
 When any session needs you, it turns red on the Overview and in the status bar; press `Ctrl+Shift+N` to answer the next one.
@@ -145,7 +145,7 @@ To build from source:
   (about 670 MB, once). Nothing else to install.
 - Packaging must run on the target OS: an installer for Windows is built on Windows, `.deb` on Linux, `.dmg` on macOS.
 
-> Windows is the most tested platform. Linux and macOS builds are supported by the build but have had less testing.
+> Windows is the most tested platform. Linux packages were installed on Ubuntu, Fedora and Manjaro; macOS has had less testing.
 
 ## Install
 
@@ -156,17 +156,35 @@ published `.sha256` (`(Get-FileHash .\<installer>.msi).Hash`), and run it. It in
 
 > The installer is not code-signed, so Windows SmartScreen may warn. Choose *More info*, then *Run anyway*, after checking the hash.
 
-### Linux
+### Verify a download
 
-Build the `.deb` yourself (see below) and install it:
+Each file has a `<file>.sha256` in `sha256sum` format (`sha256sum -c <file>.sha256`) and a build provenance attestation:
 
 ```sh
-sudo apt install ./build/compose/binaries/main/deb/*.deb
+gh attestation verify <file> --repo krpkbhdn/astrolabe-studio
 ```
+
+When the release carries `<file>.asc` signatures, import the public key `packaging/astrolabe-release.pub.asc` from this repository (`gpg --import packaging/astrolabe-release.pub.asc`) and check with `gpg --verify <file>.asc <file>`.
+
+### Linux
+
+Download the package for your distribution from [Releases](https://github.com/krpkbhdn/astrolabe-studio/releases) (x64):
+
+```sh
+sudo apt install ./astrolabe-studio-<version>-linux-x64.deb     # Debian, Ubuntu
+sudo dnf install ./astrolabe-studio-<version>-linux-x64.rpm     # Fedora, RHEL, openSUSE (zypper install)
+tar xzf astrolabe-studio-<version>-linux-x64.tar.gz && ./install.sh   # any distribution, e.g. Arch, Manjaro; per user, no root
+```
+
+The `.tar.gz` installer is described under [Build installers](#build-installers).
 
 ### macOS
 
-Build the `.dmg` yourself (see below), open it and drag the app to Applications.
+Download the `.dmg` from [Releases](https://github.com/krpkbhdn/astrolabe-studio/releases), open it and drag the app to Applications. It is not signed or notarized, so on the first start use right-click, *Open*.
+
+### Updates
+
+On Windows, macOS and Linux the app checks the latest GitHub release and offers to install it. Every update must carry a valid GPG signature (`<file>.asc`) of the pinned release key and a matching SHA-256, otherwise it is not installed. The `.tar.gz` install updates itself per user; `.deb` and `.rpm` ask for your password through `pkexec` (polkit). Linux arm64 gets no update notice (only x64 is built).
 
 ## Build and run from source
 
@@ -194,13 +212,12 @@ The first build needs internet: it downloads Gradle and JBR 25, so it takes a wh
 | Linux x64 | `.deb` (Debian/Ubuntu), `.rpm` (Fedora/RHEL/openSUSE), AppImage folder (jpackage app image), portable `.tar.gz` (also for Arch/Manjaro) | `packageDeb`, `packageRpm`, `packageAppImage`, `packageTarGz` |
 | macOS arm64 | `.dmg`, `.pkg` | `packageDmg`, `packagePkg` |
 
-`./gradlew packageDistributionForCurrentOS` builds every format of the current OS. Results land in `build/compose/binaries/main/<format>/` (the `.tar.gz` in `tar/`). Nothing is signed.
+`./gradlew packageDistributionForCurrentOS` builds every format of the current OS. Results land in `build/compose/binaries/main/<format>/` (the `.tar.gz` in `tar/`). Local builds are not signed; releases built by CI carry GPG `.asc` signatures and a build provenance attestation (see [Verify a download](#verify-a-download)); the Windows and macOS installers themselves are not code-signed.
 
 - Linux `.tar.gz`: `tar xzf astrolabe-studio-<version>-linux-x64.tar.gz`, `cd` into the folder and run `./install.sh` to add Astrolabe Studio to the application menu (`sudo ./install.sh` or `--system` for all users). It copies the app to `~/.local/opt/astrolabe-studio`, links `~/.local/bin/astrolabe-studio`, and adds the icon and `astrolabe-studio.desktop` under `~/.local/share` (system mode: `/opt`, `/usr/local/bin`, `/usr/share`); running it again updates. `./uninstall.sh` removes exactly that; your data in `~/.astrolabe-studio` stays.
 - jpackage does not cross-compile: build on the target OS and architecture. Linux arm64 and Windows arm64 are untested.
 - Needed: a JDK to start Gradle; the JBR 25 (JCEF) toolchain is downloaded by the build (about 670 MB, once). Windows `.msi`/`.exe`: WiX Toolset on `PATH` (3.x; not verified against newer versions). Linux: `rpmbuild` (for `.rpm`) and `fakeroot` (for `.deb`). macOS: Xcode command line tools.
-- Linux: the packages do not declare the libraries JCEF (Web tab) needs, so a clean system may need `libnss3`, `libgbm`, `libatk` and similar.
-- macOS: the Web tab may crash; the cause is not found yet.
+- Linux: the `.deb` lists the libraries JCEF (Web tab) needs as `Recommends` and the `.rpm` and `.tar.gz` do not declare them, so a clean system may need `libnss3`, `libgbm`, `libatk` and similar.
 
 ## Keyboard shortcuts
 

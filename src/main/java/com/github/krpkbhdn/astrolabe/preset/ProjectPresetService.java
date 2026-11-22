@@ -3,12 +3,8 @@ package com.github.krpkbhdn.astrolabe.preset;
 import com.github.krpkbhdn.astrolabe.config.NameRules;
 import com.github.krpkbhdn.astrolabe.workspace.ChangeListeners;
 import jakarta.annotation.PostConstruct;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,16 +24,14 @@ public class ProjectPresetService {
     public static final int MAX_DESCRIPTION = 200;
 
     private static final Logger log = LoggerFactory.getLogger(ProjectPresetService.class);
-    private static final String SELECT = "SELECT id, name, description, bundled_key, bundled_version, edited, revision FROM project_preset WHERE deleted = 0";
-    private static final String TOUCH = "UPDATE project_preset SET revision = revision + 1, edited = CASE WHEN bundled_key IS NULL THEN 0 ELSE 1 END WHERE id = ?";
 
-    private final JdbcClient jdbc;
+    private final ProjectPresetRepository repository;
     private final TransactionTemplate transaction;
     private final BundledPresetLoader bundled;
     private final ChangeListeners listeners = new ChangeListeners("Project preset");
 
     public ProjectPresetService(JdbcClient jdbc, TransactionTemplate transaction, BundledPresetLoader bundled) {
-        this.jdbc = jdbc;
+        this.repository = new ProjectPresetRepository(jdbc, bundled);
         this.transaction = transaction;
         this.bundled = bundled;
     }
@@ -45,7 +39,7 @@ public class ProjectPresetService {
     /** Bundled presets in the order of presets.json (General first), then the others by name; never by database id. */
     public List<ProjectPreset> list() {
         var shippedOrder = bundled.presets().stream().map(BundledPreset::key).toList();
-        return jdbc.sql(SELECT).query(this::mapRow).list().stream().sorted(listOrder(shippedOrder)).toList();
+        return repository.list().stream().sorted(listOrder(shippedOrder)).toList();
     }
 
     static Comparator<ProjectPreset> listOrder(List<String> shippedOrder) {
@@ -55,7 +49,7 @@ public class ProjectPresetService {
     }
 
     public Optional<ProjectPreset> get(long id) {
-        return jdbc.sql(SELECT + " AND id = ?").param(id).query(this::mapRow).optional();
+        return repository.find(id);
     }
 
     /** @throws IllegalArgumentException with a user-readable message for invalid input */
@@ -66,8 +60,12 @@ public class ProjectPresetService {
     private ProjectPreset insertFree(String cleanName, String description, List<PresetComponentSpec> components) {
         var id = transaction.execute(status -> {
             requireFreeName(cleanName, -1);
-            return insert(cleanName, description, null, null, components);
+            return repository.insert(cleanName, description, null, null, components);
         });
+        return firedFor(id);
+    }
+
+    private ProjectPreset firedFor(long id) {
         listeners.fire();
         return require(id);
     }
@@ -78,11 +76,9 @@ public class ProjectPresetService {
         var cleanName = validate(name, description);
         transaction.executeWithoutResult(status -> {
             requireFreeName(cleanName, id);
-            jdbc.sql("UPDATE project_preset SET name = ?, description = ?, edited = CASE WHEN bundled_key IS NULL THEN 0 ELSE 1 END WHERE id = ?")
-                    .param(cleanName).param(description.strip()).param(id).update();
+            repository.rename(id, cleanName, description.strip());
         });
-        listeners.fire();
-        return require(id);
+        return firedFor(id);
     }
 
     /** @throws IllegalArgumentException with a user-readable message for invalid input */
@@ -94,9 +90,7 @@ public class ProjectPresetService {
 
     /** A bundled preset is only marked deleted, so it is not seeded again; a user preset is removed. */
     public void delete(long id) {
-        var changed = transaction.execute(status ->
-                jdbc.sql("UPDATE project_preset SET deleted = 1 WHERE id = ? AND bundled_key IS NOT NULL AND deleted = 0").param(id).update()
-                        + jdbc.sql("DELETE FROM project_preset WHERE id = ? AND bundled_key IS NULL").param(id).update());
+        var changed = transaction.execute(status -> repository.markBundledDeleted(id) + repository.deleteUser(id));
         if (changed != null && changed > 0) {
             listeners.fire();
         }
@@ -127,8 +121,8 @@ public class ProjectPresetService {
         var spec = PresetComponentValidator.validate(kind, name, payload);
         var id = transaction.execute(status -> {
             requireFreeComponent(presetId, spec, -1);
-            var created = insertComponent(presetId, spec);
-            jdbc.sql(TOUCH).param(presetId).update();
+            var created = repository.insertComponent(presetId, spec);
+            repository.touch(presetId);
             return created;
         });
         listeners.fire();
@@ -142,8 +136,8 @@ public class ProjectPresetService {
         var spec = PresetComponentValidator.validate(current.kind(), name, payload);
         transaction.executeWithoutResult(status -> {
             requireFreeComponent(presetId, spec, componentId);
-            jdbc.sql("UPDATE project_preset_component SET name = ?, payload = ? WHERE id = ?").param(spec.name()).param(spec.payload().toString()).param(componentId).update();
-            jdbc.sql(TOUCH).param(presetId).update();
+            repository.updateComponent(componentId, spec);
+            repository.touch(presetId);
         });
         listeners.fire();
         return component(componentId);
@@ -152,8 +146,8 @@ public class ProjectPresetService {
     public void removeComponent(long componentId) {
         var presetId = presetOf(componentId);
         transaction.executeWithoutResult(status -> {
-            jdbc.sql("DELETE FROM project_preset_component WHERE id = ?").param(componentId).update();
-            jdbc.sql(TOUCH).param(presetId).update();
+            repository.deleteComponent(componentId);
+            repository.touch(presetId);
         });
         listeners.fire();
     }
@@ -186,9 +180,7 @@ public class ProjectPresetService {
     }
 
     private boolean swapWithNeighbour(long presetId, long componentId, boolean up) {
-        var all = jdbc.sql("SELECT id, position FROM project_preset_component WHERE preset_id = ? "
-                        + "AND kind = (SELECT kind FROM project_preset_component WHERE id = ?) ORDER BY position, id")
-                .param(presetId).param(componentId).query((rs, n) -> new long[] {rs.getLong("id"), rs.getLong("position")}).list();
+        var all = repository.siblings(presetId, componentId);
         var index = 0;
         while (index < all.size() && all.get(index)[0] != componentId) {
             index++;
@@ -197,61 +189,40 @@ public class ProjectPresetService {
         if (index >= all.size() || other < 0 || other >= all.size()) {
             return false;
         }
-        jdbc.sql("UPDATE project_preset_component SET position = ? WHERE id = ?").param(all.get(other)[1]).param(componentId).update();
-        jdbc.sql("UPDATE project_preset_component SET position = ? WHERE id = ?").param(all.get(index)[1]).param(all.get(other)[0]).update();
-        jdbc.sql(TOUCH).param(presetId).update();
+        repository.setPosition(componentId, all.get(other)[1]);
+        repository.setPosition(all.get(other)[0], all.get(index)[1]);
+        repository.touch(presetId);
         return true;
     }
 
     private void sync(BundledPreset preset) {
-        var row = jdbc.sql("SELECT bundled_version, edited, deleted FROM project_preset WHERE bundled_key = ?").param(preset.key())
-                .query((rs, n) -> new int[] {rs.getInt("bundled_version"), rs.getInt("edited"), rs.getInt("deleted")}).optional();
+        var row = repository.bundledState(preset.key());
         if (row.isEmpty()) {
             requireFreeName(preset.name(), -1);
-            insert(preset.name(), preset.description(), preset.key(), preset.version(), preset.components());
-        } else if (row.get()[2] == 0 && row.get()[1] == 0 && row.get()[0] < preset.version()) {
+            repository.insert(preset.name(), preset.description(), preset.key(), preset.version(), preset.components());
+        } else if (!row.get().deleted() && !row.get().edited() && row.get().version() < preset.version()) {
             restore(preset);
         }
     }
 
     private void restore(BundledPreset preset) {
-        var existing = jdbc.sql("SELECT id FROM project_preset WHERE bundled_key = ?").param(preset.key()).query(Long.class).optional();
+        var existing = repository.bundledId(preset.key());
         var ownId = existing.orElse(-1L);
-        if (nameTaken(preset.name(), ownId)) {
+        if (repository.nameTaken(preset.name(), ownId)) {
             throw new IllegalArgumentException("A preset named \"" + preset.name() + "\" already exists: rename it first.");
         }
         if (existing.isEmpty()) {
-            insert(preset.name(), preset.description(), preset.key(), preset.version(), preset.components());
+            repository.insert(preset.name(), preset.description(), preset.key(), preset.version(), preset.components());
             return;
         }
-        var id = existing.get();
-        jdbc.sql("UPDATE project_preset SET name = ?, description = ?, bundled_version = ?, edited = 0, deleted = 0, revision = revision + 1 WHERE id = ?")
-                .param(preset.name()).param(preset.description()).param(preset.version()).param(id).update();
-        jdbc.sql("DELETE FROM project_preset_component WHERE preset_id = ?").param(id).update();
-        preset.components().forEach(spec -> insertComponent(id, PresetComponentValidator.validate(spec.kind(), spec.name(), spec.payload())));
-    }
-
-    private long insert(String name, String description, String key, Integer version, List<PresetComponentSpec> components) {
-        var id = jdbc.sql("INSERT INTO project_preset (name, description, bundled_key, bundled_version) VALUES (?, ?, ?, ?) RETURNING id")
-                .param(name).param(description).param(key).param(version).query(Long.class).single();
-        components.forEach(spec -> insertComponent(id, PresetComponentValidator.validate(spec.kind(), spec.name(), spec.payload())));
-        return id;
-    }
-
-    private long insertComponent(long presetId, PresetComponentSpec spec) {
-        return jdbc.sql("INSERT INTO project_preset_component (preset_id, position, kind, name, payload) "
-                        + "VALUES (?, (SELECT COALESCE(MAX(position) + 1, 0) FROM project_preset_component WHERE preset_id = ?), ?, ?, ?) RETURNING id")
-                .param(presetId).param(presetId).param(spec.kind().name()).param(spec.name()).param(spec.payload().toString()).query(Long.class).single();
+        repository.resetBundled(existing.get(), preset);
     }
 
     private void requireFreeComponent(long presetId, PresetComponentSpec spec, long ownId) {
-        var taken = jdbc.sql("SELECT COUNT(*) FROM project_preset_component WHERE preset_id = ? AND kind = ? AND name = ? AND id <> ?")
-                .param(presetId).param(spec.kind().name()).param(spec.name()).param(ownId).query(Long.class).single() > 0;
-        if (taken) {
+        if (repository.componentNameTaken(presetId, spec, ownId)) {
             throw new IllegalArgumentException("The preset already has a " + spec.kind() + " named \"" + spec.name() + "\".");
         }
-        var secondSettings = spec.kind() == PresetComponentKind.SETTINGS
-                && jdbc.sql("SELECT COUNT(*) FROM project_preset_component WHERE preset_id = ? AND kind = 'SETTINGS' AND id <> ?").param(presetId).param(ownId).query(Long.class).single() > 0;
+        var secondSettings = spec.kind() == PresetComponentKind.SETTINGS && repository.hasOtherSettings(presetId, ownId);
         if (secondSettings) {
             throw new IllegalArgumentException("A preset can have only one settings component.");
         }
@@ -262,8 +233,7 @@ public class ProjectPresetService {
     }
 
     public Optional<PresetComponent> findComponent(long componentId) {
-        return jdbc.sql("SELECT id, kind, name, payload FROM project_preset_component WHERE id = ?").param(componentId).query(this::mapComponent).list().stream()
-                .filter(Objects::nonNull).findFirst();
+        return repository.findComponent(componentId);
     }
 
     private PresetComponent component(long componentId) {
@@ -272,20 +242,14 @@ public class ProjectPresetService {
     }
 
     private long presetOf(long componentId) {
-        return jdbc.sql("SELECT preset_id FROM project_preset_component WHERE id = ?").param(componentId).query(Long.class).optional()
+        return repository.presetOf(componentId)
                 .orElseThrow(() -> new IllegalArgumentException("Component not found: " + componentId));
     }
 
     private void requireFreeName(String name, long ownId) {
-        if (nameTaken(name, ownId)) {
+        if (repository.nameTaken(name, ownId)) {
             throw new IllegalArgumentException("A preset named \"" + name + "\" already exists.");
         }
-    }
-
-    /** A deleted bundled preset does not hold its name (the column is unique, so it is renamed aside; restore puts the shipped name back). */
-    private boolean nameTaken(String name, long ownId) {
-        jdbc.sql("UPDATE project_preset SET name = name || ' [deleted ' || bundled_key || ']' WHERE name = ? AND deleted = 1 AND id <> ?").param(name).param(ownId).update();
-        return jdbc.sql("SELECT COUNT(*) FROM project_preset WHERE name = ? AND id <> ?").param(name).param(ownId).query(Long.class).single() > 0;
     }
 
     private String validate(String name, String description) {
@@ -297,28 +261,5 @@ public class ProjectPresetService {
             throw new IllegalArgumentException("The description is longer than " + MAX_DESCRIPTION + " characters.");
         }
         return cleanName;
-    }
-
-    /** @return null for a row whose kind or payload cannot be read, so one corrupt component does not hide the rest */
-    private PresetComponent mapComponent(ResultSet rs, int row) throws SQLException {
-        var id = rs.getLong("id");
-        try {
-            return new PresetComponent(id, PresetComponentKind.valueOf(rs.getString("kind")), rs.getString("name"), PresetComponentValidator.MAPPER.readTree(rs.getString("payload")));
-        } catch (RuntimeException e) {
-            log.warn("Preset component {} skipped, it cannot be read: {}", id, e.getClass().getSimpleName());
-            return null;
-        }
-    }
-
-    private ProjectPreset mapRow(ResultSet rs, int row) throws SQLException {
-        var id = rs.getLong("id");
-        var key = rs.getString("bundled_key");
-        var edited = rs.getInt("edited") != 0;
-        var storedVersion = rs.getInt("bundled_version");
-        var newer = key != null && bundled.presets().stream().anyMatch(p -> p.key().equals(key) && p.version() > storedVersion);
-        var components = new ArrayList<>(jdbc.sql("SELECT id, kind, name, payload FROM project_preset_component WHERE preset_id = ? ORDER BY position, id")
-                .param(id).query(this::mapComponent).list());
-        components.removeIf(Objects::isNull);
-        return new ProjectPreset(id, rs.getString("name"), rs.getString("description"), key, edited, edited && newer, rs.getInt("revision"), List.copyOf(components));
     }
 }

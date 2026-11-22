@@ -13,6 +13,8 @@ abstract class GitTool implements AssistantMcpTool {
 
     static final String PROJECT_PROPERTY = "\"project\":{\"type\":\"integer\",\"description\":\"Project id\"}";
 
+    static final String PROJECT_ONLY_SCHEMA = "{\"type\":\"object\",\"properties\":{" + PROJECT_PROPERTY + "},\"required\":[\"project\"]}";
+
     private final ProjectService projects;
     final GitStatusService status;
     final JsonMapper mapper;

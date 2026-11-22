@@ -34,6 +34,8 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 
@@ -298,6 +300,7 @@ class VoiceInputServiceTest {
     }
 
     @Test
+    @EnabledOnOs(OS.WINDOWS) // the only CUDA runtime build is the Windows one
     void cpuRequestUsesTheAlreadyLoadedCudaRuntime() {
         when(opener.loadedDirectory()).thenReturn(Optional.of(libraries(CUDA_BUILD)));
 
@@ -329,6 +332,7 @@ class VoiceInputServiceTest {
     }
 
     @Test
+    @EnabledOnOs(OS.WINDOWS) // the only CUDA runtime build is the Windows one
     void restartIsNotRequiredForACpuRequestOnALoadedCudaRuntime() {
         when(opener.loadedDirectory()).thenReturn(Optional.of(libraries(CUDA_BUILD)));
 

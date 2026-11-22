@@ -141,10 +141,11 @@ fun DialogActions(confirmLabel: String, confirmEnabled: Boolean, destructive: Bo
 
 @Composable
 fun ConfirmDialog(request: ConfirmRequest, onDismiss: () -> Unit) {
-    ModalHost(onDismiss) {
+    val cancel = { onDismiss(); request.onCancel() }
+    ModalHost(cancel) {
         DialogBody(request.title, Icons.Alert, if (request.destructive) colors.danger else colors.accent) {
             Label(request.message, color = colors.textSecondary, maxLines = request.messageLines)
-            DialogActions(request.confirmLabel, true, request.destructive, { onDismiss(); request.onConfirm() }, onDismiss)
+            DialogActions(request.confirmLabel, true, request.destructive, { onDismiss(); request.onConfirm() }, cancel)
         }
     }
 }

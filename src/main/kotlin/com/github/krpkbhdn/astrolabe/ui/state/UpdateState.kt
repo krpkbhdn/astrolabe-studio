@@ -20,12 +20,12 @@ import kotlinx.coroutines.withContext
 private const val UPDATE_FAILED_TITLE = "Update failed"
 private const val UNKNOWN_ERROR = "Something went wrong"
 
-/** Compose state of the self-update flow: periodic check, download on request, restart into the installer. */
+/** Compose state of the self-update flow: periodic check, download on request, then on a second click stage it, confirm and restart to install. */
 class UpdateState(
     private val updates: UpdateService?,
     private val scope: CoroutineScope,
     private val reportError: (title: String, message: String) -> Unit,
-    private val requestQuit: (quit: () -> Unit) -> Unit,
+    private val confirmInstall: (message: String, install: () -> Unit, cancel: () -> Unit) -> Unit,
     private val exitApp: () -> Unit,
 ) {
     var status by mutableStateOf<UpdateStatus>(UpdateStatus.None)
@@ -44,13 +44,22 @@ class UpdateState(
     var checkFailed by mutableStateOf(false)
         private set
 
-    val canInstall: Boolean get() = updates?.canInstall() == true
+    /** The offer's button, worked out on IO when the update was found: the backend's support check may run package manager queries, so composition only reads it. */
+    private var resolved by mutableStateOf<ResolvedAction?>(null)
+
+    private data class ResolvedAction(val update: AvailableUpdate, val action: UpdateAction)
+
+    /** The button and note for an offered update; releases without an installer for this installation (and an update not resolved yet) only open their page. */
+    fun actionFor(update: AvailableUpdate): UpdateAction =
+        resolved?.takeIf { it.update == update }?.action ?: updateActionOf(false, false)
+
     val enabled: Boolean get() = updates?.enabled() == true
     val currentVersion: String get() = updates?.currentVersion().orEmpty()
 
     fun start(): Job? {
         val service = updates?.takeIf { it.enabled() } ?: return null
         return scope.launch {
+            service.lastOutcome().map(::outcomeToast).orElse(null)?.let { reportError(UPDATE_FAILED_TITLE, it) }
             while (true) {
                 check(service, service::findUpdate)
                 delay(service.checkInterval().toMillis())
@@ -99,15 +108,35 @@ class UpdateState(
         }
     }
 
+    /** Stages the installer off the UI thread first, then asks (naming the update) before the app quits to install it. */
     fun restart() {
+        val service = updates ?: return
         val ready = status as? UpdateStatus.Ready ?: return
-        requestQuit {
-            try {
-                updates?.installAfterExit(ready.installer)
-                exitApp()
-            } catch (e: IllegalStateException) {
+        status = UpdateStatus.Preparing(ready.update)
+        scope.launch {
+            val (prepared, needsAuthentication) = try {
+                withContext(Dispatchers.IO) { service.prepareInstall(ready.installer) to service.needsAuthentication(ready.update) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: RuntimeException) {
+                status = ready
                 reportError(UPDATE_FAILED_TITLE, e.message ?: UNKNOWN_ERROR)
+                return@launch
             }
+            status = ready
+            confirmInstall(
+                installConfirmMessage(ready.update.version, needsAuthentication),
+                {
+                    try {
+                        service.launchAfterExit(prepared)
+                        exitApp()
+                    } catch (e: IllegalStateException) {
+                        service.discard(prepared)
+                        reportError(UPDATE_FAILED_TITLE, e.message ?: UNKNOWN_ERROR)
+                    }
+                },
+                { scope.launch(Dispatchers.IO) { service.discard(prepared) } },
+            )
         }
     }
 
@@ -130,9 +159,14 @@ class UpdateState(
         }
     }
 
+    private fun busy() = status is UpdateStatus.Downloading || status is UpdateStatus.Preparing || status is UpdateStatus.Ready
+
     private suspend fun check(service: UpdateService, find: () -> Optional<AvailableUpdate>) {
-        if (status is UpdateStatus.Downloading || status is UpdateStatus.Ready) return
-        val found = withContext(Dispatchers.IO) { find() }.orElse(null) ?: return
+        if (busy()) return
+        val (found, action) = withContext(Dispatchers.IO) { find().orElse(null)?.let { it to updateActionOf(service.canInstall(it), service.needsAuthentication(it)) } } ?: return
+        // read again: a download may have started while the request was out, and the offer must not replace it (the scope is the single UI thread)
+        if (busy()) return
+        resolved = ResolvedAction(found, action)
         if ((status as? UpdateStatus.Available)?.update != found) {
             status = UpdateStatus.Available(found)
             dismissed = false

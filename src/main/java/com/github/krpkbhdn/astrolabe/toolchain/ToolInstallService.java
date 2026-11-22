@@ -9,14 +9,11 @@ import com.github.krpkbhdn.astrolabe.toolchain.managed.ToolChannelStore;
 import com.github.krpkbhdn.astrolabe.workspace.CommandRunner;
 import com.github.krpkbhdn.astrolabe.workspace.HostEnvironment;
 import com.github.krpkbhdn.astrolabe.workspace.PtyCommandRunner;
-import com.github.krpkbhdn.astrolabe.workspace.WindowsArgument;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import java.io.IOException;
-import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -53,22 +50,17 @@ public class ToolInstallService implements ToolProbe.InstalledChannels {
                                  Consumer<String> onOutput) throws IOException;
     }
 
-    /** The temp folder is user-writable too, so cmd.exe is kept from searching it by NoDefaultCurrentDirectoryInExePath in the environment. */
-    static final Path NEUTRAL_DIRECTORY = Path.of(System.getProperty("java.io.tmpdir"));
-
     private static final Logger log = LoggerFactory.getLogger(ToolInstallService.class);
     private static final Duration STOP_WAIT = Duration.ofSeconds(2);
     private static final int MAX_LISTED_LEFTOVERS = 3;
     private static final String MANAGED_RESTART_HINT =
             "Installed, but not found yet. Restart Claude sessions and shells that were open before the install; the app itself needs no restart.";
-    private static final String PATH_RESTART_HINT = "Installed, but not found on PATH. After a PATH change, restart the app so it is picked up.";
 
     private final ToolCatalog catalog;
     private final ToolProbe probe;
     private final ExecutableLookup lookup;
-    private final HostEnvironment host;
-    private final ToolchainProperties properties;
-    private final InstallRunner runner;
+    private final ToolInstallPlanner planner;
+    private final CommandInstall commandInstall;
     private final ManagedToolsDirectory directory;
     private final ManagedToolInstaller managed;
     private final ToolChannelStore channels;
@@ -94,9 +86,8 @@ public class ToolInstallService implements ToolProbe.InstalledChannels {
         this.catalog = catalog;
         this.probe = probe;
         this.lookup = lookup;
-        this.host = host;
-        this.properties = properties;
-        this.runner = runner;
+        this.planner = new ToolInstallPlanner(catalog, probe, host, directory);
+        this.commandInstall = new CommandInstall(runner, lookup, host, properties, probe);
         this.directory = directory;
         this.managed = managed;
         this.channels = channels;
@@ -105,7 +96,7 @@ public class ToolInstallService implements ToolProbe.InstalledChannels {
     /** Brings the launchers of already downloaded tools to the form this app version writes; no download, a failure only keeps the old launcher. */
     @PostConstruct
     void refreshLaunchers() {
-        catalog.all().forEach(tool -> tool.downloadSource(osKey()).ifPresent(source -> {
+        catalog.all().forEach(tool -> tool.downloadSource(planner.osKey()).ifPresent(source -> {
             try {
                 managed.refreshLauncher(tool, source);
             } catch (IOException | RuntimeException e) {
@@ -199,7 +190,7 @@ public class ToolInstallService implements ToolProbe.InstalledChannels {
     }
 
     public Optional<InstallPlan> plan(String toolId) {
-        return catalog.find(toolId).map(tool -> plan(tool, false));
+        return catalog.find(toolId).map(tool -> planner.plan(tool, false));
     }
 
     public InstallResult install(String toolId, Consumer<String> onOutput) {
@@ -227,7 +218,7 @@ public class ToolInstallService implements ToolProbe.InstalledChannels {
         }
         try {
             // re-planned under the lock so a prerequisite installed meanwhile counts
-            var current = plan(plan.get().tool(), true);
+            var current = planner.plan(plan.get().tool(), true);
             if (current.blocker().isPresent()) {
                 return blocked(toolId, current.blocker().get());
             }
@@ -255,11 +246,11 @@ public class ToolInstallService implements ToolProbe.InstalledChannels {
     }
 
     private InstallResult run(InstallPlan plan, Consumer<String> onOutput, boolean repair) {
-        var source = plan.tool().downloadSource(osKey());
+        var source = plan.tool().downloadSource(planner.osKey());
         if (source.isPresent()) {
             return runDownload(plan.tool(), source.get(), onOutput, repair);
         }
-        return repair ? blocked(plan.tool().id(), "Only downloaded tools can be repaired") : runCommand(plan, onOutput);
+        return repair ? blocked(plan.tool().id(), "Only downloaded tools can be repaired") : commandInstall.runCommand(plan, onOutput);
     }
 
     private InstallResult runDownload(ToolDefinition tool, DownloadSource source, Consumer<String> onOutput, boolean repair) {
@@ -275,106 +266,10 @@ public class ToolInstallService implements ToolProbe.InstalledChannels {
                     : "Installed " + tool.name() + " " + installed.version();
             return new InstallResult(Outcome.INSTALLED, 0, status, message);
         } catch (InterruptedException e) {
-            Thread.interrupted();
-            var status = probe.probeFresh(toolId);
-            Thread.currentThread().interrupt();
-            return new InstallResult(Outcome.FAILED, -1, status, "Install cancelled");
+            return commandInstall.cancelled(toolId);
         } catch (IOException | RuntimeException e) {
             return new InstallResult(Outcome.FAILED, -1, probe.probeFresh(toolId), String.valueOf(e.getMessage()));
         }
-    }
-
-    private InstallResult runCommand(InstallPlan plan, Consumer<String> onOutput) {
-        var toolId = plan.tool().id();
-        CommandRunner.Result result;
-        try {
-            result = runner.run(launchCommand(plan.command()), NEUTRAL_DIRECTORY, properties.installTimeout(),
-                    unattendedEnvironment(), onOutput);
-        } catch (IOException e) {
-            if (Thread.interrupted()) {
-                var status = probe.probeFresh(toolId);
-                Thread.currentThread().interrupt();
-                return new InstallResult(Outcome.FAILED, -1, status, "Install cancelled");
-            }
-            return new InstallResult(Outcome.FAILED, -1, probe.probeFresh(toolId), "Could not run the install command: " + e.getMessage());
-        }
-        var status = probe.probeFresh(toolId);
-        if (result.timedOut()) {
-            return new InstallResult(Outcome.FAILED, result.exitCode(), status, "Install timed out after " + properties.installTimeout().toMinutes() + " min");
-        }
-        if (result.exitCode() != 0) {
-            return new InstallResult(Outcome.FAILED, result.exitCode(), status, lastLine(result.stdout()));
-        }
-        if (status.state() == ToolState.MISSING) {
-            return new InstallResult(Outcome.STILL_MISSING, 0, status, PATH_RESTART_HINT);
-        }
-        return new InstallResult(Outcome.INSTALLED, 0, status, "Installed " + plan.tool().name());
-    }
-
-    /** The install runs in a PTY nobody types into, so brew must never wait for a confirmation. */
-    private Map<String, String> unattendedEnvironment() {
-        var environment = new java.util.LinkedHashMap<>(lookup.environment());
-        environment.put("NONINTERACTIVE", "1");
-        environment.put("HOMEBREW_NO_ENV_HINTS", "1");
-        return environment;
-    }
-
-    private InstallPlan plan(ToolDefinition tool, boolean fresh) {
-        var os = osKey();
-        var command = tool.installCommand(os);
-        var download = tool.downloadSource(os).map(source -> downloadPlan(tool, source));
-        return new InstallPlan(tool, command, commandLine(command), blocker(tool, os, fresh),
-                tool.manualCommand(os), download);
-    }
-
-    private DownloadPlan downloadPlan(ToolDefinition tool, DownloadSource source) {
-        return new DownloadPlan(URI.create(source.archiveUrl().replace("{version}", "1")).getHost(), source.latest().url(),
-                source.archiveUrl(), directory.root().resolve(tool.id()), source.launcher());
-    }
-
-    private Optional<String> blocker(ToolDefinition tool, String os, boolean fresh) {
-        if (!tool.hasInstallCommand(os) && tool.downloadSource(os).isEmpty()) {
-            return Optional.of("This tool cannot be installed automatically on " + os + ".");
-        }
-        if (tool.prerequisite().isEmpty()) {
-            return Optional.empty();
-        }
-        var state = (fresh ? probe.probeFresh(tool.prerequisite()) : probe.probe(tool.prerequisite())).state();
-        if (state == ToolState.INSTALLED || state == ToolState.RESPONDING) {
-            return Optional.empty();
-        }
-        var name = catalog.find(tool.prerequisite()).map(ToolDefinition::name).orElse(tool.prerequisite());
-        return Optional.of("Install " + name + " first");
-    }
-
-    /** On Windows npm, pnpm, dotnet and friends are .cmd shims, which only cmd.exe starts. */
-    private List<String> launchCommand(List<String> argv) {
-        if (!host.windows()) {
-            return argv;
-        }
-        var command = new ArrayList<String>(List.of("cmd.exe", "/c"));
-        argv.forEach(argument -> command.add(WindowsArgument.quote(argument)));
-        return command;
-    }
-
-    private String osKey() {
-        return switch (host.os()) {
-            case WINDOWS -> "windows";
-            case MACOS -> "macos";
-            case LINUX -> "linux";
-        };
-    }
-
-    private static String commandLine(List<String> argv) {
-        return String.join(" ", argv.stream().map(argument -> argument.isEmpty() || argument.chars().anyMatch(Character::isWhitespace)
-                ? "\"" + argument + "\"" : argument).toList());
-    }
-
-    /** The output is already rendered text; only a line with a letter or digit is a message (not a bar or spinner glyph). */
-    private static String lastLine(String output) {
-        return output.lines().map(String::strip)
-                .filter(line -> line.chars().anyMatch(Character::isLetterOrDigit)).reduce((first, second) -> second)
-                .orElse("The install command failed");
     }
 
     private InstallResult blocked(String toolId, String reason) {

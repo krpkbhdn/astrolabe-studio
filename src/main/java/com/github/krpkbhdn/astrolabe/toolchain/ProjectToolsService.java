@@ -11,7 +11,6 @@ import com.github.krpkbhdn.astrolabe.project.Project;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -33,16 +32,17 @@ public class ProjectToolsService {
     private record CachedPlugins(Instant readAt, List<InstalledPlugin> plugins) {
     }
 
+    private record Scan(List<ToolDefinition> tools, Project group, Set<String> found) {
+    }
+
     public static final String NAVIGATION_TITLE = "LSP navigation";
     private static final String NAVIGATION_RESOURCE = "/toolchain/lsp-navigation.md";
-    private static final String OFFICIAL_MARKETPLACE = "claude-plugins-official";
-    private static final String OFFICIAL_MARKETPLACE_SOURCE = "anthropics/claude-plugins-official";
 
     private final ToolCatalog catalog;
     private final ToolProbe probe;
     private final TechnologyDetector detector;
     private final PluginService plugins;
-    private final ClaudePluginWriter pluginWriter;
+    private final LspMarketplaces marketplaces;
     private final LocalClaudeMdNote note;
     private final ProjectOverlaySettings overlaySettings;
     private final String navigationText;
@@ -58,7 +58,7 @@ public class ProjectToolsService {
         this.probe = probe;
         this.detector = detector;
         this.plugins = plugins;
-        this.pluginWriter = pluginWriter;
+        this.marketplaces = new LspMarketplaces(plugins, pluginWriter);
         this.note = note;
         this.overlaySettings = overlaySettings;
         this.properties = properties;
@@ -92,26 +92,29 @@ public class ProjectToolsService {
      * blocking, the probe may run the binary on a cache miss and the plugin list is read through {@code claude plugin list} at most once per status TTL.
      */
     public List<DetectedTechnology> detected(Path projectDir) {
-        var tools = catalog.all().stream().filter(tool -> tool.kind() != ToolKind.PREREQUISITE).toList();
-        var group = groupLsp.groupAt(projectDir);
-        var found = detectIn(group.map(g -> groupLsp.memberFolders(g.id())).orElse(List.of(projectDir)), tools);
+        var scan = scan(projectDir);
+        var tools = scan.tools();
+        var group = scan.group();
+        var found = scan.found();
         var foundTools = tools.stream().filter(tool -> found.contains(tool.id())).toList();
         if (foundTools.isEmpty()) {
             return List.of();
         }
         var installed = foundTools.stream().anyMatch(tool -> !tool.lspPlugin().isEmpty()) ? cachedPlugins(projectDir) : List.<InstalledPlugin>of();
         return foundTools.stream().map(tool -> {
-            var pluginState = group.isPresent() ? groupPluginState(group.get(), tool.lspPlugin(), projectDir) : pluginState(installed, tool.lspPlugin(), projectDir);
+            var pluginState = group != null ? groupPluginState(group, tool.lspPlugin(), projectDir) : pluginState(installed, tool.lspPlugin(), projectDir);
             var status = pluginState.serverMatters() ? probe.probe(tool.id()) : null;
             var detected = new DetectedTechnology(tool, status == null ? null : status.state(), pluginState);
             return status != null && status.state() == ToolState.FAILED ? detected.withFailure(status.detail()) : detected;
         }).toList();
     }
 
-    private Set<String> detectIn(List<Path> folders, List<ToolDefinition> tools) {
+    private Scan scan(Path projectDir) {
+        var tools = catalog.all().stream().filter(tool -> tool.kind() != ToolKind.PREREQUISITE).toList();
+        var group = groupLsp.groupAt(projectDir);
         var found = new HashSet<String>();
-        folders.forEach(folder -> found.addAll(detector.detect(folder, tools)));
-        return found;
+        group.map(g -> groupLsp.memberFolders(g.id())).orElse(List.of(projectDir)).forEach(folder -> found.addAll(detector.detect(folder, tools)));
+        return new Scan(tools, group.orElse(null), found);
     }
 
     /** A group that inherits is on when any member (or the group) has the plugin on; one that overrides looks at its own settings alone. */
@@ -175,9 +178,10 @@ public class ProjectToolsService {
     }
 
     private List<ProjectToolRow> buildRows(Path projectDir, List<ToolStatus> probed) {
-        var tools = catalog.all().stream().filter(tool -> tool.kind() != ToolKind.PREREQUISITE).toList();
-        var group = groupLsp.groupAt(projectDir);
-        var detected = detectIn(group.map(g -> groupLsp.memberFolders(g.id())).orElse(List.of(projectDir)), tools);
+        var scan = scan(projectDir);
+        var tools = scan.tools();
+        var group = scan.group();
+        var detected = scan.found();
         var statuses = probed.stream().collect(Collectors.toMap(ToolStatus::id, Function.identity(), (a, b) -> a));
         var installedPlugins = plugins.installed(projectDir);
         var userPlugins = installedPlugins.stream()
@@ -185,8 +189,8 @@ public class ProjectToolsService {
                 .map(InstalledPlugin::id).collect(Collectors.toSet());
         return tools.stream()
                 .map(tool -> new ProjectToolRow(tool, statuses.getOrDefault(tool.id(), new ToolStatus(tool.id(), ToolState.MISSING, "", "")),
-                        detected.contains(tool.id()), !tool.lspPlugin().isEmpty() && (group.isPresent()
-                                ? isEnabledForGroup(group.get(), tool.lspPlugin(), projectDir) : isEnabledForProject(installedPlugins, tool.lspPlugin(), projectDir)),
+                        detected.contains(tool.id()), !tool.lspPlugin().isEmpty() && (group != null
+                                ? isEnabledForGroup(group, tool.lspPlugin(), projectDir) : isEnabledForProject(installedPlugins, tool.lspPlugin(), projectDir)),
                         userPlugins.contains(tool.lspPlugin())))
                 .sorted(Comparator.comparing((ProjectToolRow row) -> row.tool().group())
                         .thenComparing(row -> !row.detected()))
@@ -204,8 +208,8 @@ public class ProjectToolsService {
         try {
             var installedPlugins = plugins.installed(projectDir);
             if (!isEffectivelyEnabled(installedPlugins, pluginId, projectDir)) {
-                ensureMarketplace(pluginId);
-                installForClaude(installedPlugins, pluginId);
+                marketplaces.ensureMarketplace(pluginId);
+                marketplaces.installForClaude(installedPlugins, pluginId);
                 overlaySettings.setPlugin(projectDir, pluginId, true);
             }
             note.write(projectDir, NAVIGATION_TITLE, navigationText);
@@ -213,17 +217,6 @@ public class ProjectToolsService {
             pluginCache.clear();
             pluginWrites.unlock();
         }
-    }
-
-    /** A first install goes in at user scope and is switched off there, so the plugin is on only where a project's settings turn it on. */
-    private void installForClaude(List<InstalledPlugin> installedPlugins, String pluginId) {
-        if (installedPlugins.stream().anyMatch(plugin -> plugin.id().equals(pluginId))) {
-            return;
-        }
-        if (plugins.install(pluginId, ExtensionScope.USER, null).needsConfirmation()) {
-            throw new ExtensionException("The plugin " + pluginId + " runs a command that needs your confirmation, install it on the Plugins page");
-        }
-        plugins.setEnabled(pluginId, ExtensionScope.USER, null, false);
     }
 
     /** Turns the plugin off for the project in the app's own settings, which also wins over an in-project entry; a user-level plugin and a tool without a plugin are left alone. */
@@ -271,41 +264,6 @@ public class ProjectToolsService {
     /** An in-project entry of the same folder (project or local scope) is only read, never written. */
     private static boolean isProjectOrLocalInstallation(InstalledPlugin plugin, Path projectDir) {
         return plugin.isInstallationOf(plugin.id(), ExtensionScope.PROJECT, projectDir) || plugin.isInstallationOf(plugin.id(), ExtensionScope.LOCAL, projectDir);
-    }
-
-    private static boolean isOwnMarketplace(String pluginId) {
-        return pluginId.endsWith("@" + ClaudePluginWriter.LSP_MARKETPLACE);
-    }
-
-    private void ensureMarketplace(String pluginId) {
-        if (pluginId.endsWith("@" + OFFICIAL_MARKETPLACE)) {
-            addMarketplaceIfMissing(OFFICIAL_MARKETPLACE, OFFICIAL_MARKETPLACE_SOURCE);
-        } else if (isOwnMarketplace(pluginId)) {
-            addMarketplaceIfNotAt(ClaudePluginWriter.LSP_MARKETPLACE, pluginWriter.marketplaceDirectory());
-        }
-    }
-
-    private void addMarketplaceIfMissing(String name, String source) {
-        if (plugins.marketplaces().stream().noneMatch(m -> m.name().equals(name))) {
-            plugins.addMarketplace(source, ExtensionScope.USER, null);
-        }
-    }
-
-    /** A local marketplace is added again when it points at another folder (the CLI then repoints it). */
-    private void addMarketplaceIfNotAt(String name, Path directory) {
-        var known = plugins.marketplaces().stream()
-                .anyMatch(m -> m.name().equals(name) && InstalledPlugin.sameDirectory(directory, pathOrNull(m.installLocation())));
-        if (!known) {
-            plugins.addMarketplace(directory.toAbsolutePath().toString(), ExtensionScope.USER, null);
-        }
-    }
-
-    private static Path pathOrNull(String location) {
-        try {
-            return location == null || location.isBlank() ? null : Path.of(location);
-        } catch (InvalidPathException e) {
-            return null;
-        }
     }
 
     private ToolDefinition requireTool(String toolId) {

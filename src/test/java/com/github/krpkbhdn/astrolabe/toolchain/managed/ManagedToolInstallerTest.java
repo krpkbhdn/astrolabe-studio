@@ -312,12 +312,10 @@ class ManagedToolInstallerTest {
 
     @Test
     void failedReinstallDownloadLeavesTheOldInstallationUntouched() throws Exception {
-        installer.install(TOOL, zipSource(), ToolChannel.LATEST, line -> {});
-        var binary = directory.versionDirectory("demo", "1.0.0").resolve("bin/demo");
-        Files.writeString(binary, "old");
+        var binary = installLatestWithOldBinary();
         checksumOverride.set("0".repeat(64) + "  demo.zip");
 
-        assertThatThrownBy(() -> installer.reinstall(TOOL, zipSource(), ToolChannel.LATEST, line -> {})).isInstanceOf(IOException.class);
+        assertReinstallFailsWithIoException();
 
         assertThat(binary).hasContent("old");
         assertThat(directory.installedVersion("demo")).contains("1.0.0");
@@ -326,14 +324,10 @@ class ManagedToolInstallerTest {
 
     @Test
     void reinstallThatCannotWriteTheLauncherRestoresTheOldFolder() throws Exception {
-        installer.install(TOOL, zipSource(), ToolChannel.LATEST, line -> {});
-        var binary = directory.versionDirectory("demo", "1.0.0").resolve("bin/demo");
-        Files.writeString(binary, "old");
-        var launcher = directory.binDirectory().resolve("demo");
-        Files.delete(launcher);
-        Files.createDirectories(launcher.resolve("blocker"));
+        var binary = installLatestWithOldBinary();
+        blockLauncherWithDirectory();
 
-        assertThatThrownBy(() -> installer.reinstall(TOOL, zipSource(), ToolChannel.LATEST, line -> {})).isInstanceOf(IOException.class);
+        assertReinstallFailsWithIoException();
 
         assertThat(binary).hasContent("old");
         assertThat(directory.installedVersion("demo")).contains("1.0.0");
@@ -342,15 +336,10 @@ class ManagedToolInstallerTest {
 
     @Test
     void interruptedReinstallKeepsTheOldInstallationAndLeavesNoPartialFolder() throws Exception {
-        installer.install(TOOL, zipSource(), ToolChannel.LATEST, line -> {});
-        var binary = directory.versionDirectory("demo", "1.0.0").resolve("bin/demo");
-        Files.writeString(binary, "old");
+        var binary = installLatestWithOldBinary();
 
-        assertThatThrownBy(() -> installer.reinstall(TOOL, zipSource(), ToolChannel.LATEST, text -> {
-            if (text.contains("Checksum verified")) {
-                Thread.currentThread().interrupt();
-            }
-        })).isInstanceOf(InterruptedException.class);
+        assertThatThrownBy(() -> installer.reinstall(TOOL, zipSource(), ToolChannel.LATEST, ManagedToolInstallerTest::interruptAfterChecksum))
+                .isInstanceOf(InterruptedException.class);
 
         assertThat(Thread.interrupted()).isFalse();
         assertThat(binary).hasContent("old");
@@ -362,11 +351,9 @@ class ManagedToolInstallerTest {
     @Test
     void failedReinstallLauncherWriteLeavesNoStaleAsideFolderAndKeepsTheOldMarker() throws Exception {
         installer.install(TOOL, zipSource(), ToolChannel.LATEST, line -> {});
-        var launcher = directory.binDirectory().resolve("demo");
-        Files.delete(launcher);
-        Files.createDirectories(launcher.resolve("blocker"));
+        blockLauncherWithDirectory();
 
-        assertThatThrownBy(() -> installer.reinstall(TOOL, zipSource(), ToolChannel.LATEST, line -> {})).isInstanceOf(IOException.class);
+        assertReinstallFailsWithIoException();
 
         assertThat(directory.versionDirectory("demo", "1.0.0").resolve(ManagedToolsDirectory.COMPLETE_MARKER)).exists();
         assertThat(entries(directory.root().resolve("demo"))).noneMatch(name -> name.contains("partial"));
@@ -374,11 +361,8 @@ class ManagedToolInstallerTest {
 
     @Test
     void interruptDuringTheExtractionIsReportedAsInterrupted() throws Exception {
-        assertThatThrownBy(() -> installer.install(TOOL, zipSource(), ToolChannel.LATEST, text -> {
-            if (text.contains("Checksum verified")) {
-                Thread.currentThread().interrupt();
-            }
-        })).isInstanceOf(InterruptedException.class);
+        assertThatThrownBy(() -> installer.install(TOOL, zipSource(), ToolChannel.LATEST, ManagedToolInstallerTest::interruptAfterChecksum))
+                .isInstanceOf(InterruptedException.class);
 
         assertThat(Thread.interrupted()).isFalse();
         assertThat(directory.installedVersion("demo")).isEmpty();
@@ -397,6 +381,29 @@ class ManagedToolInstallerTest {
 
         assertThat(entries(directory.downloadsDirectory())).isEmpty();
         assertThat(entries(directory.root().resolve("demo"))).containsExactlyInAnyOrder("1.0.0", "state");
+    }
+
+    private Path installLatestWithOldBinary() throws Exception {
+        installer.install(TOOL, zipSource(), ToolChannel.LATEST, line -> {});
+        var binary = directory.versionDirectory("demo", "1.0.0").resolve("bin/demo");
+        Files.writeString(binary, "old");
+        return binary;
+    }
+
+    private void blockLauncherWithDirectory() throws IOException {
+        var launcher = directory.binDirectory().resolve("demo");
+        Files.delete(launcher);
+        Files.createDirectories(launcher.resolve("blocker"));
+    }
+
+    private void assertReinstallFailsWithIoException() {
+        assertThatThrownBy(() -> installer.reinstall(TOOL, zipSource(), ToolChannel.LATEST, line -> {})).isInstanceOf(IOException.class);
+    }
+
+    private static void interruptAfterChecksum(String text) {
+        if (text.contains("Checksum verified")) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private static List<String> entries(Path folder) throws IOException {

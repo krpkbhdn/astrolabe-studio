@@ -2,19 +2,16 @@ package com.github.krpkbhdn.astrolabe.ui.web
 
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.key.Key
 import com.github.krpkbhdn.astrolabe.review.ReviewService
-import com.github.krpkbhdn.astrolabe.review.ReviewStatus
 import com.github.krpkbhdn.astrolabe.ui.state.ConfirmRequest
 import com.github.krpkbhdn.astrolabe.team.Team
 import com.github.krpkbhdn.astrolabe.ui.review.TeamOptions
 import com.github.krpkbhdn.astrolabe.ui.state.LiveSessions
-import com.github.krpkbhdn.astrolabe.ui.state.Refresher
 import com.github.krpkbhdn.astrolabe.ui.state.io
 import com.github.krpkbhdn.astrolabe.ui.state.runGuarded
 import com.github.krpkbhdn.astrolabe.ui.web.browser.Availability
@@ -27,7 +24,6 @@ import com.github.krpkbhdn.astrolabe.web.WebPage
 import com.github.krpkbhdn.astrolabe.web.WebReviewService
 import com.github.krpkbhdn.astrolabe.web.WebRevision
 import java.time.Clock
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -37,8 +33,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-
-private class ProjectData(val revisions: List<WebRevision>, val pages: List<WebPage>, val items: Map<Long, List<WebItem>>)
 
 private const val OPEN_FAILED = "The browser could not open a page"
 private const val SWEEP_INTERVAL_MILLIS = 30_000L
@@ -80,24 +74,7 @@ class WebState(
 
     private val pool = WebViewPool(hostFactory, service::browserLimits, clock, ::wire)
     private var sweeper: Job? = null
-    private val revisionsByProject = mutableStateMapOf<Long, List<WebRevision>>()
-    private val pagesByProject = mutableStateMapOf<Long, List<WebPage>>()
-    private val itemsByRevision = mutableStateMapOf<Long, List<WebItem>>()
-    private val watchedProjects = ConcurrentHashMap.newKeySet<Long>()
-    private val subscription = lazy { service.subscribe(Runnable { reload.request() }) }
-    private val reload = Refresher(scope) {
-        watchedProjects.toList().forEach { projectId ->
-            runGuarded(reportError) {
-                val data = io { load(projectId) }
-                if (projectId !in watchedProjects) return@runGuarded
-                (revisionsByProject[projectId].orEmpty().map { it.id() } - data.items.keys).forEach(itemsByRevision::remove)
-                revisionsByProject[projectId] = data.revisions
-                pagesByProject[projectId] = data.pages
-                data.items.forEach { (revisionId, items) -> itemsByRevision[revisionId] = items }
-                pool.find(projectId)?.let { events.refreshPage(it) }
-            }
-        }
-    }
+    private val data = WebReviewData(service, scope, reportError) { projectId -> pool.find(projectId)?.let { events.refreshPage(it) } }
 
     /** Which earlier review results keep their pins; the owner of the stored setting sets the start value and [onHistoryChange]. */
     var history by mutableStateOf(HistoryModes())
@@ -138,8 +115,7 @@ class WebState(
 
     /** Disposes every browser; called once when the app exits. */
     fun close() {
-        if (subscription.isInitialized()) subscription.value.run()
-        reload.close()
+        data.close()
         targets.close()
         sweeper?.cancel()
         pool.closeAll()
@@ -147,15 +123,13 @@ class WebState(
 
     /** Closes the browser of a project that no longer exists. */
     fun forget(projectId: Long) {
-        watchedProjects.remove(projectId)
-        revisionsByProject.remove(projectId)?.forEach { itemsByRevision.remove(it.id()) }
-        pagesByProject.remove(projectId)
+        data.forget(projectId)
         pool.close(projectId)
     }
 
     /** Closes the browsers and drops the cached revisions of every project that is not in [existing]. */
     fun retain(existing: Collection<Long>) {
-        (watchedProjects + revisionsByProject.keys - existing.toSet()).forEach(::forget)
+        (data.projects() - existing.toSet()).forEach(::forget)
         pool.retain(existing)
     }
 
@@ -168,33 +142,17 @@ class WebState(
 
     internal fun sweepIdle() = pool.closeIdle()
 
-    private fun load(projectId: Long): ProjectData {
-        val revisions = service.revisions(projectId)
-        return ProjectData(revisions, service.pages(projectId), revisions.associate { it.id() to service.allItems(it.id()) })
-    }
+    fun revisions(projectId: Long): List<WebRevision> = data.revisions(projectId)
 
-    private fun watch(projectId: Long) {
-        subscription.value
-        if (watchedProjects.add(projectId)) reload.request()
-    }
+    fun pages(projectId: Long): List<WebPage> = data.pages(projectId)
 
-    fun revisions(projectId: Long): List<WebRevision> {
-        watch(projectId)
-        return revisionsByProject[projectId].orEmpty()
-    }
-
-    fun pages(projectId: Long): List<WebPage> = pagesByProject[projectId].orEmpty()
-
-    fun items(revisionId: Long): List<WebItem> = itemsByRevision[revisionId].orEmpty()
+    fun items(revisionId: Long): List<WebItem> = data.items(revisionId)
 
     /** OPEN items of the project's PENDING revision, for the tab badge. */
-    fun pendingCount(projectId: Long): Int {
-        val pending = revisions(projectId).firstOrNull { it.status() == ReviewStatus.PENDING } ?: return 0
-        return items(pending.id()).count { it.status() == WebItemStatus.OPEN }
-    }
+    fun pendingCount(projectId: Long): Int = data.pendingCount(projectId)
 
     fun view(projectId: Long): WebView {
-        watch(projectId)
+        data.watch(projectId)
         return pool.open(projectId)
     }
 
