@@ -218,7 +218,6 @@ The first build needs internet: it downloads Gradle and JBR 25, so it takes a wh
 - jpackage does not cross-compile: build on the target OS and architecture. Linux arm64 and Windows arm64 are untested.
 - Needed: a JDK to start Gradle; the JBR 25 (JCEF) toolchain is downloaded by the build (about 670 MB, once). Windows `.msi`/`.exe`: WiX Toolset on `PATH` (3.x; not verified against newer versions). Linux: `rpmbuild` (for `.rpm`) and `fakeroot` (for `.deb`). macOS: Xcode command line tools.
 - Linux: the `.deb` lists the libraries JCEF (Web tab) needs as `Recommends` and the `.rpm` and `.tar.gz` do not declare them, so a clean system may need `libnss3`, `libgbm`, `libatk` and similar.
-- macOS: the Web tab may crash; the cause is not found yet.
 
 ## Keyboard shortcuts
 
