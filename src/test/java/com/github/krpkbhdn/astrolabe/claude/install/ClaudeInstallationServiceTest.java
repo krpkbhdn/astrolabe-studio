@@ -82,7 +82,7 @@ class ClaudeInstallationServiceTest {
 
             @Override
             public String env(String name) {
-                return name.equals("PATH") ? "/usr/bin:/bin" : super.env(name);
+                return name.equals("PATH") ? "/usr/bin:/bin" : null;
             }
         };
 
