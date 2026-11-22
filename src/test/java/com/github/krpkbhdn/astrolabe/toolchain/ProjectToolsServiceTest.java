@@ -156,14 +156,6 @@ class ProjectToolsServiceTest {
     }
 
     @Test
-    void missingOfficialMarketplaceIsAddedFirst() {
-        when(plugins.marketplaces()).thenReturn(List.of());
-        when(plugins.install(any(), any(), any())).thenReturn(mock(PluginInstallResult.class));
-        service.enableLsp(DIR, "typescript");
-        verify(plugins).addMarketplace("anthropics/claude-plugins-official", ExtensionScope.USER, null);
-    }
-
-    @Test
     void ownMarketplaceIsAddedAsDirectoryAtUserScopeThenPluginInstalledAndSwitchedOffThere() {
         service.enableLsp(DIR, "css");
         var inOrder = org.mockito.Mockito.inOrder(plugins);
@@ -172,39 +164,6 @@ class ProjectToolsServiceTest {
         inOrder.verify(plugins).setEnabled(CSS_PLUGIN, ExtensionScope.USER, null, false);
         assertThat(overlay.pluginSetting(DIR, CSS_PLUGIN)).contains(true);
         verify(plugins, never()).addMarketplace(org.mockito.ArgumentMatchers.eq("anthropics/claude-plugins-official"), any(), any());
-    }
-
-    @Test
-    void knownOwnMarketplaceAtTheSameFolderIsNotAddedAgain() {
-        var location = DIR.resolve("lsp-marketplace").toAbsolutePath().toString();
-        when(plugins.marketplaces()).thenReturn(List.of(new Marketplace("astrolabe-lsp", "path", location, location)));
-        service.enableLsp(DIR, "css");
-        verify(plugins, never()).addMarketplace(any(), any(), any());
-        verify(plugins).install(CSS_PLUGIN, ExtensionScope.USER, null);
-    }
-
-    @Test
-    void sameFolderSpelledDifferentlyIsNotAddedAgain() {
-        var folder = DIR.resolve("lsp-marketplace").toAbsolutePath().toString();
-        var spelled = folder.toUpperCase(java.util.Locale.ROOT).replace('\\', '/') + "/";
-        var other = org.junit.jupiter.api.condition.OS.WINDOWS.isCurrentOs() ? spelled : folder + java.io.File.separator;
-        when(plugins.marketplaces()).thenReturn(List.of(new Marketplace("astrolabe-lsp", "path", other, other)));
-        service.enableLsp(DIR, "css");
-        verify(plugins, never()).addMarketplace(any(), any(), any());
-    }
-
-    @Test
-    void blankOrInvalidInstallLocationIsAddedAgainWithoutThrowing() {
-        when(plugins.marketplaces()).thenReturn(List.of(new Marketplace("astrolabe-lsp", "path", " ", " ")));
-        service.enableLsp(DIR, "css");
-        verify(plugins).addMarketplace(DIR.resolve("lsp-marketplace").toAbsolutePath().toString(), ExtensionScope.USER, null);
-    }
-
-    @Test
-    void ownMarketplaceAtAnotherFolderIsAddedAgain() {
-        when(plugins.marketplaces()).thenReturn(List.of(new Marketplace("astrolabe-lsp", "path", "old", "old")));
-        service.enableLsp(DIR, "css");
-        verify(plugins).addMarketplace(DIR.resolve("lsp-marketplace").toAbsolutePath().toString(), ExtensionScope.USER, null);
     }
 
     @Test

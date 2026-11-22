@@ -5,28 +5,24 @@ import static java.nio.file.StandardWatchEventKinds.ENTRY_DELETE;
 import static java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY;
 import static java.nio.file.StandardWatchEventKinds.OVERFLOW;
 
+import com.github.krpkbhdn.astrolabe.git.GitWatchPaths.Zone;
 import com.sun.nio.file.ExtendedWatchEventModifier;
 import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.nio.file.ClosedWatchServiceException;
 import java.nio.file.FileSystems;
-import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.nio.file.SimpleFileVisitor;
 import java.nio.file.WatchEvent;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
@@ -35,7 +31,6 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.stream.StreamSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,14 +47,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class GitWatcher {
 
-    private static final Set<String> IGNORED_TREE_NAMES = Set.of(".git", "node_modules", "build", "target", ".gradle", "dist",
-            ".idea", "out", ".venv", "__pycache__", ".next");
-    private static final Set<String> GIT_STATE_NAMES = Set.of("HEAD", "ORIG_HEAD", "index", "MERGE_HEAD", "CHERRY_PICK_HEAD",
-            "REVERT_HEAD", "rebase-merge", "rebase-apply", "packed-refs", "refs");
-    private static final String LOCK_SUFFIX = ".lock";
     private static final Logger log = LoggerFactory.getLogger(GitWatcher.class);
-
-    private enum Zone { GIT_ROOT, GIT_REFS, TREE }
 
     private record Registration(Watch watch, Zone zone) {}
 
@@ -227,9 +215,9 @@ public class GitWatcher {
         for (var event : key.pollEvents()) {
             if (event.kind() == OVERFLOW) {
                 changed = true;
-            } else if (isRelevant(registration.zone(), (Path) event.context())) {
+            } else if (GitWatchPaths.isRelevant(registration.zone(), (Path) event.context())) {
                 var path = ((Path) key.watchable()).resolve((Path) event.context());
-                if (!isDirectoryTimestampNoise(registration.zone(), event.kind(), path)) {
+                if (!GitWatchPaths.isDirectoryTimestampNoise(registration.zone(), event.kind(), path)) {
                     changed = true;
                 }
                 onCreated(registration, path, event.kind());
@@ -257,23 +245,6 @@ public class GitWatcher {
         }
     }
 
-    /** Windows reports a MODIFY for every ancestor folder of a changed file, even when that file sits in an ignored folder. */
-    private static boolean isDirectoryTimestampNoise(Zone zone, WatchEvent.Kind<?> kind, Path path) {
-        return zone == Zone.TREE && kind == ENTRY_MODIFY && Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS);
-    }
-
-    private static boolean isRelevant(Zone zone, Path name) {
-        var text = name.toString();
-        if (text.endsWith(LOCK_SUFFIX)) {
-            return false;
-        }
-        return switch (zone) {
-            case GIT_ROOT -> GIT_STATE_NAMES.contains(text);
-            case GIT_REFS -> true;
-            case TREE -> StreamSupport.stream(name.spliterator(), false).noneMatch(segment -> IGNORED_TREE_NAMES.contains(segment.toString()));
-        };
-    }
-
     private void onCreated(Registration registration, Path path, WatchEvent.Kind<?> kind) {
         if (kind != ENTRY_CREATE || registration.zone() == Zone.GIT_ROOT || !Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
             return;
@@ -290,7 +261,7 @@ public class GitWatcher {
     private boolean registerTree(Watch watch, Path start, Zone zone, int limit) {
         var registered = new HashSet<Path>();
         while (true) {
-            var directories = walkDirectories(start, zone, limit);
+            var directories = GitWatchPaths.walkDirectories(start, zone, limit);
             if (directories.size() > limit) {
                 return false;
             }
@@ -302,30 +273,6 @@ public class GitWatcher {
             registered.addAll(directories);
             // folders created while registering produce no event, so walk again until nothing new shows up
         }
-    }
-
-    private static List<Path> walkDirectories(Path start, Zone zone, int limit) {
-        var directories = new ArrayList<Path>();
-        try {
-            Files.walkFileTree(start, new SimpleFileVisitor<>() {
-                @Override
-                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
-                    if (!dir.equals(start) && zone == Zone.TREE && IGNORED_TREE_NAMES.contains(dir.getFileName().toString())) {
-                        return FileVisitResult.SKIP_SUBTREE;
-                    }
-                    directories.add(dir);
-                    return directories.size() > limit ? FileVisitResult.TERMINATE : FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public FileVisitResult visitFileFailed(Path file, IOException exception) {
-                    return FileVisitResult.CONTINUE;
-                }
-            });
-        } catch (IOException e) {
-            log.debug("walking {} failed: {}", start, e.getMessage());
-        }
-        return directories;
     }
 
     private void register(Watch watch, Path directory, Zone zone) {

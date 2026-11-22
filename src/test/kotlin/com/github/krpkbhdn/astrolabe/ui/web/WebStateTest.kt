@@ -266,6 +266,15 @@ class WebStateTest {
     }
 
     @Test
+    fun `asking for pages first still loads them`() {
+        `when`(service.pages(1)).thenReturn(listOf(WebPage(1, 1, "k", "http://localhost:3000/old", "Old")))
+
+        state.pages(1)
+
+        await { state.pages(1).isNotEmpty() }
+    }
+
+    @Test
     fun `a revision that no longer exists loses its items after a reload`() {
         var changed = Runnable { }
         `when`(service.subscribe(org.mockito.ArgumentMatchers.any())).thenAnswer { changed = it.getArgument(0); Runnable { } }

@@ -19,6 +19,13 @@ class GitRunnerTest {
     @TempDir
     Path root;
 
+    private Path preCommitHook(String script) throws java.io.IOException {
+        var hooks = java.nio.file.Files.createDirectory(root.resolve("hooks"));
+        java.nio.file.Files.writeString(hooks.resolve("pre-commit"), "#!/bin/sh\n" + script + "\n");
+        hooks.resolve("pre-commit").toFile().setExecutable(true);
+        return hooks;
+    }
+
     @Test
     void aMissingWorkingDirectoryIsNotReportedAsMissingGit() {
         var sandbox = GitCliSandbox.create(root);
@@ -59,9 +66,7 @@ class GitRunnerTest {
     @Test
     void writeCommandIsNotKilledAtTheTimeout() throws Exception {
         var sandbox = GitCliSandbox.create(root);
-        var hooks = java.nio.file.Files.createDirectory(root.resolve("hooks"));
-        java.nio.file.Files.writeString(hooks.resolve("pre-commit"), "#!/bin/sh\nsleep 0.6\n");
-        hooks.resolve("pre-commit").toFile().setExecutable(true);
+        var hooks = preCommitHook("sleep 0.6");
 
         var result = sandbox.runner.run(sandbox.repo, Duration.ofMillis(150), null, null,
                 List.of("-c", "core.hooksPath=" + hooks.toString().replace('\\', '/'), "commit", "--allow-empty", "-m", "slow"));
@@ -73,9 +78,7 @@ class GitRunnerTest {
     void hookCommandIsKilledAtTheSyncTimeout() throws Exception {
         var shortSync = new GitProperties(Duration.ofMillis(300), Duration.ofMillis(300), Duration.ofMillis(300), 2000, 2000, 1048576);
         var sandbox = GitCliSandbox.create(root, shortSync);
-        var hooks = java.nio.file.Files.createDirectory(root.resolve("hooks"));
-        java.nio.file.Files.writeString(hooks.resolve("pre-commit"), "#!/bin/sh\nsleep 20\n");
-        hooks.resolve("pre-commit").toFile().setExecutable(true);
+        var hooks = preCommitHook("sleep 20");
         var started = System.nanoTime();
 
         assertThatThrownBy(() -> sandbox.runner.run(sandbox.repo, Duration.ofMillis(300), null, null,

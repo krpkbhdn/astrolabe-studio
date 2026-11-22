@@ -12,7 +12,9 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.EnumSet;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -50,7 +52,7 @@ public class HookServer implements SmartLifecycle {
     private static final int METHOD_NOT_ALLOWED = 405;
     private static final int NO_RESPONSE_BODY = -1;
     private static final int PAYLOAD_TOO_LARGE = 413;
-    private static final java.util.Set<HookEventType> STATUS_ENDING_EVENTS = java.util.EnumSet.of(HookEventType.STOP,
+    private static final Set<HookEventType> STATUS_ENDING_EVENTS = EnumSet.of(HookEventType.STOP,
             HookEventType.POST_TOOL_USE, HookEventType.POST_TOOL_USE_FAILURE, HookEventType.USER_PROMPT_SUBMIT,
             HookEventType.ELICITATION_RESULT, HookEventType.SESSION_END, HookEventType.STOP_FAILURE, HookEventType.NOTIFICATION,
             HookEventType.SUBAGENT_STOP, HookEventType.POST_COMPACT);
@@ -239,7 +241,7 @@ public class HookServer implements SmartLifecycle {
 
     /** Losing these leaves a session status or a held dialog wrong until the next event, so a full queue does not drop them. */
     private boolean endsAStatus(JsonNode payload) {
-        return STATUS_ENDING_EVENTS.contains(HookEventType.of(payload.path("hook_event_name").asString("")));
+        return STATUS_ENDING_EVENTS.contains(typeOf(payload));
     }
 
     private void respondToMcp(HttpExchange exchange, Function<byte[], Optional<String>> handler, byte[] body) throws IOException {
@@ -263,7 +265,11 @@ public class HookServer implements SmartLifecycle {
     }
 
     private boolean asksForDecision(JsonNode payload) {
-        return HookEventType.of(payload.path("hook_event_name").asString("")).awaitsDecision();
+        return typeOf(payload).awaitsDecision();
+    }
+
+    private static HookEventType typeOf(JsonNode payload) {
+        return HookEventType.of(payload.path("hook_event_name").asString(""));
     }
 
     /** Runs on a virtual thread, so waiting for the user costs nothing; the wait is bounded by the decision hold. */
@@ -297,7 +303,7 @@ public class HookServer implements SmartLifecycle {
 
     private static HookEvent eventOf(String astrolabeSessionId, JsonNode payload, Instant receivedAt) {
         var rawName = payload.path("hook_event_name").asString("");
-        return new HookEvent(astrolabeSessionId, HookEventType.of(rawName), rawName, payload, receivedAt);
+        return new HookEvent(astrolabeSessionId, typeOf(payload), rawName, payload, receivedAt);
     }
 
     private void publishEvent(HookEvent event) {

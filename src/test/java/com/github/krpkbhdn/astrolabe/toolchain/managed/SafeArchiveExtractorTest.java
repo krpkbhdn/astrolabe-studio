@@ -28,7 +28,8 @@ class SafeArchiveExtractorTest {
     private static final long BIG = 1_000_000;
     private static final boolean POSIX = FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
 
-    private final SafeArchiveExtractor extractor = new SafeArchiveExtractor();
+    private final SafeArchiveExtractor extractor = new SafeArchiveExtractor(false);
+    private final SafeArchiveExtractor windowsExtractor = new SafeArchiveExtractor(true);
 
     @TempDir
     Path temp;
@@ -154,13 +155,36 @@ class SafeArchiveExtractorTest {
 
     @Test
     void rejectsWindowsReservedDeviceNames() throws IOException {
-        for (String name : new String[] {"NUL", "con.txt", "sub/COM1"}) {
+        for (String name : new String[] {"NUL", "con.txt", "sub/COM1", "aux", "NUL.txt", "com1", "NUL ", "aux ."}) {
             Path archive = zip(name, 0100644, "x");
 
-            assertThatThrownBy(() -> extractor.extract(archive, target(), false, MANY, BIG))
+            assertThatThrownBy(() -> windowsExtractor.extract(archive, target(), false, MANY, BIG))
                     .as(name)
-                    .isInstanceOf(IOException.class);
+                    .isInstanceOf(IOException.class).hasMessageContaining("Unsafe archive entry");
         }
+    }
+
+    @Test
+    void windowsModeStillAcceptsNamesThatMerelyStartLikeDeviceNames() throws IOException {
+        Path archive = zip("console.txt", 0100644, "x");
+
+        windowsExtractor.extract(archive, target(), false, MANY, BIG);
+
+        assertThat(target().resolve("console.txt")).exists();
+    }
+
+    @Test
+    void nonWindowsModeExtractsDeviceNamedEntries() throws IOException {
+        assumeTrue(POSIX);
+        Path archive = tar(t -> {
+            tarFile(t, "lib/aux/x", "x", 0644);
+            tarFile(t, "con.txt", "c", 0644);
+        });
+
+        extractor.extract(archive, target(), true, MANY, BIG);
+
+        assertThat(target().resolve("lib/aux/x")).hasContent("x");
+        assertThat(target().resolve("con.txt")).hasContent("c");
     }
 
     @Test

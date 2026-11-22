@@ -1,8 +1,6 @@
 package com.github.krpkbhdn.astrolabe.claude.hook;
 
-import com.github.krpkbhdn.astrolabe.claude.event.HookEventType;
 import com.github.krpkbhdn.astrolabe.claude.install.ClaudeInstallationService;
-import com.github.krpkbhdn.astrolabe.claude.install.ClaudeVersion;
 import com.github.krpkbhdn.astrolabe.claude.mcp.AssistantMcpServer;
 import com.github.krpkbhdn.astrolabe.claude.mcp.McpEndpoint;
 import com.github.krpkbhdn.astrolabe.codemode.CodeModeProperties;
@@ -10,38 +8,24 @@ import com.github.krpkbhdn.astrolabe.codemode.mcp.CodeModeEndpoint;
 import com.github.krpkbhdn.astrolabe.config.AppProperties;
 import com.github.krpkbhdn.astrolabe.overlay.OverlayProperties;
 import com.github.krpkbhdn.astrolabe.overlay.OwnerOnlyFiles;
-import com.github.krpkbhdn.astrolabe.overlay.ProjectOverlay;
 import com.github.krpkbhdn.astrolabe.overlay.SessionOverlay;
-import com.github.krpkbhdn.astrolabe.overlay.SettingsMerge;
 import com.github.krpkbhdn.astrolabe.project.TrustLevel;
 import com.github.krpkbhdn.astrolabe.team.Team;
-import com.github.krpkbhdn.astrolabe.team.TeamAgentsJson;
-import com.github.krpkbhdn.astrolabe.team.TeamRole;
 import com.github.krpkbhdn.astrolabe.workspace.TreeDeleter;
 import jakarta.annotation.PostConstruct;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
-import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.time.Duration;
-import java.util.Arrays;
-import java.util.EnumSet;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
-import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 /** Writes the per-session files for claude: --settings (hooks, a statusLine that reports rate limits) and --mcp-config (astrolabe's own MCP server). */
@@ -50,61 +34,39 @@ public class HookSettingsWriter {
 
     private static final Logger log = LoggerFactory.getLogger(HookSettingsWriter.class);
     private static final String HOOKS_DIR = "hooks";
-    private static final String FILE_SUFFIX = ".json";
-    private static final String MCP_SUFFIX = ".mcp.json";
-    private static final String LIST_RUN_CONFIGURATIONS_TOOL = "list_run_configurations";
-    private static final String TOKEN_SUFFIX = ".token";
-    private static final String PROMPT_SUFFIX = ".prompt.md";
-    private static final String AGENTS_PLUGIN_SUFFIX = ".agents";
-    private static final String SKILLS_PLUGIN_SUFFIX = ".skills";
     private static final String BEARER_PREFIX = "Bearer ";
-    private static final Pattern SAFE_ID = Pattern.compile("[A-Za-z0-9-]+");
-    private static final int HOOK_TIMEOUT_SECONDS = 5;
     /** These calls are held until the user answers; the hook timeout is HookProperties.decisionHold plus this margin. */
     private static final int DECISION_TIMEOUT_MARGIN_SECONDS = 10;
     /** Claude Code's per-call limit for astrolabe-code must outlast the script limits so our own error texts name the real limit. */
     private static final Duration CODE_MODE_TIMEOUT_MARGIN = Duration.ofSeconds(30);
-    /** Claude Code that knows the hook {@code args} field (changelog 2.1.139); an older one would run the command bare and start a second app. */
-    private static final String EXEC_FORM_SINCE = "2.1.139";
-    /** WorktreeCreate replaces git behaviour, MessageDisplay is a token firehose, the rest never fire in sessions. */
-    private static final Set<HookEventType> NOT_SUBSCRIBED = EnumSet.of(HookEventType.SETUP, HookEventType.WORKTREE_CREATE,
-            HookEventType.WORKTREE_REMOVE, HookEventType.MESSAGE_DISPLAY, HookEventType.UNKNOWN);
 
     private final HookServer server;
-    private final Path hooksRoot;
-    /** Every app process writes into its own subdirectory named by its pid, so instances never touch each other's files. */
-    private final Path hooksDir;
+    private final SessionPaths paths;
     private final JsonMapper mapper;
-    private final boolean windows;
-    private final int decisionTimeoutSeconds;
-    private final HookHelperCommand helper;
-    private final ClaudeInstallationService installation;
+    private final SessionSettingsBuilder settingsBuilder;
+    private final OverlaySessionFiles overlayFiles;
     private final long codeModeTimeoutMillis;
-    private final int maxAgentsJsonChars;
-    private final AtomicBoolean skipWarned = new AtomicBoolean();
 
     @Autowired
     public HookSettingsWriter(HookServer server, AppProperties properties, JsonMapper mapper, HookProperties hookProperties, HookHelperCommand helper,
             ClaudeInstallationService installation, CodeModeProperties codeModeProperties, OverlayProperties overlayProperties) {
-        this.maxAgentsJsonChars = overlayProperties.maxAgentsJsonChars();
         this.codeModeTimeoutMillis = codeModeProperties.maxScriptTime().plus(CODE_MODE_TIMEOUT_MARGIN).toMillis();
-        this.installation = installation;
-        this.helper = helper;
         this.server = server;
-        this.decisionTimeoutSeconds = (int) hookProperties.decisionHold().toSeconds() + DECISION_TIMEOUT_MARGIN_SECONDS;
-        this.hooksRoot = properties.dataDir().resolve(HOOKS_DIR);
-        this.hooksDir = hooksRoot.resolve(String.valueOf(ProcessHandle.current().pid()));
+        var hooksRoot = properties.dataDir().resolve(HOOKS_DIR);
+        this.paths = new SessionPaths(hooksRoot, hooksRoot.resolve(String.valueOf(ProcessHandle.current().pid())));
         this.mapper = mapper;
-        this.windows = helper.windows();
+        this.settingsBuilder = new SessionSettingsBuilder(server, mapper, helper, installation, paths,
+                (int) hookProperties.decisionHold().toSeconds() + DECISION_TIMEOUT_MARGIN_SECONDS);
+        this.overlayFiles = new OverlaySessionFiles(mapper, paths, overlayProperties.maxAgentsJsonChars());
     }
 
     /** Removes the files of app processes that no longer run (a live process's directory stays however quiet its sessions are), and loose files from before the per-process directories. */
     @PostConstruct
     void deleteStaleFiles() {
-        if (!Files.isDirectory(hooksRoot)) {
+        if (!Files.isDirectory(paths.hooksRoot())) {
             return;
         }
-        try (var entries = Files.newDirectoryStream(hooksRoot)) {
+        try (var entries = Files.newDirectoryStream(paths.hooksRoot())) {
             for (var entry : entries) {
                 deleteIfStale(entry);
             }
@@ -117,7 +79,7 @@ public class HookSettingsWriter {
         try {
             if (!Files.isDirectory(entry)) {
                 Files.deleteIfExists(entry);
-            } else if (!entry.equals(hooksDir) && !isLiveProcess(entry.getFileName().toString())) {
+            } else if (!entry.equals(paths.hooksDir()) && !isLiveProcess(entry.getFileName().toString())) {
                 TreeDeleter.delete(entry);
             }
         } catch (IOException | RuntimeException e) {
@@ -185,109 +147,32 @@ public class HookSettingsWriter {
     }
 
     private SessionFiles write(String astrolabeSessionId, ObjectNode mcpConfig, CodeModeAccess codeMode, TrustLevel trust, SessionOverlay overlay, Team team) {
-        var file = fileOf(astrolabeSessionId);
-        var mcpFile = mcpFileOf(astrolabeSessionId);
+        var file = paths.fileOf(astrolabeSessionId);
+        var mcpFile = paths.mcpFileOf(astrolabeSessionId);
         Path promptFile;
         Path agentsPlugin;
         Path skillsPlugin;
         try {
-            OwnerOnlyFiles.createDirectory(hooksDir);
-            OwnerOnlyFiles.write(tokenFileOf(astrolabeSessionId), server.sessionToken(astrolabeSessionId));
-            OwnerOnlyFiles.write(file, mapper.writeValueAsString(settings(astrolabeSessionId, codeMode, trust, overlay)));
+            OwnerOnlyFiles.createDirectory(paths.hooksDir());
+            OwnerOnlyFiles.write(paths.tokenFileOf(astrolabeSessionId), server.sessionToken(astrolabeSessionId));
+            OwnerOnlyFiles.write(file, mapper.writeValueAsString(settingsBuilder.settings(astrolabeSessionId, codeMode, trust, overlay)));
             OwnerOnlyFiles.write(mcpFile, mapper.writeValueAsString(mcpConfig));
-            promptFile = writePrompt(astrolabeSessionId, overlay, team);
-            agentsPlugin = writeAgentsPlugin(astrolabeSessionId, overlay, team);
-            skillsPlugin = writeSkillsPlugin(astrolabeSessionId, overlay);
+            promptFile = overlayFiles.writePrompt(astrolabeSessionId, overlay, team);
+            agentsPlugin = overlayFiles.writeAgentsPlugin(astrolabeSessionId, overlay, team);
+            skillsPlugin = overlayFiles.writeSkillsPlugin(astrolabeSessionId, overlay);
         } catch (IOException e) {
             throw new UncheckedIOException("Cannot write hook settings " + file, e);
         }
         return new SessionFiles(file, mcpFile, promptFile, agentsPlugin, skillsPlugin, overlay);
     }
 
-    /** One file for --append-system-prompt-file: the lead addendum of the team, then the overlay instructions; claude never gets both flags. */
-    private Path writePrompt(String astrolabeSessionId, SessionOverlay overlay, Team team) throws IOException {
-        if (overlay.instructions().isBlank()) {
-            return null;
-        }
-        var file = hooksDir.resolve(astrolabeSessionId + PROMPT_SUFFIX).toAbsolutePath();
-        OwnerOnlyFiles.write(file, (team == null ? "" : TeamAgentsJson.leadAddendum(team) + "\n\n") + overlay.instructions());
-        return file;
-    }
-
-    /** Agents too long for the command line travel as a plugin directory; claude then names them {@code astrolabe-agent:<name>} instead of {@code <name>}. */
-    private Path writeAgentsPlugin(String astrolabeSessionId, SessionOverlay overlay, Team team) throws IOException {
-        if (overlay.agents().isEmpty() || commandLineLength(TeamAgentsJson.agents(team, overlay.agents().values())) <= maxAgentsJsonChars) {
-            return null;
-        }
-        log.warn("The overlay agents do not fit into --agents, they are passed as a plugin directory");
-        var teamNames = team == null ? Set.<String>of() : team.subagents().stream().map(TeamRole::name).collect(Collectors.toSet());
-        var directory = hooksDir.resolve(astrolabeSessionId + AGENTS_PLUGIN_SUFFIX).toAbsolutePath();
-        OwnerOnlyFiles.createDirectory(directory.resolve(".claude-plugin"));
-        OwnerOnlyFiles.createDirectory(directory.resolve("agents"));
-        OwnerOnlyFiles.write(directory.resolve(".claude-plugin").resolve("plugin.json"),
-                mapper.writeValueAsString(mapper.createObjectNode().put("name", "astrolabe-agent").put("description", "Agents of the project overlay")));
-        for (var agent : overlay.agents().values()) {
-            if (!teamNames.contains(agent.name())) {
-                OwnerOnlyFiles.write(directory.resolve("agents").resolve(agent.name() + ".md"), agent.markdown());
-            }
-        }
-        return directory;
-    }
-
-    /**
-     * The skills of the overlay context folders travel as a plugin directory instead of --add-dir, which makes claude ask to trust the folder in every session;
-     * claude names them {@code astrolabe-skill:<skill>}. A skill name found in an earlier folder wins. Files are copied (no symlinks on Windows).
-     */
-    private Path writeSkillsPlugin(String astrolabeSessionId, SessionOverlay overlay) throws IOException {
-        var sources = new LinkedHashMap<String, Path>();
-        for (var context : overlay.contextDirectories()) {
-            var skills = context.resolve(ProjectOverlay.SKILLS_DIRECTORY);
-            if (!Files.isDirectory(skills)) {
-                continue;
-            }
-            try (var entries = Files.list(skills)) {
-                entries.filter(Files::isDirectory).sorted().forEach(skill -> sources.putIfAbsent(skill.getFileName().toString(), skill));
-            }
-        }
-        if (sources.isEmpty()) {
-            return null;
-        }
-        var directory = hooksDir.resolve(astrolabeSessionId + SKILLS_PLUGIN_SUFFIX).toAbsolutePath();
-        OwnerOnlyFiles.createDirectory(directory.resolve(".claude-plugin"));
-        OwnerOnlyFiles.write(directory.resolve(".claude-plugin").resolve("plugin.json"),
-                mapper.writeValueAsString(mapper.createObjectNode().put("name", "astrolabe-skill").put("description", "Skills of the project overlay")));
-        for (var source : sources.entrySet()) {
-            copyTree(source.getValue(), directory.resolve("skills").resolve(source.getKey()));
-        }
-        return directory;
-    }
-
-    private static void copyTree(Path source, Path target) throws IOException {
-        try (var tree = Files.walk(source)) {
-            for (var path : tree.toList()) {
-                var destination = target.resolve(source.relativize(path).toString());
-                if (Files.isDirectory(path)) {
-                    OwnerOnlyFiles.createDirectory(destination);
-                } else if (Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
-                    Files.copy(path, destination, StandardCopyOption.REPLACE_EXISTING);
-                }
-            }
-        }
-    }
-
-    /** Windows quoting puts a backslash before every quote and may double backslashes, so each of them counts twice. */
-    private static int commandLineLength(String argument) {
-        return argument.length() + (int) argument.chars().filter(c -> c == '"' || c == '\\').count();
-    }
-
     public void delete(String astrolabeSessionId) {
         try {
-            Files.deleteIfExists(fileOf(astrolabeSessionId));
-            Files.deleteIfExists(mcpFileOf(astrolabeSessionId));
-            Files.deleteIfExists(tokenFileOf(astrolabeSessionId));
-            Files.deleteIfExists(hooksDir.resolve(astrolabeSessionId + PROMPT_SUFFIX));
-            for (var suffix : List.of(AGENTS_PLUGIN_SUFFIX, SKILLS_PLUGIN_SUFFIX)) {
-                var plugin = hooksDir.resolve(astrolabeSessionId + suffix);
+            Files.deleteIfExists(paths.fileOf(astrolabeSessionId));
+            Files.deleteIfExists(paths.mcpFileOf(astrolabeSessionId));
+            Files.deleteIfExists(paths.tokenFileOf(astrolabeSessionId));
+            Files.deleteIfExists(paths.promptFileOf(astrolabeSessionId));
+            for (var plugin : new Path[] {paths.agentsPluginOf(astrolabeSessionId), paths.skillsPluginOf(astrolabeSessionId)}) {
                 if (Files.exists(plugin)) {
                     TreeDeleter.delete(plugin);
                 }
@@ -295,104 +180,6 @@ public class HookSettingsWriter {
         } catch (IOException e) {
             throw new UncheckedIOException("Cannot delete hook settings of " + astrolabeSessionId, e);
         }
-    }
-
-    ObjectNode settings(String astrolabeSessionId) {
-        return settings(astrolabeSessionId, CodeModeAccess.OFF);
-    }
-
-    ObjectNode settings(String astrolabeSessionId, CodeModeAccess codeMode) {
-        return settings(astrolabeSessionId, codeMode, TrustLevel.ASK);
-    }
-
-    /**
-     * Only enabledPlugins and the deny and ask rules of the overlay settings are merged under the app's (an allowlist: defaultMode, allow rules, env,
-     * helpers and the like never reach a launch); every overlay folder becomes edit-protected and its mcp.json and settings.json unreadable.
-     * shortcut: a Bash redirect or cat is not covered by these rules, only Claude's own permission dialog guards it.
-     */
-    ObjectNode settings(String astrolabeSessionId, CodeModeAccess codeMode, TrustLevel trust, SessionOverlay overlay) {
-        var app = settings(astrolabeSessionId, codeMode, trust);
-        if (overlay.isEmpty()) {
-            return app;
-        }
-        var deny = app.withArray("/permissions/deny");
-        overlay.roots().forEach(root -> {
-            var protectedRoot = new ProjectOverlay(root);
-            deny.add("Edit(" + absoluteRule(root) + "/**)");
-            deny.add("Read(" + absoluteRule(protectedRoot.mcpFile()) + ")");
-            deny.add("Read(" + absoluteRule(protectedRoot.settingsFile()) + ")");
-        });
-        return SettingsMerge.deep(app, launchAllowed(overlay.settings()));
-    }
-
-    private ObjectNode launchAllowed(ObjectNode overlaySettings) {
-        var allowed = mapper.createObjectNode();
-        if (overlaySettings.path("enabledPlugins") instanceof ObjectNode plugins) {
-            allowed.set("enabledPlugins", plugins.deepCopy());
-        }
-        for (var rules : new String[] {"deny", "ask"}) {
-            if (overlaySettings.path("permissions").path(rules) instanceof ArrayNode list) {
-                allowed.withObject("/permissions").set(rules, list.deepCopy());
-            }
-        }
-        return allowed;
-    }
-
-    ObjectNode settings(String astrolabeSessionId, CodeModeAccess codeMode, TrustLevel trust) {
-        var hooks = mapper.createObjectNode();
-        Arrays.stream(HookEventType.values())
-                .filter(type -> !NOT_SUBSCRIBED.contains(type))
-                .filter(type -> type != HookEventType.SESSION_START || execFormSupported(astrolabeSessionId))
-                .forEach(type -> hooks.putArray(type.wireName()).addObject().putArray("hooks").add(handler(type, astrolabeSessionId)));
-        var settings = mapper.createObjectNode();
-        settings.set("hooks", hooks);
-        helper.shellCommand(server.statusLineUrl(astrolabeSessionId), tokenFileOf(astrolabeSessionId)).ifPresent(command -> settings.set("statusLine", statusLine(command)));
-        var permissions = settings.putObject("permissions");
-        var allow = permissions.putArray("allow").add("mcp__" + McpEndpoint.SERVER_NAME + "__" + LIST_RUN_CONFIGURATIONS_TOOL);
-        TrustPermissions.allow(trust).forEach(allow::add);
-        var deny = permissions.putArray("deny");
-        deny.add("Read(" + absoluteRule(hooksRoot) + "/**)");
-        TrustPermissions.deny(trust).forEach(deny::add);
-        TrustPermissions.defaultMode(trust).ifPresent(mode -> permissions.put("defaultMode", mode));
-        if (codeMode != CodeModeAccess.OFF) {
-            applyCodeMode(settings, permissions, deny, codeMode);
-        }
-        return settings;
-    }
-
-    /** Only the read-only tools are pre-approved; execute keeps Claude's own permission dialog. */
-    private static void applyCodeMode(ObjectNode settings, ObjectNode permissions, ArrayNode deny, CodeModeAccess codeMode) {
-        var allow = (ArrayNode) permissions.get("allow");
-        allow.add("mcp__" + CodeModeEndpoint.SERVER_NAME + "__search_tools").add("mcp__" + CodeModeEndpoint.SERVER_NAME + "__list_servers");
-        codeMode.deniedServers().forEach(name -> deny.add("mcp__" + name));
-        if (!codeMode.hiddenProjectServers().isEmpty()) {
-            var hidden = settings.putArray("disabledMcpjsonServers");
-            codeMode.hiddenProjectServers().forEach(hidden::add);
-        }
-    }
-
-    private boolean execFormSupported(String astrolabeSessionId) {
-        if (helper.execForm(server.hookUrl(astrolabeSessionId), tokenFileOf(astrolabeSessionId)).isEmpty()) {
-            return false;
-        }
-        var version = installation.current().version();
-        if (version == null) {
-            version = installation.recheck().version();
-        }
-        var supported = ClaudeVersion.atLeast(version, EXEC_FORM_SINCE);
-        if (!supported && !skipWarned.getAndSet(true)) {
-            log.warn("The SessionStart hook is omitted: Claude Code version {} is unknown or older than {} (hook args field)", version, EXEC_FORM_SINCE);
-        }
-        return supported;
-    }
-
-    /** Claude Code rules take an absolute path as {@code //path}; Windows drives are written Git Bash style ({@code //c/Users/...}). shortcut: Bash cat is not covered by Read rules. */
-    private String absoluteRule(Path path) {
-        var text = path.toAbsolutePath().toString().replace('\\', '/');
-        if (windows && text.length() > 1 && text.charAt(1) == ':') {
-            return "//" + Character.toLowerCase(text.charAt(0)) + text.substring(2);
-        }
-        return "/" + text;
     }
 
     /** Only the read-only list tool is pre-approved; set and delete change a command the user later runs, so Claude asks first. */
@@ -403,50 +190,5 @@ public class HookSettingsWriter {
         own.putObject("headers").put("Authorization", authorization);
         extraServers.forEach((name, definition) -> servers.putIfAbsent(name, definition.deepCopy()));
         return config;
-    }
-
-    private ObjectNode handler(HookEventType type, String astrolabeSessionId) {
-        if (type == HookEventType.SESSION_START) {
-            return commandHandler(astrolabeSessionId);
-        }
-        return httpHandler(astrolabeSessionId, type.awaitsDecision() ? decisionTimeoutSeconds : HOOK_TIMEOUT_SECONDS);
-    }
-
-    /** The token is written literally: after claude restarts its session (agent view) the environment is foreign but the settings file stays. */
-    private ObjectNode httpHandler(String astrolabeSessionId, int timeoutSeconds) {
-        var handler = mapper.createObjectNode().put("type", "http").put("url", server.hookUrl(astrolabeSessionId)).put("timeout", timeoutSeconds);
-        handler.putObject("headers").put("Authorization", BEARER_PREFIX + server.sessionToken(astrolabeSessionId));
-        return handler;
-    }
-
-    /** SessionStart does not accept http handlers; exec form (no shell, nothing to quote) and async so a stalled helper can never delay startup. */
-    private ObjectNode commandHandler(String astrolabeSessionId) {
-        var exec = helper.execForm(server.hookUrl(astrolabeSessionId), tokenFileOf(astrolabeSessionId)).orElseThrow();
-        var handler = mapper.createObjectNode().put("type", "command").put("command", exec.command());
-        exec.args().forEach(handler.putArray("args")::add);
-        return handler.put("async", true).put("timeout", HOOK_TIMEOUT_SECONDS);
-    }
-
-    /**
-     * The statusLine payload is the only carrier of rate_limits. The command is one shell string (statusLine has no args form)
-     * and prints nothing, so the status line stays empty. shortcut: a user's own statusLine is replaced in our sessions, chain it when asked.
-     */
-    private ObjectNode statusLine(String command) {
-        return mapper.createObjectNode().put("type", "command").put("command", command);
-    }
-
-    private Path tokenFileOf(String astrolabeSessionId) {
-        return hooksDir.resolve(astrolabeSessionId + TOKEN_SUFFIX).toAbsolutePath();
-    }
-
-    private Path mcpFileOf(String astrolabeSessionId) {
-        return hooksDir.resolve(astrolabeSessionId + MCP_SUFFIX);
-    }
-
-    private Path fileOf(String astrolabeSessionId) {
-        if (!SAFE_ID.matcher(astrolabeSessionId).matches()) {
-            throw new IllegalArgumentException("Invalid session id");
-        }
-        return hooksDir.resolve(astrolabeSessionId + FILE_SUFFIX);
     }
 }

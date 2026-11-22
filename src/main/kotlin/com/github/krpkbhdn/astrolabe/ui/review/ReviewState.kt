@@ -1,13 +1,11 @@
 package com.github.krpkbhdn.astrolabe.ui.review
 
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.toComposeImageBitmap
 import com.github.krpkbhdn.astrolabe.review.MarkDraft
 import com.github.krpkbhdn.astrolabe.review.Review
 import com.github.krpkbhdn.astrolabe.review.ReviewImage
@@ -18,38 +16,21 @@ import com.github.krpkbhdn.astrolabe.ui.state.LiveSessions
 import com.github.krpkbhdn.astrolabe.ui.state.Refresher
 import com.github.krpkbhdn.astrolabe.ui.state.io
 import com.github.krpkbhdn.astrolabe.ui.state.runGuarded
-import java.nio.file.Files
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.math.max
-import kotlin.math.min
-import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
-import org.jetbrains.skia.FilterMipmap
-import org.jetbrains.skia.FilterMode
-import org.jetbrains.skia.Image
-import org.jetbrains.skia.MipmapMode
-import org.jetbrains.skia.Rect
-import org.jetbrains.skia.Surface
 
 data class SessionChoice(val astrolabeSessionId: String, val label: String)
 
 data class SendTarget(val review: Review, val candidates: List<SessionChoice>, val teams: TeamOptions = TeamOptions.NONE)
 
-private const val SAVE_DEBOUNCE_MILLIS = 400L
 private const val FINAL_FLUSH_TIMEOUT_MILLIS = 2000L
 private const val FULL_CACHE_SIZE = 3
 private const val THUMBNAIL_CACHE_SIZE = 40
-private const val THUMBNAIL_MAX_SIDE = 256f
 private const val START_FAILED = "Could not start a session"
 
 /**
@@ -82,14 +63,10 @@ class ReviewState(
     private val reviewsByProject = mutableStateMapOf<Long, List<Review>>()
     private val selection = mutableStateMapOf<Long, Pair<Long, Int>>()
     private val imagesByReview = mutableStateMapOf<Long, List<ReviewImage>>()
-    private val fullImages = BitmapCache(scope, FULL_CACHE_SIZE, ::decode)
-    private val thumbnails = BitmapCache(scope, THUMBNAIL_CACHE_SIZE, ::decodeThumbnail)
+    private val fullImages = BitmapCache(scope, FULL_CACHE_SIZE) { decode(service.imagePath(it)) }
+    private val thumbnails = BitmapCache(scope, THUMBNAIL_CACHE_SIZE) { decodeThumbnail(service.imagePath(it)) }
     private val loadingImages = ConcurrentHashMap.newKeySet<Long>()
-    private val markLists = ConcurrentHashMap<Long, SnapshotStateList<MarkDraft>>()
-    private val dirty = ConcurrentHashMap.newKeySet<Long>()
-    private val loadedMarks = ConcurrentHashMap.newKeySet<Long>()
-    private val saveJobs = ConcurrentHashMap<Long, Job>()
-    private val writeLock = Mutex()
+    private val markStore = ReviewMarkStore(service, scope, reportError)
     private val watchedProjects = ConcurrentHashMap.newKeySet<Long>()
     private val cacheLock = Any()
     @Volatile private var retainEpoch = 0
@@ -122,7 +99,7 @@ class ReviewState(
         unsubscribe?.run()
         unsubscribe = null
         reload.close()
-        finalFlush = CoroutineScope(Dispatchers.IO).launch { runGuarded(reportError) { flush() } }
+        finalFlush = CoroutineScope(Dispatchers.IO).launch { runGuarded(reportError) { markStore.flush() } }
     }
 
     /** For the shutdown thread only: waits (bounded) for the flush started by [dispose], so the database is still open for it. */
@@ -175,7 +152,7 @@ class ReviewState(
     fun select(projectId: Long, reviewId: Long, imageIndex: Int = 0) {
         selection[projectId] = reviewId to imageIndex
         selectedMark = null
-        scope.launch { runGuarded(reportError) { flush() } }
+        scope.launch { runGuarded(reportError) { markStore.flush() } }
     }
 
     fun images(reviewId: Long): List<ReviewImage> {
@@ -201,24 +178,6 @@ class ReviewState(
 
     fun cannotShow(image: ReviewImage): Boolean = fullImages.failed(image.id)
 
-    private fun decode(image: ReviewImage): ImageBitmap = Image.makeFromEncoded(Files.readAllBytes(service.imagePath(image))).use { it.toComposeImageBitmap() }
-
-    private fun decodeThumbnail(image: ReviewImage): ImageBitmap {
-        val full = Image.makeFromEncoded(Files.readAllBytes(service.imagePath(image)))
-        try {
-            val scale = min(1f, THUMBNAIL_MAX_SIDE / max(full.width, full.height))
-            val width = max(1, (full.width * scale).roundToInt())
-            val height = max(1, (full.height * scale).roundToInt())
-            Surface.makeRasterN32Premul(width, height).use { surface ->
-                val source = Rect.makeWH(full.width.toFloat(), full.height.toFloat())
-                surface.canvas.drawImageRect(full, source, Rect.makeWH(width.toFloat(), height.toFloat()), FilterMipmap(FilterMode.LINEAR, MipmapMode.LINEAR), null, true)
-                return surface.makeImageSnapshot().use { it.toComposeImageBitmap() }
-            }
-        } finally {
-            full.close()
-        }
-    }
-
     /** A screenshot added to an already shown review must appear, so loaded image lists are read again. */
     private suspend fun refreshImages(reviewId: Long, epoch: Int) {
         runGuarded(reportError) {
@@ -231,32 +190,18 @@ class ReviewState(
         imagesByReview.remove(reviewId)?.forEach { image ->
             fullImages.drop(image.id)
             thumbnails.drop(image.id)
-            markLists.remove(image.id)
-            loadedMarks.remove(image.id)
-            dirty.remove(image.id)
-            saveJobs.remove(image.id)?.cancel()
+            markStore.forget(image.id)
         }
     }
 
-    fun marks(imageId: Long): SnapshotStateList<MarkDraft> = markLists.computeIfAbsent(imageId) {
-        mutableStateListOf<MarkDraft>().also {
-            scope.launch { runGuarded(reportError) { loadMarks(imageId) } }
-        }
-    }
-
-    /** Puts the stored marks before the ones added meanwhile, once; throws when the read fails so the caller can retry. */
-    private suspend fun loadMarks(imageId: Long) {
-        if (imageId in loadedMarks) return
-        val stored = io { service.marks(imageId) }.map { MarkDraft(it.kind, it.x, it.y, it.w, it.h, it.comment, it.points) }
-        if (loadedMarks.add(imageId)) marks(imageId).addAll(0, stored)
-    }
+    fun marks(imageId: Long): SnapshotStateList<MarkDraft> = markStore.marks(imageId)
 
     fun addMark(imageId: Long, mark: MarkDraft) {
         val list = marks(imageId)
         list.add(mark)
         tools.clearOneShot()
         selectedMark = list.lastIndex
-        persist(imageId)
+        markStore.persist(imageId)
     }
 
     /** Closes the polygon draft into a mark of [imageId]; false (draft kept) when it has too few points or no area. */
@@ -266,69 +211,17 @@ class ReviewState(
         return true
     }
 
-    fun setComment(imageId: Long, index: Int, text: String) {
-        val list = marks(imageId)
-        if (index !in list.indices) return
-        val old = list[index]
-        list[index] = MarkDraft(old.kind, old.x, old.y, old.w, old.h, text, old.points)
-        persist(imageId)
-    }
+    fun setComment(imageId: Long, index: Int, text: String) = markStore.setComment(imageId, index, text)
 
     /** Live edit of a mark's geometry; the comment stays and saving is debounced like every mark change. */
-    fun updateMark(imageId: Long, index: Int, edited: MarkDraft) {
-        val list = marks(imageId)
-        if (index !in list.indices) return
-        list[index] = MarkDraft(edited.kind, edited.x, edited.y, edited.w, edited.h, list[index].comment, edited.points)
-        persist(imageId)
-    }
+    fun updateMark(imageId: Long, index: Int, edited: MarkDraft) = markStore.updateMark(imageId, index, edited)
 
     fun deleteMark(imageId: Long, index: Int) {
         val list = marks(imageId)
         if (index !in list.indices) return
         list.removeAt(index)
         selectedMark = null
-        persist(imageId)
-    }
-
-    private fun persist(imageId: Long) {
-        dirty += imageId
-        saveJobs[imageId]?.cancel()
-        saveJobs[imageId] = scope.launch {
-            delay(SAVE_DEBOUNCE_MILLIS)
-            runGuarded(reportError) { writeIfDirty(imageId) }
-        }
-    }
-
-    /** Never cancelled once started; the dirty flag stays set until the write succeeded. */
-    private suspend fun writeIfDirty(imageId: Long) = withContext(NonCancellable) {
-        writeLock.withLock {
-            if (imageId !in dirty) return@withLock
-            loadMarks(imageId)
-            dirty.remove(imageId)
-            val snapshot = marks(imageId).toList()
-            var written = false
-            try {
-                io { service.saveMarks(imageId, snapshot) }
-                written = true
-            } finally {
-                if (!written) dirty += imageId
-            }
-        }
-    }
-
-    /** Waits for running writes, then writes every remaining dirty image; the first failure is rethrown after all were tried. */
-    private suspend fun flush() {
-        saveJobs.values.forEach { it.cancel() }
-        saveJobs.clear()
-        var failure: RuntimeException? = null
-        dirty.toList().forEach { id ->
-            try {
-                writeIfDirty(id)
-            } catch (e: RuntimeException) {
-                failure = failure ?: e
-            }
-        }
-        failure?.let { throw it }
+        markStore.persist(imageId)
     }
 
     fun send(review: Review) {
@@ -364,7 +257,7 @@ class ReviewState(
 
     /** Flushes marks, then checks the target is alive before the review is marked sent; a dead target reopens the chooser with fresh candidates. */
     private suspend fun deliver(review: Review, astrolabeSessionId: String?, team: Team? = null) {
-        flush()
+        markStore.flush()
         if (astrolabeSessionId != null && !isLive(astrolabeSessionId)) {
             offerTargets(review)
             return

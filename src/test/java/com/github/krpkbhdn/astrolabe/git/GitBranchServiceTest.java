@@ -41,6 +41,14 @@ class GitBranchServiceTest {
         sandbox.commitAll(branch + " change");
     }
 
+    private void prepareConflictingTopic() {
+        prepare();
+        commitOnBranch("topic", "a.txt", "topic\n");
+        sandbox.git("checkout", "main");
+        sandbox.write("a.txt", "main\n");
+        sandbox.commitAll("main edit");
+    }
+
     private GitException failureOf(Runnable action) {
         return catchThrowableOfType(GitException.class, action::run);
     }
@@ -266,11 +274,7 @@ class GitBranchServiceTest {
 
     @Test
     void mergeConflictRaisesConflictAndLeavesTheRepositoryMerging() {
-        prepare();
-        commitOnBranch("topic", "a.txt", "topic\n");
-        sandbox.git("checkout", "main");
-        sandbox.write("a.txt", "main\n");
-        sandbox.commitAll("main edit");
+        prepareConflictingTopic();
 
         var failure = failureOf(() -> service.merge(sandbox.repo, "topic", MergeMode.DEFAULT));
 
@@ -293,11 +297,7 @@ class GitBranchServiceTest {
 
     @Test
     void conflictingMergeWithMessageCanBeAborted() {
-        prepare();
-        commitOnBranch("topic", "a.txt", "topic\n");
-        sandbox.git("checkout", "main");
-        sandbox.write("a.txt", "main\n");
-        sandbox.commitAll("main edit");
+        prepareConflictingTopic();
 
         var failure = failureOf(() -> service.merge(sandbox.repo, "topic", MergeMode.NO_FAST_FORWARD, "msg"));
         var merging = service.mergeInProgress(sandbox.repo);

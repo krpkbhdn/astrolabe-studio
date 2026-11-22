@@ -170,9 +170,7 @@ class LspHealthMonitorTest {
         var project = dataDir.resolve("proj");
         jdtlsProject(project, true);
         checkJdtls(project);
-        var marker = JdtlsWorkspace.markerFile(managedTools.stateDirectory("jdtls"), project);
-        Files.createDirectories(marker.getParent());
-        Files.write(marker, List.of(project + " OK build/eclipse-out"));
+        writeMarker(project, project + " OK build/eclipse-out");
 
         rechecks.removeFirst().run();
 
@@ -203,9 +201,7 @@ class LspHealthMonitorTest {
         var project = dataDir.resolve("proj");
         jdtlsProject(project, true);
         checkJdtls(project);
-        var marker = JdtlsWorkspace.markerFile(managedTools.stateDirectory("jdtls"), project);
-        Files.createDirectories(marker.getParent());
-        Files.write(marker, List.of(project + " OK build/eclipse-out"));
+        var marker = writeMarker(project, project + " OK build/eclipse-out");
         now = now.plus(WAIT.minusSeconds(1));
         rechecks.removeFirst().run();
         Files.write(marker, List.of());
@@ -222,9 +218,7 @@ class LspHealthMonitorTest {
         var project = dataDir.resolve("proj");
         jdtlsProject(project, true);
         checkJdtls(project);
-        var marker = JdtlsWorkspace.markerFile(managedTools.stateDirectory("jdtls"), project);
-        Files.createDirectories(marker.getParent());
-        Files.write(marker, List.of(project + " FAILED java.io.IOException"));
+        writeMarker(project, project + " FAILED java.io.IOException");
 
         rechecks.removeFirst().run();
 
@@ -283,6 +277,21 @@ class LspHealthMonitorTest {
 
     private static ToolDefinition tool(String id) {
         return new ToolDefinition(id, id, "G", ToolKind.LANGUAGE_SERVER, id, List.of(), "", "", List.of(), Map.of(), "", Map.of(), null);
+    }
+
+    private void watchRepairableGo(ToolState... states) {
+        detect(new DetectedTechnology(go, ToolState.INSTALLED));
+        probes(go, states);
+        when(installer.runsManagedLauncher("go")).thenReturn(true);
+        when(installer.reinstall("go")).thenReturn(installed());
+        monitor.watch(DIR, delivered::add);
+    }
+
+    private Path writeMarker(Path project, String line) throws IOException {
+        var marker = JdtlsWorkspace.markerFile(managedTools.stateDirectory("jdtls"), project);
+        Files.createDirectories(marker.getParent());
+        Files.write(marker, List.of(line));
+        return marker;
     }
 
     private void detect(DetectedTechnology... found) {
@@ -369,11 +378,7 @@ class LspHealthMonitorTest {
 
     @Test
     void managedFailedToolIsRepairedOnceUntilTheCooldownPasses() {
-        detect(new DetectedTechnology(go, ToolState.INSTALLED));
-        probes(go, ToolState.FAILED, ToolState.FAILED, ToolState.FAILED, ToolState.RESPONDING, ToolState.FAILED);
-        when(installer.runsManagedLauncher("go")).thenReturn(true);
-        when(installer.reinstall("go")).thenReturn(installed());
-        monitor.watch(DIR, delivered::add);
+        watchRepairableGo(ToolState.FAILED, ToolState.FAILED, ToolState.FAILED, ToolState.RESPONDING, ToolState.FAILED);
 
         monitor.sweep();
         monitor.sweep();
@@ -387,11 +392,7 @@ class LspHealthMonitorTest {
 
     @Test
     void repairIsAllowedAgainExactlyAtTheCooldownBoundary() {
-        detect(new DetectedTechnology(go, ToolState.INSTALLED));
-        probes(go, ToolState.FAILED, ToolState.FAILED, ToolState.FAILED, ToolState.RESPONDING, ToolState.FAILED);
-        when(installer.runsManagedLauncher("go")).thenReturn(true);
-        when(installer.reinstall("go")).thenReturn(installed());
-        monitor.watch(DIR, delivered::add);
+        watchRepairableGo(ToolState.FAILED, ToolState.FAILED, ToolState.FAILED, ToolState.RESPONDING, ToolState.FAILED);
 
         monitor.sweep();
         now = now.plus(COOLDOWN).minusMillis(1);
@@ -404,11 +405,7 @@ class LspHealthMonitorTest {
 
     @Test
     void noRepeatedRepairAfterOneThatDidNotHelpUntilTheToolWasHealthy() {
-        detect(new DetectedTechnology(go, ToolState.INSTALLED));
-        probes(go, ToolState.FAILED);
-        when(installer.runsManagedLauncher("go")).thenReturn(true);
-        when(installer.reinstall("go")).thenReturn(installed());
-        monitor.watch(DIR, delivered::add);
+        watchRepairableGo(ToolState.FAILED);
 
         monitor.sweep();
         now = now.plus(COOLDOWN).plusSeconds(1);

@@ -305,7 +305,7 @@ class TranscriptIndexerTest {
     @Test
     void lineOverTheCapIsSkippedAndTheRestOfTheFileIsIndexed() throws Exception {
         var file = fixture.transcript("p", "s1");
-        var oversized = "x".repeat((int) TranscriptIndexer.MAX_LINE_BYTES + 1) + "\n";
+        var oversized = "x".repeat((int) TranscriptLineReader.MAX_LINE_BYTES + 1) + "\n";
         fixture.write(file, userLine("u1", "/w/app", "2026-01-01T10:00:00Z", "first banana") + oversized
                 + userLine("u2", "/w/app", "2026-01-01T10:00:01Z", "second banana"));
         var indexer = fixture.indexer(1000, 4_096L);

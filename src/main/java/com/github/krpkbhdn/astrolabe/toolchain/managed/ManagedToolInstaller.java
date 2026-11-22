@@ -37,14 +37,13 @@ public final class ManagedToolInstaller {
     private static final String CHANNEL_FILE = "channel";
     private static final String CHECKSUM_SUFFIX = ".sha256";
     private static final int MAX_CHECKSUM_BYTES = 4096;
-    private static final double MEGABYTE = 1024.0 * 1024.0;
 
     private final ManagedToolsDirectory directory;
     private final LauncherWriter launchers;
     private final ToolchainProperties properties;
     private final AllowlistedHttp http;
     private final LauncherWriter.Platform platform;
-    private final SafeArchiveExtractor extractor = new SafeArchiveExtractor();
+    private final SafeArchiveExtractor extractor;
 
     public ManagedToolInstaller(ManagedToolsDirectory directory, LauncherWriter launchers, ToolchainProperties properties,
                                 AllowlistedHttp http, LauncherWriter.Platform platform) {
@@ -53,6 +52,7 @@ public final class ManagedToolInstaller {
         this.properties = properties;
         this.http = http;
         this.platform = platform;
+        this.extractor = new SafeArchiveExtractor(platform == LauncherWriter.Platform.WINDOWS);
     }
 
     /** @param onOutput gets the whole progress text so far, the download percentage line replaced in place; a tool without a pinned source ignores the channel */
@@ -69,7 +69,7 @@ public final class ManagedToolInstaller {
 
     private Installed install(ToolDefinition tool, DownloadSource source, ToolChannel channel, Consumer<String> onOutput,
                               boolean repair) throws IOException, InterruptedException {
-        var log = new Progress(onOutput);
+        var log = new InstallProgress(onOutput);
         directory.sweepStale(tool.id());
         var pinned = channel == ToolChannel.VERIFIED ? source.pinnedVersion() : Optional.<PinnedVersion>empty();
         String version;
@@ -205,7 +205,7 @@ public final class ManagedToolInstaller {
         return text;
     }
 
-    private void unpack(ArchiveKind kind, URI archiveUri, String expectedChecksum, Path partial, Progress log)
+    private void unpack(ArchiveKind kind, URI archiveUri, String expectedChecksum, Path partial, InstallProgress log)
             throws IOException, InterruptedException {
         var downloader = new ArchiveDownload(http, properties.downloadTimeout(), properties.maxDownloadSize().toBytes());
         var downloaded = downloader.download(archiveUri, directory.downloadsDirectory(), log::download);
@@ -271,45 +271,5 @@ public final class ManagedToolInstaller {
                 yield launchers.writeBinary(tool.binary(), binary, spec.argumentsFor(state, install), !spec.routed(), platform);
             }
         };
-    }
-
-    /** Rendered progress text: finished lines plus one percentage line that is replaced in place. */
-    private static final class Progress {
-
-        private final Consumer<String> sink;
-        private final StringBuilder lines = new StringBuilder();
-        private String percentLine = "";
-
-        Progress(Consumer<String> sink) {
-            this.sink = sink;
-        }
-
-        void line(String text) {
-            lines.append(text).append('\n');
-            emit();
-        }
-
-        void download(int percent, long read, long total) {
-            percentLine = total > 0
-                    ? "Downloading " + percent + "% (" + megabytes(read) + " of " + megabytes(total) + " MB)"
-                    : "Downloading " + megabytes(read) + " MB";
-            emit();
-        }
-
-        void endDownload() {
-            if (!percentLine.isEmpty()) {
-                lines.append(percentLine).append('\n');
-                percentLine = "";
-                emit();
-            }
-        }
-
-        private void emit() {
-            sink.accept(lines + percentLine);
-        }
-
-        private static String megabytes(long bytes) {
-            return String.format(java.util.Locale.ROOT, "%.1f", bytes / MEGABYTE);
-        }
     }
 }
