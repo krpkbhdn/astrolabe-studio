@@ -63,7 +63,8 @@ final class SessionImages {
         var file = directory.resolve("img-" + (count + 1) + "." + extension);
         try {
             OwnerOnlyFiles.createDirectory(directory);
-            Files.write(file, bytes, StandardOpenOption.CREATE_NEW);
+            OwnerOnlyFiles.createFile(file);
+            Files.write(file, bytes, StandardOpenOption.TRUNCATE_EXISTING);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

@@ -103,7 +103,9 @@ private val previewTranscriptDir: java.nio.file.Path by lazy { Files.createTempD
 /** A real folder so the run configurations of the first preview project do not show as missing. */
 private val previewProjectDir: Path by lazy {
     // Fixed, user-neutral location (C:\dev\astrolabe-studio on Windows) so screenshots show no local paths.
-    Files.createTempDirectory("astrolabe-preview").root.resolve("dev").resolve("astrolabe-studio").also { Files.createDirectories(it.resolve(".claude/worktrees/feature-x")) }
+    val temp = Files.createTempDirectory("astrolabe-preview")
+    // the temp folder's root is "/" on Linux, where /dev is not writable, so stay inside the temp folder there
+    (if (System.getProperty("os.name").startsWith("Windows")) temp.root else temp).resolve("dev").resolve("astrolabe-studio").also { Files.createDirectories(it.resolve(".claude/worktrees/feature-x")) }
 }
 
 /** The web-review demo page copied next to the preview project, so its file URL shows the same neutral path. */

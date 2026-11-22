@@ -41,6 +41,16 @@ public final class OwnerOnlyFiles {
         }
     }
 
+    /** Creates the new empty [file] (fails when it exists) owner-only: the POSIX mode from the start, else the owner-only ACL. */
+    public static void createFile(Path file) throws IOException {
+        if (file.getFileSystem().supportedFileAttributeViews().contains(POSIX)) {
+            Files.createFile(file, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString(FILE_PERMISSIONS)));
+        } else {
+            Files.createFile(file);
+            restrictAclToOwner(file);
+        }
+    }
+
     /** Creates [directory] and each missing parent owner-only (POSIX mode, else an owner-only ACL that children inherit); an existing leaf keeps its ACL and gets the POSIX mode. */
     public static void createDirectory(Path directory) throws IOException {
         var parent = directory.getParent();

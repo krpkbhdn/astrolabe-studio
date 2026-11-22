@@ -127,7 +127,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Install packaging tools
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends binutils rpm fakeroot
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends binutils rpm fakeroot xvfb
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.gradle/jdks
@@ -140,10 +140,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
         with:
           cache-read-only: ${{ github.ref_type == 'tag' }}
-      # Runs the suite here too: LoginShellPathTest, UnixToolDirectoriesTest and LinuxWindowClassTest only run on Unix.
+      # Runs the suite here too, under a virtual display (Compose/AWT tests): LoginShellPathTest, UnixToolDirectoriesTest and LinuxWindowClassTest only run on Unix.
       - name: Test and build deb, rpm and tar.gz
         timeout-minutes: 50
-        run: ./gradlew test packageDeb packageRpm packageTarGz --no-daemon --console=plain
+        run: xvfb-run -a ./gradlew test packageDeb packageRpm packageTarGz --no-daemon --console=plain
       # Published names are fixed (the app picks assets by exact name): astrolabe-studio-<version>-linux-<arch>.<ext>.
       # jpackage names deb/rpm itself; the tar.gz already carries this name from packageTarGz (checked below).
       - name: Rename and checksum

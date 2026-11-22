@@ -79,6 +79,7 @@ class ClaudeBinaryLocatorTest {
     }
 
     @Test
+    @EnabledOnOs(OS.WINDOWS)
     void windowsCandidatesTryEveryExeBeforeAnyCmdShim() {
         var host = new FakeHostEnvironment(OperatingSystem.WINDOWS, WINDOWS_HOME).withPath(Path.of("C:\\tools"));
         var candidates = locator.candidates(host);

@@ -114,7 +114,8 @@ class PosixUpdateScriptInjectionTest {
         Files.writeString(script, PosixUpdateScript.script("step probe true"));
 
         var process = new ProcessBuilder("sh", "-c", "sleep 300 & P=$!; sh \"$1\" \"$2\" \"$P\" \"$3\" 1 1 0", "x", posix(script), posix(updates), posix(app))
-                .directory(temp.toFile()).redirectErrorStream(true).start();
+                .directory(new java.io.File(System.getProperty("java.io.tmpdir"))) // not the @TempDir: a lingering child would hold it as cwd and block its deletion on Windows
+                .redirectErrorStream(true).start();
         process.getInputStream().readAllBytes();
         assertThat(process.waitFor(60, TimeUnit.SECONDS)).isTrue();
 

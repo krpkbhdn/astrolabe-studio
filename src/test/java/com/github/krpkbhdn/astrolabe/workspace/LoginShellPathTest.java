@@ -42,7 +42,20 @@ class LoginShellPathTest {
         var shell = shell("sleep 30");
         var started = System.nanoTime();
 
-        assertThat(probe(1).directories(host(shell.toString()))).isEmpty();
+        // /bin/sh is the fallback when the user shell fails, hide it so the timeout alone decides
+        var withoutFallback = new SystemHostEnvironment() {
+            @Override
+            public String env(String name) {
+                return name.equals("SHELL") ? shell.toString() : super.env(name);
+            }
+
+            @Override
+            public boolean isFile(Path path) {
+                return !path.equals(Path.of("/bin/sh")) && super.isFile(path);
+            }
+        };
+
+        assertThat(probe(1).directories(withoutFallback)).isEmpty();
         assertThat(System.nanoTime() - started).isLessThan(20_000_000_000L);
     }
 

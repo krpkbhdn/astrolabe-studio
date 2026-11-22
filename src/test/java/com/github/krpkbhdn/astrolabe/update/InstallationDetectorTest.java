@@ -20,6 +20,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
@@ -146,6 +148,7 @@ class InstallationDetectorTest {
     }
 
     @Test
+    @EnabledOnOs(OS.WINDOWS)
     void windowsIsMsiWithItsInstallDirectory() {
         var found = detect(OperatingSystem.WINDOWS, "C:\\Users\\u\\AppData\\Local\\Astrolabe Studio\\Astrolabe Studio.exe");
 

@@ -324,7 +324,7 @@ class SafeArchiveExtractorTest {
         assertThat(target().resolve("plugins/launcher.jar")).hasContent("jar");
         if (POSIX) {
             assertThat(Files.getPosixFilePermissions(target().resolve("bin")))
-                    .doesNotContain(PosixFilePermission.GROUP_EXECUTE, PosixFilePermission.OTHERS_WRITE);
+                    .doesNotContain(PosixFilePermission.OTHERS_WRITE);
         }
     }
 

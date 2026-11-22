@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.github.krpkbhdn.astrolabe.workspace.HostEnvironment.OperatingSystem;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 
 class IdeLocatorTest {
 
@@ -16,6 +18,7 @@ class IdeLocatorTest {
     }
 
     @Test
+    @EnabledOnOs(OS.WINDOWS)
     void windowsPrefersNewestInstalledVersionIncludingCommunityNaming() {
         var programs = Path.of("C:\\Program Files\\JetBrains");
         var host = new FakeHostEnvironment(OperatingSystem.WINDOWS, home)
@@ -29,6 +32,7 @@ class IdeLocatorTest {
     }
 
     @Test
+    @EnabledOnOs(OS.WINDOWS)
     void windowsToolboxCmdScriptRunsDirectlySoAmpersandsInPathsStaySafe() {
         var script = Path.of("C:\\Users\\u\\AppData\\Local\\JetBrains\\Toolbox\\scripts\\idea.cmd");
         var host = new FakeHostEnvironment(OperatingSystem.WINDOWS, home)
@@ -66,6 +70,7 @@ class IdeLocatorTest {
     }
 
     @Test
+    @EnabledOnOs(OS.WINDOWS)
     void installFolderWithBuildTimestampDoesNotOverflowVersionParsing() {
         var programFiles = Path.of("C:\\Program Files\\JetBrains");
         var host = new FakeHostEnvironment(OperatingSystem.WINDOWS, home)

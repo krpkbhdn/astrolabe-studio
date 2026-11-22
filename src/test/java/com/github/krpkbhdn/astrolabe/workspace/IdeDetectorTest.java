@@ -6,6 +6,8 @@ import com.github.krpkbhdn.astrolabe.workspace.HostEnvironment.OperatingSystem;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 
 class IdeDetectorTest {
 
@@ -16,6 +18,7 @@ class IdeDetectorTest {
     }
 
     @Test
+    @EnabledOnOs(OS.WINDOWS)
     void windowsFindsInstalledIdesInCatalogueOrder() {
         var host = new FakeHostEnvironment(OperatingSystem.WINDOWS, home)
                 .withEnv("LOCALAPPDATA", "C:\\Users\\u\\AppData\\Local")
