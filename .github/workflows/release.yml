@@ -138,18 +138,29 @@ jobs:
       - name: Test and build deb, rpm and tar.gz
         timeout-minutes: 50
         run: ./gradlew test packageDeb packageRpm packageTarGz --no-daemon --console=plain
+      # Published names are fixed (the app picks assets by exact name): astrolabe-studio-<version>-linux-<arch>.<ext>.
+      # jpackage names deb/rpm itself; the tar.gz already carries this name from packageTarGz (checked below).
       - name: Rename and checksum
         shell: bash
         run: |
-          for d in deb rpm tar; do
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' build.gradle.kts)
+          case "$(uname -m)" in
+            x86_64|amd64) arch=x64 ;;
+            aarch64|arm64) arch=arm64 ;;
+            *) echo "::error::Unsupported architecture $(uname -m)"; exit 1 ;;
+          esac
+          for spec in deb:deb rpm:rpm tar:tar.gz; do
+            d="${spec%%:*}"; ext="${spec#*:}"
+            n="astrolabe-studio-${version}-linux-${arch}.${ext}"
             (
               cd "build/compose/binaries/main/$d"
-              for f in *; do
-                [ -f "$f" ] || continue
-                n="${f// /-}"
-                [ "$f" = "$n" ] || mv -- "$f" "$n"
-                printf '%s  %s\n' "$(sha256sum -- "$n" | cut -d' ' -f1)" "$n" > "$n.sha256"
-              done
+              count=0
+              while IFS= read -r -d '' f; do
+                count=$((count + 1))
+                [ "$f" = "./$n" ] || mv -- "$f" "$n"
+              done < <(find . -maxdepth 1 -type f -name "*.$ext" -print0)
+              [ "$count" -eq 1 ] || { echo "::error::Expected exactly one .$ext in $d, found $count"; exit 1; }
+              printf '%s  %s\n' "$(sha256sum -- "$n" | cut -d' ' -f1)" "$n" > "$n.sha256"
             )
           done
       # One artifact per format: upload-artifact v4 keeps directories when one artifact spans several, which breaks a flat dist/.
@@ -230,6 +241,12 @@ jobs:
       id-token: write
       attestations: write
     steps:
+      # Only the public key, to verify the signatures before publishing.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          sparse-checkout: packaging/astrolabe-release.pub.asc
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: dist
@@ -241,30 +258,40 @@ jobs:
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: dist/*
-      # Secrets cannot be used in `if:`, so a prior step turns their presence into an output.
-      - name: Detect GPG key
-        id: gpg
-        env:
-          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-        run: |
-          if [ -n "$GPG_PRIVATE_KEY" ]; then echo "has_gpg=true" >> "$GITHUB_OUTPUT"; else echo "has_gpg=false" >> "$GITHUB_OUTPUT"; fi
+      # This job only runs when publishing, so GPG signing is mandatory here.
       - name: Sign release files with GPG
-        if: steps.gpg.outputs.has_gpg == 'true'
         shell: bash
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
+          [ -n "$GPG_PRIVATE_KEY" ] || { echo "::error::Secret GPG_PRIVATE_KEY is missing; publishing needs signed assets"; exit 1; }
+          [ -n "$GPG_PASSPHRASE" ] || { echo "::error::Secret GPG_PASSPHRASE is missing; publishing needs signed assets"; exit 1; }
           GNUPGHOME="$(mktemp -d)"
+          VERIFY_HOME="$(mktemp -d)"
           export GNUPGHOME
-          chmod 700 "$GNUPGHOME"
-          cleanup() { gpgconf --kill gpg-agent || true; rm -rf "$GNUPGHOME"; }
+          chmod 700 "$GNUPGHOME" "$VERIFY_HOME"
+          cleanup() {
+            gpgconf --kill gpg-agent || true
+            GNUPGHOME="$VERIFY_HOME" gpgconf --kill gpg-agent || true
+            rm -rf "$GNUPGHOME" "$VERIFY_HOME"
+          }
           trap cleanup EXIT
           printf '%s\n' "$GPG_PRIVATE_KEY" | gpg --batch --quiet --import
+          # Every file but the checksums (.sha256) and signatures gets a detached signature.
           while IFS= read -r -d '' f; do
             gpg --batch --yes --quiet --pinentry-mode loopback --passphrase-fd 3 \
               --armor --detach-sign --output "$f.asc" -- "$f" 3<<<"$GPG_PASSPHRASE"
-          done < <(find dist -maxdepth 1 -type f ! -name '*.asc' -print0)
+          done < <(find dist -maxdepth 1 -type f ! -name '*.asc' ! -name '*.sha256' -print0)
+          # Verify against the public key in the repo in a second, fresh keyring: a secret/public key mismatch fails here.
+          GNUPGHOME="$VERIFY_HOME" gpg --batch --quiet --import packaging/astrolabe-release.pub.asc
+          signed=0
+          while IFS= read -r -d '' f; do
+            GNUPGHOME="$VERIFY_HOME" gpg --batch --verify "$f.asc" "$f" \
+              || { echo "::error::Signature of $f does not verify against packaging/astrolabe-release.pub.asc"; exit 1; }
+            signed=$((signed + 1))
+          done < <(find dist -maxdepth 1 -type f ! -name '*.asc' ! -name '*.sha256' -print0)
+          [ "$signed" -gt 0 ] || { echo "::error::No files to sign in dist"; exit 1; }
       - name: Publish release
         shell: bash
         env:

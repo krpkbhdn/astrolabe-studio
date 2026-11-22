@@ -40,8 +40,15 @@ data class ConfirmRequest(
     val confirmLabel: String,
     val destructive: Boolean = true,
     val messageLines: Int = DEFAULT_CONFIRM_LINES,
+    val onCancel: () -> Unit = {},
     val onConfirm: () -> Unit,
 )
+
+/** The request to show now: an open [previous] one that is being replaced is cancelled first (once), so its owner can release what it holds. */
+fun supersede(previous: ConfirmRequest?, next: ConfirmRequest): ConfirmRequest {
+    previous?.onCancel?.invoke()
+    return next
+}
 
 data class RenameRequest(val project: Project)
 

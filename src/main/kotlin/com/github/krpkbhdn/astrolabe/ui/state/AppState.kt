@@ -221,7 +221,7 @@ class AppState(
     val tools: ToolsState = ToolsState(backend.toolchain, scope, { lspSetup.running }, notifications::reportError)
     val detectedTech = DetectedTechState(backend.toolchain?.health, scope)
     val lspSetup: LspSetupState = LspSetupState(backend.toolchain?.lspSetup, scope, { tools.install != InstallFlow.Idle || tools.installRunning }, detectedTech::refresh, notifications::reportError)
-    val update = UpdateState(backend.updates, scope, notifications::reportError, ::requestQuit) { exitApp() }
+    val update = UpdateState(backend.updates, scope, notifications::reportError, ::requestUpdateInstall) { exitApp() }
     var exitApp: () -> Unit = {}
     val agents = AgentsState(backend.transcripts, scope, { live }, ::showSessionTerminal)
     private val unsubscribers = mutableListOf<Runnable>()
@@ -407,6 +407,12 @@ class AppState(
             confirmLabel = "Quit",
             onConfirm = quit,
         )
+    }
+
+    /** Always asks, with [message] naming the update, because installing quits the app and closes every session; a running tool install is warned about like on quit. */
+    fun requestUpdateInstall(message: String, install: () -> Unit, cancel: () -> Unit) {
+        val full = listOfNotNull(message, quitWarningOf(0, tools.installRunning)).joinToString(" ")
+        confirm = supersede(confirm, ConfirmRequest(title = "Install update", message = full, confirmLabel = "Install and restart", destructive = false, onConfirm = install, onCancel = cancel))
     }
 
     private fun forgetRemovedProjects(projectIds: Set<Long>) {

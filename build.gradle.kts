@@ -15,7 +15,7 @@ plugins {
 }
 
 group = "com.github.krpkbhdn"
-version = "2.3.55"
+version = "2.3.56"
 
 java {
     toolchain {
@@ -44,6 +44,7 @@ dependencies {
     implementation("org.jetbrains.runtime:jbr-api:1.9.0")
     implementation("org.graalvm.polyglot:polyglot:25.5.5.0.3")
     implementation("org.apache.commons:commons-compress:1.28.0")
+    implementation("org.bouncycastle:bcpg-jdk18on:1.86")
     runtimeOnly("org.graalvm.polyglot:js-community:25.5.5.0.3")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
@@ -298,6 +299,7 @@ val jdtlsBundleJar = tasks.register<Jar>("jdtlsBundleJar") {
 
 tasks.processResources {
     from(jdtlsBundleJar) { into("toolchain/jdtls") }
+    from("packaging") { include("astrolabe-release.pub.asc"); into("update") }
 }
 
 compose.desktop {
