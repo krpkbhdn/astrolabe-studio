@@ -19,6 +19,9 @@ class TarGzUpdater implements PlatformUpdater {
 
     static final String FRAGMENT = "step install sh \"$1/install.sh\"";
 
+    /** The menu entry install.sh writes, which gtk-launch starts. */
+    static final String DESKTOP_ID = "astrolabe-studio";
+
     private static final String LAUNCHER = "Astrolabe Studio/bin/Astrolabe Studio";
     private static final String INSTALL_SCRIPT = "install.sh";
     private static final String ICON = "icon.png";
@@ -90,9 +93,10 @@ class TarGzUpdater implements PlatformUpdater {
 
     /** @throws IllegalStateException when the installer script cannot be started */
     @Override
-    public void launchAfterExit(Path unpacked, Installation installation) {
+    public void launchAfterExit(Path unpacked, Installation installation, String targetVersion) {
         var updatesDir = unpacked.toAbsolutePath().getParent();
         PosixUpdateScript.launch(updatesDir, ProcessHandle.current().pid(), installation.appExecutable(), FRAGMENT,
-                List.of(unpacked.toAbsolutePath().toString()), List.of(unpacked), properties);
+                List.of(unpacked.toAbsolutePath().toString()), List.of(unpacked), properties,
+                PosixUpdateScript.Notices.linux(targetVersion, DESKTOP_ID, false));
     }
 }

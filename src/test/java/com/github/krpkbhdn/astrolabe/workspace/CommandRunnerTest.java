@@ -24,6 +24,15 @@ class CommandRunnerTest {
     }
 
     @Test
+    void aDetachedProcessLosesOnlyTheNamedEnvironmentVariables() {
+        assertThat(CommandRunner.detachedBuilder(List.of("x"), List.of()).environment()).containsKey("PATH");
+
+        var environment = CommandRunner.detachedBuilder(List.of("x"), List.of("PATH")).environment();
+
+        assertThat(environment).doesNotContainKey("PATH").isNotEmpty();
+    }
+
+    @Test
     void outputOverTheLimitIsTruncated() throws IOException {
         PtyAvailability.assumePtyDeliversOutput();
         var result = CommandRunner.run(shell("echo 0123456789012345678901234567890123456789"), null, TIMEOUT, 10);

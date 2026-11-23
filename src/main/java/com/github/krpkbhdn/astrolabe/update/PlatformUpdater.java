@@ -21,8 +21,9 @@ interface PlatformUpdater {
     Path prepare(Path verifiedDownload, String verifiedSha256, Installation installation) throws IOException;
 
     /** The install starts once this process has exited; the caller must quit right after.
+     * @param targetVersion the version being installed, for the progress notifications (may be empty)
      * @throws IllegalStateException when the installer cannot be started */
-    void launchAfterExit(Path prepared, Installation installation);
+    void launchAfterExit(Path prepared, Installation installation, String targetVersion);
 
     /** The staged [prepared] is being thrown away; an updater that keeps per-file state forgets it. */
     default void discard(Path prepared) {

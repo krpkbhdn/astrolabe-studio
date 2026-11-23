@@ -130,7 +130,7 @@ class DmgUpdater implements PlatformUpdater {
     }
 
     @Override
-    public void launchAfterExit(Path staged, Installation installation) {
+    public void launchAfterExit(Path staged, Installation installation, String targetVersion) {
         // shortcut: the relaunch execs the executable inside the bundle, not `open`, because PosixUpdateScript only runs "$APP"
         PosixUpdateScript.launch(updatesDir, ProcessHandle.current().pid(), installation.appExecutable(), FRAGMENT,
                 List.of(installation.root().toAbsolutePath().toString(), staged.toAbsolutePath().toString()), List.of(), properties);

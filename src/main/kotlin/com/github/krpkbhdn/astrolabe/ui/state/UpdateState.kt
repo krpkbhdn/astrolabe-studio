@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.github.krpkbhdn.astrolabe.update.AvailableUpdate
+import com.github.krpkbhdn.astrolabe.update.UpdateOutcome
 import com.github.krpkbhdn.astrolabe.update.UpdateService
 import java.awt.Desktop
 import java.io.IOException
@@ -18,6 +19,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val UPDATE_FAILED_TITLE = "Update failed"
+private const val UPDATED_TITLE = "Update installed"
 private const val UNKNOWN_ERROR = "Something went wrong"
 
 /** Compose state of the self-update flow: periodic check, download on request, then on a second click stage it, confirm and restart to install. */
@@ -26,6 +28,7 @@ class UpdateState(
     private val scope: CoroutineScope,
     private val reportError: (title: String, message: String) -> Unit,
     private val confirmInstall: (message: String, install: () -> Unit, cancel: () -> Unit) -> Unit,
+    private val reportUpdated: (title: String, message: String) -> Unit = { _, _ -> },
     private val exitApp: () -> Unit,
 ) {
     var status by mutableStateOf<UpdateStatus>(UpdateStatus.None)
@@ -59,7 +62,10 @@ class UpdateState(
     fun start(): Job? {
         val service = updates?.takeIf { it.enabled() } ?: return null
         return scope.launch {
-            service.lastOutcome().map(::outcomeToast).orElse(null)?.let { reportError(UPDATE_FAILED_TITLE, it) }
+            service.lastOutcome().ifPresent { outcome ->
+                val message = outcomeToast(outcome, service.currentVersion(), service.updatesDirectory()?.toString().orEmpty())
+                if (outcome.status() == UpdateOutcome.Status.OK) reportUpdated(UPDATED_TITLE, message) else reportError(UPDATE_FAILED_TITLE, message)
+            }
             while (true) {
                 check(service, service::findUpdate)
                 delay(service.checkInterval().toMillis())
@@ -127,10 +133,12 @@ class UpdateState(
             confirmInstall(
                 installConfirmMessage(ready.update.version, needsAuthentication),
                 {
+                    status = UpdateStatus.Installing(ready.update)
                     try {
                         service.launchAfterExit(prepared)
                         exitApp()
                     } catch (e: IllegalStateException) {
+                        status = ready
                         service.discard(prepared)
                         reportError(UPDATE_FAILED_TITLE, e.message ?: UNKNOWN_ERROR)
                     }
@@ -159,7 +167,7 @@ class UpdateState(
         }
     }
 
-    private fun busy() = status is UpdateStatus.Downloading || status is UpdateStatus.Preparing || status is UpdateStatus.Ready
+    private fun busy() = status is UpdateStatus.Downloading || status is UpdateStatus.Preparing || status is UpdateStatus.Installing || status is UpdateStatus.Ready
 
     private suspend fun check(service: UpdateService, find: () -> Optional<AvailableUpdate>) {
         if (busy()) return

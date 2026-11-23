@@ -3,8 +3,10 @@ package com.github.krpkbhdn.astrolabe.ui.state
 import com.github.krpkbhdn.astrolabe.ui.await
 import com.github.krpkbhdn.astrolabe.update.AvailableUpdate
 import com.github.krpkbhdn.astrolabe.update.PreparedUpdate
+import com.github.krpkbhdn.astrolabe.update.UpdateOutcome
 import com.github.krpkbhdn.astrolabe.update.UpdateService
 import java.net.URI
+import java.time.Duration
 import java.nio.file.Path
 import java.util.Optional
 import java.util.concurrent.CopyOnWriteArrayList
@@ -38,7 +40,11 @@ class UpdateStateFlowTest {
     private val confirms = CopyOnWriteArrayList<Pair<String, () -> Unit>>()
     private val cancels = CopyOnWriteArrayList<() -> Unit>()
     private val exits = AtomicInteger()
-    private val state = UpdateState(service, scope, { _, message -> errors += message }, { message, install, cancel -> confirms += message to install; cancels += cancel }) { exits.incrementAndGet() }
+    private val updated = CopyOnWriteArrayList<String>()
+    private val state = UpdateState(
+        service, scope, { _, message -> errors += message }, { message, install, cancel -> confirms += message to install; cancels += cancel },
+        { _, message -> updated += message },
+    ) { exits.incrementAndGet() }
 
     @AfterEach
     fun stop() = scope.cancel()
@@ -127,6 +133,33 @@ class UpdateStateFlowTest {
 
         verify(service).launchAfterExit(prepared)
         assertThat(exits.get()).isEqualTo(1)
+        assertThat(state.status).isEqualTo(UpdateStatus.Installing(offer))
+    }
+
+    @Test
+    fun `the start reports a successful earlier update as updated with the running version`() {
+        `when`(service.lastOutcome()).thenReturn(Optional.of(UpdateOutcome(UpdateOutcome.Status.OK, "")))
+        `when`(service.currentVersion()).thenReturn("1.2.3")
+        `when`(service.checkInterval()).thenReturn(Duration.ofHours(1))
+
+        state.start()
+
+        await { updated.isNotEmpty() }
+        assertThat(updated.single()).isEqualTo("Updated to version 1.2.3")
+        assertThat(errors).isEmpty()
+    }
+
+    @Test
+    fun `the start reports a failed earlier update as an error naming the logs`() {
+        `when`(service.lastOutcome()).thenReturn(Optional.of(UpdateOutcome(UpdateOutcome.Status.FAILED, "install")))
+        `when`(service.currentVersion()).thenReturn("1.2.3")
+        `when`(service.checkInterval()).thenReturn(Duration.ofHours(1))
+
+        state.start()
+
+        await { errors.isNotEmpty() }
+        assertThat(errors.single()).contains("update.log").contains("relaunch.log")
+        assertThat(updated).isEmpty()
     }
 
     @Test
@@ -139,6 +172,7 @@ class UpdateStateFlowTest {
         confirms.single().second()
 
         verify(service).discard(prepared)
+        assertThat(state.status).isEqualTo(UpdateStatus.Ready(offer, installer))
         assertThat(errors).containsExactly("no pkexec")
         assertThat(exits.get()).isZero()
     }
