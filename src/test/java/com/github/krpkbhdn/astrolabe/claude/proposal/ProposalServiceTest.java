@@ -370,9 +370,13 @@ class ProposalServiceTest {
             for (var future : futures) {
                 assertThat(future.get(WAIT_SECONDS, TimeUnit.SECONDS)).isPresent();
             }
+            var settled = System.nanoTime() + TimeUnit.SECONDS.toNanos(WAIT_SECONDS);
+            while (!service.pending().isEmpty()) {
+                assertThat(System.nanoTime()).isLessThan(settled);
+                Thread.sleep(1);
+            }
         } finally {
             pool.shutdownNow();
         }
-        assertThat(service.pending()).isEmpty();
     }
 }
