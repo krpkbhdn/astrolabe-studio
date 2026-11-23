@@ -108,7 +108,7 @@ class UpdateServiceTest {
         checksum = "0".repeat(64);
         var capped = new UpdateProperties("1.0.0", "o/r", base(), 6, 5, java.time.Duration.ofSeconds(5), java.time.Duration.ofSeconds(60),
                 java.time.Duration.ofSeconds(5), java.time.Duration.ofMinutes(2), java.time.Duration.ofSeconds(30), java.time.Duration.ofMinutes(5), 1, 1,
-                INSTALLER.length - 1, 1024, java.time.Duration.ofSeconds(30));
+                INSTALLER.length - 1, 1024, java.time.Duration.ofSeconds(30), java.time.Duration.ofSeconds(1), java.time.Duration.ofSeconds(4));
         var detector = mock(InstallationDetector.class);
         when(detector.detect()).thenReturn(Optional.of(INSTALLATION));
         var small = new UpdateService(capped, new AppProperties(dataDir), JsonMapper.builder().build(), List.of(updater), detector, () -> signature, new VerifiedDownload());
@@ -312,7 +312,7 @@ class UpdateServiceTest {
         var prepared = service.prepareInstall(installer);
         service.launchAfterExit(prepared);
 
-        verify(updater).launchAfterExit(staged, INSTALLATION);
+        verify(updater).launchAfterExit(staged, INSTALLATION, update().version());
     }
 
     @Test
@@ -320,7 +320,7 @@ class UpdateServiceTest {
         var forged = new PreparedUpdate(Path.of("a"), Path.of("b"));
 
         assertThatThrownBy(() -> service.launchAfterExit(forged)).isInstanceOf(IllegalStateException.class).hasMessageContaining("not prepared");
-        verify(updater, never()).launchAfterExit(any(), any());
+        verify(updater, never()).launchAfterExit(any(), any(), any());
     }
 
     @Test

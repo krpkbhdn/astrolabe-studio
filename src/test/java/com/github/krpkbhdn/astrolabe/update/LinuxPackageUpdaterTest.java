@@ -80,7 +80,7 @@ class LinuxPackageUpdaterTest {
     @Test
     void launchRefusesAPackageThatThisProcessDidNotPrepare() {
         assertThatThrownBy(() -> deb(host("apt-get", "pkexec")).launchAfterExit(Path.of("/tmp/astrolabe-update-1/astrolabe-studio-update.deb"),
-                installation(InstallKind.DEB))).isInstanceOf(IllegalStateException.class);
+                installation(InstallKind.DEB), "2.4.0")).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -311,7 +311,7 @@ class LinuxPackageUpdaterTest {
 
         updater.discard(prepared);
 
-        assertThatThrownBy(() -> updater.launchAfterExit(prepared, installation(InstallKind.DEB))).isInstanceOf(IllegalStateException.class)
+        assertThatThrownBy(() -> updater.launchAfterExit(prepared, installation(InstallKind.DEB), "2.4.0")).isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("not prepared");
     }
 
@@ -389,8 +389,7 @@ class LinuxPackageUpdaterTest {
         var updates = Files.createDirectories(temp.resolve("updates"));
         Files.deleteIfExists(updates.resolve("result"));
         var script = Files.writeString(temp.resolve("update.sh"), PosixUpdateScript.script(fragment));
-        var command = new ArrayList<>(List.of("sh", msys(script), msys(updates), "2147483646", msys(app), "60", "5", Integer.toString(arguments.size())));
-        command.addAll(arguments);
+        var command = ScriptArgs.command(msys(script), msys(updates), "2147483646", msys(app), arguments);
         var process = new ProcessBuilder(command).redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
         process.getOutputStream().close();
         assertThat(process.waitFor(30, TimeUnit.SECONDS)).isTrue();

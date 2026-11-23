@@ -9,5 +9,7 @@ sealed interface UpdateStatus {
     data class Available(val update: AvailableUpdate) : UpdateStatus
     data class Downloading(val update: AvailableUpdate, val fraction: Float?) : UpdateStatus
     data class Preparing(val update: AvailableUpdate) : UpdateStatus
+    /** The install was confirmed: the script is started and the app is closing. */
+    data class Installing(val update: AvailableUpdate) : UpdateStatus
     data class Ready(val update: AvailableUpdate, val installer: Path) : UpdateStatus
 }

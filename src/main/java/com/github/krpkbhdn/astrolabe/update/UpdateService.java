@@ -41,7 +41,7 @@ public class UpdateService {
     private static final Pattern STEP_NAME = Pattern.compile("[a-z0-9_-]{1,32}");
     private static final int MAX_CHECKSUM_BYTES = 4096;
     private static final String STAGING_SUFFIX = ".update";
-    private static final Set<String> KEPT_LOGS = Set.of("update.log", "update-msi.log");
+    private static final Set<String> KEPT_LOGS = Set.of("update.log", "update-msi.log", "relaunch.log");
     private static final String PACKAGE_STAGING_PREFIX = PosixUpdateScript.STAGING_PREFIX;
 
     private final UpdateProperties properties;
@@ -59,6 +59,8 @@ public class UpdateService {
     private volatile ReleaseSignature signature;
     private volatile Capability capability;
     private volatile PreparedUpdate prepared;
+    /** The version of the last verified download, shown in the install progress notifications. */
+    private volatile String targetVersion = "";
 
     /** What was checked when a download was accepted; the install step compares the file against it again. */
     private record Verified(String sha256, long size) {
@@ -89,6 +91,11 @@ public class UpdateService {
 
     public boolean enabled() {
         return properties.enabled() && ReleaseVersion.parse(properties.version()).isPresent();
+    }
+
+    /** Where the install script writes {@code update.log} and {@code relaunch.log}. */
+    public Path updatesDirectory() {
+        return app.dataDir().resolve(UPDATES_DIRECTORY);
     }
 
     public String currentVersion() {
@@ -203,6 +210,7 @@ public class UpdateService {
             var file = downloads.fetch(update.installerUri(), expected, target, Duration.ofSeconds(properties.requestTimeoutSeconds()), progress, size);
             verifySignature(update, file);
             remember(file, expected);
+            targetVersion = update.version();
             return file;
         } catch (IOException e) {
             throw new UncheckedIOException("Could not download the update: " + e.getMessage(), e);
@@ -249,7 +257,7 @@ public class UpdateService {
         if (!update.equals(prepared)) {
             throw new IllegalStateException("This update was not prepared by this run of the app");
         }
-        chosen.launchAfterExit(update.path(), detected);
+        chosen.launchAfterExit(update.path(), detected, targetVersion);
     }
 
     /** Removes what [prepareInstall] staged (the verified download stays for a retry); what lies outside the folders updaters stage in is logged and left. */

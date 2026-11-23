@@ -48,10 +48,10 @@ class UpdatePropertiesTest {
         assertThat(defaults.detectionRetryBackoff()).isEqualTo(java.time.Duration.ofSeconds(30));
         assertThatThrownBy(() -> new UpdateProperties("", "o/r", "http://x", 6, 15, java.time.Duration.ofSeconds(5), java.time.Duration.ofSeconds(60),
                 java.time.Duration.ofSeconds(5), java.time.Duration.ofMinutes(2), java.time.Duration.ofSeconds(30), java.time.Duration.ofMinutes(5), 1, 1, 0, 1,
-                java.time.Duration.ofSeconds(30))).hasMessageContaining("max-installer-bytes");
+                java.time.Duration.ofSeconds(30), java.time.Duration.ofSeconds(1), java.time.Duration.ofSeconds(4))).hasMessageContaining("max-installer-bytes");
         assertThatThrownBy(() -> new UpdateProperties("", "o/r", "http://x", 6, 15, java.time.Duration.ofSeconds(5), java.time.Duration.ZERO,
                 java.time.Duration.ofSeconds(5), java.time.Duration.ofMinutes(2), java.time.Duration.ofSeconds(30), java.time.Duration.ofMinutes(5), 1, 1, 1, 1,
-                java.time.Duration.ofSeconds(30)))
+                java.time.Duration.ofSeconds(30), java.time.Duration.ofSeconds(1), java.time.Duration.ofSeconds(4)))
                 .hasMessageContaining("pid-wait-timeout");
     }
 

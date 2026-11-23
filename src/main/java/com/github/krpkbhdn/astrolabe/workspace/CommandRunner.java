@@ -82,11 +82,21 @@ public final class CommandRunner {
 
     /** Starts a process without waiting for it; its output is discarded. */
     public static void startDetached(List<String> command) throws IOException {
-        var process = new ProcessBuilder(command)
-                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
-                .redirectError(ProcessBuilder.Redirect.DISCARD)
-                .start();
+        startDetached(command, List.of());
+    }
+
+    /** As {@link #startDetached(List)}, with the named variables removed from the child's environment only. */
+    public static void startDetached(List<String> command, List<String> removedEnvironment) throws IOException {
+        var process = detachedBuilder(command, removedEnvironment).start();
         process.getOutputStream().close();
+    }
+
+    static ProcessBuilder detachedBuilder(List<String> command, List<String> removedEnvironment) {
+        var builder = new ProcessBuilder(command)
+                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .redirectError(ProcessBuilder.Redirect.DISCARD);
+        removedEnvironment.forEach(builder.environment()::remove);
+        return builder;
     }
 
     /**

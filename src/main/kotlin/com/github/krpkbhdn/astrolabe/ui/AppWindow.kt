@@ -58,6 +58,7 @@ private const val TRAY_ICON_SIZE = 64
 private const val WINDOW_ICON_SIZE = 256
 private const val BROWSER_SHUTDOWN_MILLIS = 3_000L
 private const val STATE_DISPOSE_MILLIS = 5_000L
+private const val UPDATE_STEP_MILLIS = 5_000L
 
 // The Linux tray draws the image unscaled, so a 64 px icon is cropped (48 px is an unverified estimate of the cell).
 private const val LINUX_TRAY_ICON_SIZE = 48
@@ -103,14 +104,15 @@ fun ApplicationScope.AppWindow(backend: Backend, onShutdown: () -> Unit, setting
     // A hidden window may never recompose again, so its SideEffect cannot be trusted to clear windowActive.
     val hideToTray = { visible = false; state.windowActive = false }
     val exiting = remember { AtomicBoolean(false) }
-    val exit = {
+    // On the update path the install script is already waiting, so slow steps get a bound there; a normal quit keeps its full grace.
+    val exitWith = { forUpdate: Boolean ->
         if (exiting.compareAndSet(false, true)) {
             visible = false
             thread(name = "AppShutdown") {
                 try {
-                    shutdownStep("terminals") { TerminalHost.closeAll() }
+                    shutdownStep("terminals", UPDATE_STEP_MILLIS.takeIf { forUpdate }) { TerminalHost.closeAll() }
                     shutdownStep("state", STATE_DISPOSE_MILLIS) { disposeState() }
-                    shutdownStep("reviews") { state.reviews.awaitFinalFlush() }
+                    shutdownStep("reviews", UPDATE_STEP_MILLIS.takeIf { forUpdate }) { state.reviews.awaitFinalFlush() }
                     shutdownStep("browser", BROWSER_SHUTDOWN_MILLIS) { JcefRuntime.shutdown() }
                     shutdownStep("callback") { onShutdown() }
                 } finally {
@@ -119,7 +121,9 @@ fun ApplicationScope.AppWindow(backend: Backend, onShutdown: () -> Unit, setting
             }
         }
     }
+    val exit = { exitWith(false) }
     state.exitApp = exit
+    state.exitForUpdate = { exitWith(true) }
     val quit = { state.requestQuit(exit) }
     LaunchedEffect(Unit) { installMacQuitHandler { restore(); quit() } }
     state.trayAvailable = isTraySupported

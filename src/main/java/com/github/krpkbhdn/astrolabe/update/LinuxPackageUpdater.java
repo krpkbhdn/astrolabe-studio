@@ -72,6 +72,8 @@ class LinuxPackageUpdater implements PlatformUpdater {
     private static final List<String> TRUSTED_DIRECTORIES = List.of("/usr/bin", "/bin", "/usr/sbin", "/sbin");
     private static final List<Terminal> TERMINALS = List.of(new Terminal("gnome-terminal", "--wait --"), new Terminal("konsole", "--nofork -e"),
             new Terminal("xterm", "-e"));
+    /** The menu entry the jpackage deb and rpm install, which gtk-launch starts. */
+    static final String DESKTOP_ID = "astrolabe-studio-Astrolabe_Studio";
     private static final String PKEXEC = "pkexec";
     private static final String SUDO = "sudo";
     private static final String UPDATES_DIRECTORY = "updates";
@@ -226,7 +228,7 @@ class LinuxPackageUpdater implements PlatformUpdater {
 
     /** @throws IllegalStateException when no package manager or authorisation route exists or the script cannot be started */
     @Override
-    public void launchAfterExit(Path prepared, Installation installation) {
+    public void launchAfterExit(Path prepared, Installation installation, String targetVersion) {
         var hash = hashes.get(prepared.toAbsolutePath());
         if (hash == null) {
             throw new IllegalStateException("The package was not prepared by this process");
@@ -234,7 +236,7 @@ class LinuxPackageUpdater implements PlatformUpdater {
         var plan = plan(prepared.toAbsolutePath(), hash)
                 .orElseThrow(() -> new IllegalStateException("No package manager, sha256sum or authorisation tool found"));
         PosixUpdateScript.launch(updatesDir, ProcessHandle.current().pid(), installation.appExecutable(), plan.fragment(), plan.arguments(), List.of(),
-                properties);
+                properties, PosixUpdateScript.Notices.linux(targetVersion, DESKTOP_ID, true));
         hashes.remove(prepared.toAbsolutePath());
     }
 

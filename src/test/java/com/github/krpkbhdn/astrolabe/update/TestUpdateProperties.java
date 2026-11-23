@@ -20,6 +20,6 @@ final class TestUpdateProperties {
         var d = defaults();
         return new UpdateProperties(version, repository, apiBaseUrl, checkIntervalHours, requestTimeoutSeconds, queryTimeout, d.pidWaitTimeout(),
                 d.pidKillGrace(), d.hdiutilAttachTimeout(), d.hdiutilDetachTimeout(), d.dittoTimeout(), d.archiveMaxEntries(), d.archiveMaxUnpackedBytes(),
-                d.maxInstallerBytes(), d.maxLogBytes(), d.detectionRetryBackoff());
+                d.maxInstallerBytes(), d.maxLogBytes(), d.detectionRetryBackoff(), d.relaunchSettle(), d.relaunchAliveCheck());
     }
 }

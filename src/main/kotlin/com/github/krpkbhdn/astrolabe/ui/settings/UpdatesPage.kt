@@ -7,6 +7,7 @@ import com.github.krpkbhdn.astrolabe.ui.components.AppButton
 import com.github.krpkbhdn.astrolabe.ui.components.ButtonVariant
 import com.github.krpkbhdn.astrolabe.ui.state.UpdateState
 import com.github.krpkbhdn.astrolabe.ui.state.UpdateStatus
+import com.github.krpkbhdn.astrolabe.ui.state.installingMessage
 import com.github.krpkbhdn.astrolabe.ui.theme.Spacing
 
 private const val PERCENT = 100
@@ -16,6 +17,7 @@ internal fun updateSummary(update: UpdateState): String = when (val status = upd
     is UpdateStatus.Available -> "Version ${status.update.version} is available.${update.actionFor(status.update).note?.let { " $it." }.orEmpty()}"
     is UpdateStatus.Downloading -> "Downloading version ${status.update.version}${status.fraction?.let { " ${(it * PERCENT).toInt()}%" }.orEmpty()}"
     is UpdateStatus.Preparing -> "Preparing version ${status.update.version}..."
+    is UpdateStatus.Installing -> installingMessage(status.update.version)
     is UpdateStatus.Ready -> "Version ${status.update.version} is downloaded. Install it and restart to apply it."
     UpdateStatus.None -> when {
         !update.enabled -> "Update checks are off in a run from sources."
@@ -50,6 +52,7 @@ private fun UpdateButtons(update: UpdateState) {
         }
         is UpdateStatus.Downloading -> AppButton("Downloading", {}, variant = ButtonVariant.PRIMARY, enabled = false, loading = true)
         is UpdateStatus.Preparing -> AppButton("Preparing", {}, variant = ButtonVariant.PRIMARY, enabled = false, loading = true)
+        is UpdateStatus.Installing -> AppButton("Installing", {}, variant = ButtonVariant.PRIMARY, enabled = false, loading = true)
         is UpdateStatus.Ready -> AppButton("Install and restart", update::restart, variant = ButtonVariant.PRIMARY)
         UpdateStatus.None -> AppButton(if (update.checkFailed) "Retry" else "Check for updates", update::checkNow, enabled = update.enabled && !update.checking, loading = update.checking)
     }

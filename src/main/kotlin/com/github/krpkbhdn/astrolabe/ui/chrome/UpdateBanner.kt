@@ -7,6 +7,7 @@ import com.github.krpkbhdn.astrolabe.ui.components.PrimaryButton
 import com.github.krpkbhdn.astrolabe.ui.icons.Icons
 import com.github.krpkbhdn.astrolabe.ui.state.UpdateState
 import com.github.krpkbhdn.astrolabe.ui.state.UpdateStatus
+import com.github.krpkbhdn.astrolabe.ui.state.installingMessage
 import com.github.krpkbhdn.astrolabe.ui.theme.colors
 
 private const val PERCENT = 100
@@ -31,6 +32,9 @@ fun UpdateBanner(update: UpdateState) {
         }
         is UpdateStatus.Preparing -> Banner("Preparing version ${status.update.version}...", colors.accent, Icons.Download) {
             PrimaryButton("Preparing", {}, enabled = false, loading = true)
+        }
+        is UpdateStatus.Installing -> Banner(installingMessage(status.update.version), colors.accent, Icons.Refresh) {
+            PrimaryButton("Installing", {}, enabled = false, loading = true)
         }
         is UpdateStatus.Ready -> Banner("Version ${status.update.version} is downloaded. Install it and restart to apply the update", colors.success, Icons.Refresh) {
             PrimaryButton("Install and restart", update::restart)

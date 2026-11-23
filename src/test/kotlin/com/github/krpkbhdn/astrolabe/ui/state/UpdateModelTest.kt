@@ -33,14 +33,22 @@ class UpdateModelTest {
     }
 
     @Test
-    fun `a successful earlier update stays quiet`() {
-        assertThat(outcomeToast(UpdateOutcome(UpdateOutcome.Status.OK, ""))).isNull()
+    fun `a successful earlier update names the version the app runs now`() {
+        assertThat(outcomeToast(UpdateOutcome(UpdateOutcome.Status.OK, ""), "2.4.0", "/data/updates")).isEqualTo("Updated to version 2.4.0")
     }
 
     @Test
-    fun `a cancelled or failed earlier update is explained`() {
-        assertThat(outcomeToast(UpdateOutcome(UpdateOutcome.Status.AUTH_CANCELLED, ""))).contains("authorization cancelled").contains("update.log")
-        assertThat(outcomeToast(UpdateOutcome(UpdateOutcome.Status.FAILED, "install"))).contains("failed: install").contains("update.log")
+    fun `a cancelled or failed earlier update is explained and names both logs`() {
+        val cancelled = outcomeToast(UpdateOutcome(UpdateOutcome.Status.AUTH_CANCELLED, ""), "2.4.0", "/data/updates")
+        val failed = outcomeToast(UpdateOutcome(UpdateOutcome.Status.FAILED, "install"), "2.4.0", "/data/updates")
+
+        assertThat(cancelled).contains("authorization cancelled").contains("update.log").contains("relaunch.log")
+        assertThat(failed).contains("failed: install").contains("update.log").contains("relaunch.log").contains("updates")
+    }
+
+    @Test
+    fun `the installing message says the app closes and restarts on its own`() {
+        assertThat(installingMessage("2.4.0")).isEqualTo("Installing version 2.4.0. The app will close and restart on its own.")
     }
 
     @Test

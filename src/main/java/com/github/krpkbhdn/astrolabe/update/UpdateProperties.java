@@ -24,7 +24,9 @@ public record UpdateProperties(
         @DefaultValue("4294967296") long archiveMaxUnpackedBytes,
         @DefaultValue("2147483648") long maxInstallerBytes,
         @DefaultValue("1048576") long maxLogBytes,
-        @DefaultValue("PT30S") Duration detectionRetryBackoff) {
+        @DefaultValue("PT30S") Duration detectionRetryBackoff,
+        @DefaultValue("PT1S") Duration relaunchSettle,
+        @DefaultValue("PT4S") Duration relaunchAliveCheck) {
 
     public boolean enabled() {
         return !version.isBlank();
@@ -44,6 +46,8 @@ public record UpdateProperties(
         positive("astrolabe.update.max-installer-bytes", maxInstallerBytes);
         positive("astrolabe.update.max-log-bytes", maxLogBytes);
         positive("astrolabe.update.detection-retry-backoff", detectionRetryBackoff);
+        positive("astrolabe.update.relaunch-settle", relaunchSettle);
+        positive("astrolabe.update.relaunch-alive-check", relaunchAliveCheck);
         if (queryTimeout == null || queryTimeout.isZero() || queryTimeout.isNegative()) {
             throw new IllegalArgumentException("astrolabe.update.query-timeout must be positive");
         }

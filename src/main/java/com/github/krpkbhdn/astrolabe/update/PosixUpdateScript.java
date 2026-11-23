@@ -36,6 +36,9 @@ final class PosixUpdateScript {
     /** Prefix of the temp folders the updaters stage in; scripts use {@code @@PREFIX@@} for it. */
     static final String STAGING_PREFIX = "astrolabe-update-";
 
+    /** Set by the jpackage launcher in the app's environment; inherited by the relaunch it makes the new launcher skip its .cfg and print Java's usage. */
+    static final String JPACKAGE_LAUNCHER_VARIABLE = "_JPACKAGE_LAUNCHER";
+
     private static final String SCRIPT_NAME = "update.sh";
     private static final String FRAGMENT_MARKER = "@@PLATFORM_STEPS@@";
     private static final String PREFIX_MARKER = "@@PREFIX@@";
@@ -43,21 +46,105 @@ final class PosixUpdateScript {
     private static final String SCRIPT_PERMISSIONS = "r-x------";
     private static final String POSIX = "posix";
 
-    /** Arguments: updates folder, pid, app executable, pid wait seconds, kill grace seconds, number of fragment arguments, those, then folders to delete after success. */
+    /**
+     * Arguments: updates folder, pid, app executable, pid wait seconds, kill grace seconds, relaunch settle seconds, relaunch alive-check seconds,
+     * target version, desktop id (empty = macOS mode: plain relaunch, no notifications), notification title, seven notification texts (start,
+     * waiting, installing, launching, done, failed, relaunch failed), number of fragment arguments, those, then folders to delete after success.
+     */
     private static final String TEMPLATE = """
             #!/bin/sh
             {
+            unset _JPACKAGE_LAUNCHER
             UPDATES=$1
             PID=$2
             APP=$3
             WAIT=$4
             GRACE=$5
-            NEXTRA=$6
-            shift 6
+            SETTLE=$6
+            ALIVE=$7
+            VERSION=$8
+            DESKTOP=$9
+            shift 9
+            TITLE=$1
+            N_START=$2
+            N_WAIT=$3
+            N_INSTALL=$4
+            N_LAUNCH=$5
+            N_DONE=$6
+            N_FAIL=$7
+            N_RELAUNCH_FAIL=$8
+            NEXTRA=$9
+            shift 9
             SELF=$(dirname "$0")
             STEP=update
             AUTH_STEP=0
+            NID=0
+            NOTIFY_LIMIT=5
+            FINAL_MS=8000
+            RELAUNCH_LOG=$UPDATES/relaunch.log
+            TAIL_CHARS=300
             log() { printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$1" >> "$UPDATES/update.log"; }
+            notify() {
+              [ -n "$DESKTOP" ] && [ -n "$1" ] || return 0
+              expire=${2:-0}
+              TO=
+              command -v timeout >/dev/null 2>&1 && TO="timeout $NOTIFY_LIMIT"
+              out=
+              if command -v notify-send >/dev/null 2>&1; then
+                rarg=
+                [ "$NID" -gt 0 ] && rarg="-r $NID"
+                out=$($TO notify-send -a "$TITLE" -p $rarg -t "$expire" "$TITLE" "$1" 2>/dev/null) || out=$($TO notify-send -a "$TITLE" "$TITLE" "$1" 2>/dev/null)
+              elif command -v gdbus >/dev/null 2>&1; then
+                out=$($TO gdbus call --session --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications.Notify "$TITLE" "$NID" "" "$TITLE" "$1" '[]' '{}' "$expire" 2>/dev/null)
+                out=${out#*uint32 }
+                out=${out%%[!0-9]*}
+              fi
+              case $out in ''|*[!0-9]*) ;; *) NID=$out ;; esac
+              return 0
+            }
+            app_alive() {
+              command -v ps >/dev/null 2>&1 || return 0
+              ps -eo args= 2>/dev/null | { while IFS= read -r line; do
+                case $line in "$APP"|"$APP "*|"/bin/sh $APP"|"/bin/sh $APP "*) exit 0 ;; esac
+              done; exit 1; }
+            }
+            launch_direct() {
+              if command -v setsid >/dev/null 2>&1; then setsid "$APP" >> "$RELAUNCH_LOG" 2>&1 </dev/null &
+              else "$APP" >> "$RELAUNCH_LOG" 2>&1 </dev/null &
+              fi
+            }
+            launch_session() {
+              if [ -n "$DESKTOP" ] && command -v gtk-launch >/dev/null 2>&1 && gtk-launch "$DESKTOP" >> "$RELAUNCH_LOG" 2>&1 </dev/null; then
+                log "relaunch gtk-launch"; return 0
+              fi
+              if command -v gio >/dev/null 2>&1; then
+                for dir in "${XDG_DATA_HOME:-$HOME/.local/share}/applications" /usr/local/share/applications /usr/share/applications; do
+                  if [ -f "$dir/$DESKTOP.desktop" ] && gio launch "$dir/$DESKTOP.desktop" >> "$RELAUNCH_LOG" 2>&1 </dev/null; then
+                    log "relaunch gio launch"; return 0
+                  fi
+                done
+              fi
+              if command -v systemd-run >/dev/null 2>&1; then
+                systemd-run --user --scope --quiet "$APP" >> "$RELAUNCH_LOG" 2>&1 </dev/null &
+                log "relaunch systemd-run"; return 0
+              fi
+              launch_direct
+              log "relaunch direct"
+            }
+            relaunch_linux() {
+              ( umask 077; : > "$RELAUNCH_LOG" )
+              sleep "$SETTLE"
+              launch_session
+              sleep "$ALIVE"
+              if app_alive; then log "relaunch alive"; return 0; fi
+              log "relaunch not alive, retry direct"
+              launch_direct
+              sleep "$ALIVE"
+              if app_alive; then log "relaunch alive after retry"; return 0; fi
+              RELAUNCH_TAIL=$(tail -n 5 "$RELAUNCH_LOG" 2>/dev/null | tr -s '[:space:]' ' ' | cut -c1-"$TAIL_CHARS")
+              log "relaunch failed: $RELAUNCH_TAIL"
+              return 1
+            }
             step() {
               STEP=$1
               shift
@@ -70,6 +157,9 @@ final class PosixUpdateScript {
             platform_update() {
             @@PLATFORM_STEPS@@
             }
+            notify "$N_START"
+            log "update to $VERSION"
+            kill -0 "$PID" 2>/dev/null && notify "$N_WAIT"
             waited=0
             while kill -0 "$PID" 2>/dev/null; do
               if [ "$waited" -ge "$WAIT" ]; then
@@ -83,6 +173,7 @@ final class PosixUpdateScript {
               sleep 1
               waited=$((waited + 1))
             done
+            notify "$N_INSTALL"
             platform_update "$@"
             rc=$?
             case $rc in
@@ -97,12 +188,53 @@ final class PosixUpdateScript {
               for leftover in "$@"; do rm -rf -- "$leftover"; done
             fi
             log "relaunch"
-            "$APP" >/dev/null 2>&1 </dev/null &
+            if [ -n "$DESKTOP" ]; then
+              [ "$rc" -eq 0 ] && notify "$N_LAUNCH"
+              relaunch_ok=0
+              relaunch_linux || relaunch_ok=1
+              if [ "$relaunch_ok" -ne 0 ]; then notify "$N_RELAUNCH_FAIL (see $RELAUNCH_LOG): $RELAUNCH_TAIL" "$FINAL_MS"
+              elif [ "$rc" -eq 0 ]; then notify "$N_DONE" "$FINAL_MS"
+              else notify "$N_FAIL $UPDATES/update.log" "$FINAL_MS"
+              fi
+            else
+              "$APP" >/dev/null 2>&1 </dev/null &
+            fi
             case "$SELF" in */@@PREFIX@@*) rm -rf "$SELF" ;; esac
             }; exit
             """;
 
     private PosixUpdateScript() {
+    }
+
+    /** All durations in whole seconds, as the script's {@code sleep} and loops take them. */
+    record Timing(long waitSeconds, long graceSeconds, long settleSeconds, long aliveSeconds) {
+
+        static Timing of(UpdateProperties properties) {
+            return new Timing(properties.pidWaitTimeout().toSeconds(), properties.pidKillGrace().toSeconds(), properties.relaunchSettle().toSeconds(),
+                    properties.relaunchAliveCheck().toSeconds());
+        }
+    }
+
+    /** Version, desktop id and notification texts; an empty desktop id keeps the plain macOS behaviour. Every field is passed as its own argument. */
+    record Notices(String version, String desktopId, String title, String start, String waiting, String installing, String launching, String done,
+            String failed, String relaunchFailed) {
+
+        static final Notices NONE = new Notices("", "", "", "", "", "", "", "", "", "");
+        private static final String TITLE = "Astrolabe Studio";
+        private static final String UNKNOWN_VERSION = "the new version";
+
+        static Notices linux(String version, String desktopId, boolean authentication) {
+            var target = version == null || version.isBlank() ? UNKNOWN_VERSION : version;
+            var password = authentication ? " A system dialog will ask for your password." : "";
+            return new Notices(target, desktopId, TITLE, "Updating Astrolabe Studio to " + target + ". Please wait, this can take a minute." + password,
+                    "Waiting for Astrolabe Studio to close...", "Installing " + target + "..." + (authentication ? " Enter your password in the system dialog." : ""),
+                    "Starting Astrolabe Studio " + target + "...", "Astrolabe Studio " + target + " is installed and starting.",
+                    "The update to " + target + " was not installed. See", "Astrolabe Studio " + target + " was installed but did not start");
+        }
+
+        List<String> arguments() {
+            return List.of(version, desktopId, title, start, waiting, installing, launching, done, failed, relaunchFailed);
+        }
     }
 
     /**
@@ -113,6 +245,12 @@ final class PosixUpdateScript {
      */
     static void launch(Path updatesDir, long pid, Path appExecutable, String fragment, List<String> extraArgs, List<Path> cleanup,
             UpdateProperties properties) {
+        launch(updatesDir, pid, appExecutable, fragment, extraArgs, cleanup, properties, Notices.NONE);
+    }
+
+    /** Linux entry: [notices] carries the desktop id and texts that turn on the notifications and the verified relaunch. */
+    static void launch(Path updatesDir, long pid, Path appExecutable, String fragment, List<String> extraArgs, List<Path> cleanup,
+            UpdateProperties properties, Notices notices) {
         Path directory = null;
         try {
             Files.createDirectories(updatesDir);
@@ -123,8 +261,8 @@ final class PosixUpdateScript {
             if (script.getFileSystem().supportedFileAttributeViews().contains(POSIX)) {
                 Files.setPosixFilePermissions(script, PosixFilePermissions.fromString(SCRIPT_PERMISSIONS));
             }
-            CommandRunner.startDetached(command(script, updatesDir, pid, appExecutable, properties.pidWaitTimeout().toSeconds(),
-                    properties.pidKillGrace().toSeconds(), extraArgs, cleanup));
+            CommandRunner.startDetached(command(script, updatesDir, pid, appExecutable, Timing.of(properties), notices, extraArgs, cleanup),
+                    List.of(JPACKAGE_LAUNCHER_VARIABLE));
         } catch (IOException e) {
             UpdateFiles.deleteQuietly(directory);
             throw new IllegalStateException("Could not start the installer: " + e.getMessage(), e);
@@ -137,11 +275,14 @@ final class PosixUpdateScript {
     }
 
     /** {@code setsid} detaches the script from the app's session when it exists; the paths stay positional arguments. */
-    static List<String> command(Path script, Path updatesDir, long pid, Path appExecutable, long waitSeconds, long graceSeconds, List<String> extraArgs,
+    static List<String> command(Path script, Path updatesDir, long pid, Path appExecutable, Timing timing, Notices notices, List<String> extraArgs,
             List<Path> cleanup) {
         var command = new ArrayList<>(List.of("/bin/sh", "-c", "if command -v setsid >/dev/null 2>&1; then exec setsid \"$@\"; else exec \"$@\"; fi", "sh",
                 "/bin/sh", script.toAbsolutePath().toString(), updatesDir.toAbsolutePath().toString(), Long.toString(pid), appExecutable.toAbsolutePath().toString(),
-                Long.toString(waitSeconds), Long.toString(graceSeconds), Integer.toString(extraArgs.size())));
+                Long.toString(timing.waitSeconds()), Long.toString(timing.graceSeconds()), Long.toString(timing.settleSeconds()),
+                Long.toString(timing.aliveSeconds())));
+        command.addAll(notices.arguments());
+        command.add(Integer.toString(extraArgs.size()));
         command.addAll(extraArgs);
         cleanup.forEach(path -> command.add(path.toAbsolutePath().toString()));
         return command;

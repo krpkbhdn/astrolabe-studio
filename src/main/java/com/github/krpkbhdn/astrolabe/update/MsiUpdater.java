@@ -44,7 +44,7 @@ class MsiUpdater implements PlatformUpdater {
 
     /** @throws IllegalStateException when the installer script cannot be started */
     @Override
-    public void launchAfterExit(Path msi, Installation installation) {
+    public void launchAfterExit(Path msi, Installation installation, String targetVersion) {
         var appExecutable = installation.appExecutable().toString();
         Path script = null;
         Path launcher = null;

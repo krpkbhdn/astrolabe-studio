@@ -1,6 +1,7 @@
 package com.github.krpkbhdn.astrolabe.ui.state
 
 import com.github.krpkbhdn.astrolabe.update.UpdateOutcome
+import java.nio.file.Path
 
 private const val INSTALL_LABEL = "Install and restart"
 private const val RELEASE_PAGE_LABEL = "Open release page"
@@ -18,9 +19,15 @@ private const val PASSWORD_NOTE = " You will be asked for your administrator pas
 fun installConfirmMessage(version: String, needsAuthentication: Boolean): String =
     "Install update $version and restart? All running sessions will be closed." + PASSWORD_NOTE.takeIf { needsAuthentication }.orEmpty()
 
-/** The toast for the previous update run, or null when it needs none (a successful update stays quiet). */
-fun outcomeToast(outcome: UpdateOutcome): String? = when (outcome.status()) {
-    UpdateOutcome.Status.OK -> null
-    UpdateOutcome.Status.AUTH_CANCELLED -> "Update was not installed (authorization cancelled, see update.log in the data folder)"
-    UpdateOutcome.Status.FAILED -> "Update was not installed (failed${outcome.step().takeIf { it.isNotBlank() }?.let { ": $it" }.orEmpty()}, see update.log in the data folder)"
+/** The message about the previous update run; a failure names the log files in [updatesDirectory], a success the version the app runs now. */
+fun outcomeToast(outcome: UpdateOutcome, currentVersion: String, updatesDirectory: String): String {
+    val logs = "see ${Path.of(updatesDirectory, "update.log")} and ${Path.of(updatesDirectory, "relaunch.log")}"
+    return when (outcome.status()) {
+        UpdateOutcome.Status.OK -> "Updated to version $currentVersion"
+        UpdateOutcome.Status.AUTH_CANCELLED -> "Update was not installed (authorization cancelled, $logs)"
+        UpdateOutcome.Status.FAILED -> "Update was not installed (failed${outcome.step().takeIf { it.isNotBlank() }?.let { ": $it" }.orEmpty()}, $logs)"
+    }
 }
+
+/** The line shown from the confirmed install until the window closes. */
+fun installingMessage(version: String): String = "Installing version $version. The app will close and restart on its own."

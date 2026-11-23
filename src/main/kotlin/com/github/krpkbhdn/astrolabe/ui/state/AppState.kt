@@ -221,8 +221,9 @@ class AppState(
     val tools: ToolsState = ToolsState(backend.toolchain, scope, { lspSetup.running }, notifications::reportError)
     val detectedTech = DetectedTechState(backend.toolchain?.health, scope)
     val lspSetup: LspSetupState = LspSetupState(backend.toolchain?.lspSetup, scope, { tools.install != InstallFlow.Idle || tools.installRunning }, detectedTech::refresh, notifications::reportError)
-    val update = UpdateState(backend.updates, scope, notifications::reportError, ::requestUpdateInstall) { exitApp() }
+    val update = UpdateState(backend.updates, scope, notifications::reportError, ::requestUpdateInstall, { title, message -> notifications.toast(NotificationKind.FINISHED, title, message) }) { exitForUpdate() }
     var exitApp: () -> Unit = {}
+    var exitForUpdate: () -> Unit = {}
     val agents = AgentsState(backend.transcripts, scope, { live }, ::showSessionTerminal)
     private val unsubscribers = mutableListOf<Runnable>()
     val worktrees: WorktreeActions = WorktreeActions(projects, sessions, shells, runs, backend.git.taskWorktrees, backend.terminal) { gits }

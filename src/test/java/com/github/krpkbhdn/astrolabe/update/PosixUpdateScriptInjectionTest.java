@@ -34,11 +34,22 @@ class PosixUpdateScriptInjectionTest {
     @Test
     void commandKeepsEveryHostileValueAsOneSeparateArgument() {
         var script = temp.resolve(FILE_SAFE_HOSTILE);
-        var command = PosixUpdateScript.command(script, temp.resolve("up dates"), 42, temp.resolve(FILE_SAFE_HOSTILE), 60, 5, List.of(HOSTILE, "$(id)"), List.of());
+        var command = PosixUpdateScript.command(script, temp.resolve("up dates"), 42, temp.resolve(FILE_SAFE_HOSTILE), ScriptArgs.TIMING, PosixUpdateScript.Notices.NONE,
+                List.of(HOSTILE, "$(id)"), List.of());
 
         assertThat(command).contains(HOSTILE, "$(id)", script.toAbsolutePath().toString());
         assertThat(command.get(2)).doesNotContain("PWNED").doesNotContain(HOSTILE);
         assertThat(command).filteredOn(argument -> argument.contains("PWNED_SUBST")).hasSize(3);
+    }
+
+    @Test
+    void hostileVersionAndDesktopIdTravelAsSeparateArgumentsToo() {
+        var notices = PosixUpdateScript.Notices.linux("1.0 $(touch PWNED_VERSION)", "id`touch PWNED_ID`", true);
+        var command = PosixUpdateScript.command(temp.resolve("update.sh"), temp.resolve("updates"), 42, temp.resolve("app"), ScriptArgs.TIMING, notices, List.of(), List.of());
+
+        assertThat(command).contains("id`touch PWNED_ID`", "1.0 $(touch PWNED_VERSION)");
+        assertThat(command.get(2)).doesNotContain("PWNED");
+        assertThat(command).filteredOn(argument -> argument.contains("PWNED")).hasSizeGreaterThanOrEqualTo(2);
     }
 
     @Test
@@ -53,7 +64,7 @@ class PosixUpdateScriptInjectionTest {
         var script = scriptDir.resolve("update.sh");
         Files.writeString(script, PosixUpdateScript.script(fragment), StandardCharsets.UTF_8);
 
-        var command = new ArrayList<>(List.of("sh", posix(script), posix(updates), "999999", posix(app), "60", "5", "2", NO_DQ, "$(touch PWNED_ARG)"));
+        var command = ScriptArgs.command(posix(script), posix(updates), "999999", posix(app), List.of(NO_DQ, "$(touch PWNED_ARG)"));
         var process = new ProcessBuilder(command).directory(temp.toFile()).redirectErrorStream(true).start();
         process.getInputStream().readAllBytes();
         assertThat(process.waitFor(30, TimeUnit.SECONDS)).isTrue();
@@ -89,7 +100,7 @@ class PosixUpdateScriptInjectionTest {
             var script = scriptDir.resolve("update.sh");
             Files.writeString(script, PosixUpdateScript.script("step probe true"));
 
-            var process = new ProcessBuilder("sh", posix(script), posix(updates), "999999", posix(app), "60", "5", "0").directory(temp.toFile())
+            var process = new ProcessBuilder(ScriptArgs.command(posix(script), posix(updates), "999999", posix(app), List.of())).directory(temp.toFile())
                     .redirectErrorStream(true).start();
             process.getInputStream().readAllBytes();
             assertThat(process.waitFor(30, TimeUnit.SECONDS)).isTrue();
@@ -113,7 +124,7 @@ class PosixUpdateScriptInjectionTest {
         app.toFile().setExecutable(true);
         Files.writeString(script, PosixUpdateScript.script("step probe true"));
 
-        var process = new ProcessBuilder("sh", "-c", "sleep 300 & P=$!; sh \"$1\" \"$2\" \"$P\" \"$3\" 1 1 0", "x", posix(script), posix(updates), posix(app))
+        var process = new ProcessBuilder("sh", "-c", "sleep 300 & P=$!; sh \"$1\" \"$2\" \"$P\" \"$3\" 1 1 " + ScriptArgs.NEUTRAL_SHELL + " 0", "x", posix(script), posix(updates), posix(app))
                 .directory(new java.io.File(System.getProperty("java.io.tmpdir"))) // not the @TempDir: a lingering child would hold it as cwd and block its deletion on Windows
                 .redirectErrorStream(true).start();
         process.getInputStream().readAllBytes();
@@ -134,7 +145,7 @@ class PosixUpdateScriptInjectionTest {
         var marker = updates.resolve("marker");
         Files.writeString(script, PosixUpdateScript.script("step mark sh -c 'echo original > \"$1\"' sh \"$1\"\n"));
 
-        var process = new ProcessBuilder("sh", "-c", "sleep 8 & P=$!; sh \"$1\" \"$2\" \"$P\" \"$3\" 60 5 1 \"$4\"", "x", posix(script), posix(updates), posix(app),
+        var process = new ProcessBuilder("sh", "-c", "sleep 8 & P=$!; sh \"$1\" \"$2\" \"$P\" \"$3\" 60 5 " + ScriptArgs.NEUTRAL_SHELL + " 1 \"$4\"", "x", posix(script), posix(updates), posix(app),
                 posix(marker)).directory(temp.toFile()).redirectErrorStream(true).start();
         Thread.sleep(2000);
         // many lines, so a shell that read the file lazily would land on one of them wherever it stood
@@ -167,7 +178,7 @@ class PosixUpdateScriptInjectionTest {
             app.toFile().setExecutable(true);
             Files.writeString(script, PosixUpdateScript.script(success ?"step probe true" : "step probe false"));
 
-            var process = new ProcessBuilder("sh", posix(script), posix(updates), "999999", posix(app), "60", "5", "0", posix(leftover)).directory(temp.toFile())
+            var process = new ProcessBuilder(ScriptArgs.command(posix(script), posix(updates), "999999", posix(app), List.of(), posix(leftover))).directory(temp.toFile())
                     .redirectErrorStream(true).start();
             process.getInputStream().readAllBytes();
             assertThat(process.waitFor(30, TimeUnit.SECONDS)).isTrue();
@@ -189,7 +200,7 @@ class PosixUpdateScriptInjectionTest {
         app.toFile().setExecutable(true);
         var script = scriptDir.resolve("update.sh");
         Files.writeString(script, PosixUpdateScript.script(fragment));
-        var process = new ProcessBuilder("sh", posix(script), posix(updates), "999999", posix(app), "60", "5", "0").directory(temp.toFile()).redirectErrorStream(true).start();
+        var process = new ProcessBuilder(ScriptArgs.command(posix(script), posix(updates), "999999", posix(app), List.of())).directory(temp.toFile()).redirectErrorStream(true).start();
         process.getInputStream().readAllBytes();
         assertThat(process.waitFor(30, TimeUnit.SECONDS)).isTrue();
         awaitFile(updates.resolve("relaunched"));
