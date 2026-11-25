@@ -44,7 +44,7 @@ dependencies {
     implementation("org.jetbrains.runtime:jbr-api:1.9.0")
     implementation("org.graalvm.polyglot:polyglot:25.5.5.0.3")
     implementation("org.apache.commons:commons-compress:1.28.0")
-    implementation("org.bouncycastle:bcpg-jdk18on:1.86")
+    implementation("org.bouncycastle:bcpg-jdk18on:1.87")
     runtimeOnly("org.graalvm.polyglot:js-community:25.5.5.0.3")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
